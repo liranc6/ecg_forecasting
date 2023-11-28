@@ -1,5 +1,14 @@
+# from the icentia-ecg dir
+*.npz
+~*
+*.pyc
+__cache__
+*.sw*
+
+# Added to ignore
 data
-.idea
+*.idea
+liran_project/personal_notes.txt
 
 # Created by https://www.gitignore.io/api/python
 # Edit at https://www.gitignore.io/?templates=python
