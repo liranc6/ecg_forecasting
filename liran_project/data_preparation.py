@@ -44,7 +44,7 @@ def compare_files(original_filename, output_filename, timestamp):
     output_ann = wfdb.rdann(output_filename, 'atr')
 
     # Compare the records
-    assert original_rec.p_signal.all() == output_rec.p_signal.all(), "The records are not the same"
+    assert np.array_equal(original_rec.p_signal, output_rec.p_signal), "The records are not the same"
     assert original_rec.fs == output_rec.fs, "The sampling frequencies are not the same"
     assert original_rec.units == output_rec.units, "The units are not the same"
     # assert original_rec.sig_name == output_rec.sig_name, "The signal names are not the same"
@@ -52,24 +52,17 @@ def compare_files(original_filename, output_filename, timestamp):
     assert original_rec.sig_len == output_rec.sig_len, "The signal lengths are not the same"
 
     # Compare the annotations
-    assert original_ann.sample.all() == output_ann.sample.all(), "The annotations are not the same"
+    assert np.array_equal(original_ann.sample, output_ann.sample), "The annotations are not the same"
     assert original_ann.symbol == output_ann.symbol, "The annotation symbols are not the same"
-    assert original_ann.subtype.all() == output_ann.subtype.all(), "The annotation subtypes are not the same"
-    assert original_ann.chan.all() == output_ann.chan.all(), "The annotation channels are not the same"
-    assert original_ann.num.all() == output_ann.num.all(), "The number of annotations are not the same"
+    assert np.array_equal(original_ann.subtype, output_ann.subtype), "The annotation subtypes are not the same"
+    assert np.array_equal(original_ann.chan, output_ann.chan), "The annotation channels are not the same"
+    assert np.array_equal(original_ann.num, output_ann.num), "The number of annotations are not the same"
     assert original_ann.aux_note == output_ann.aux_note, "The auxiliary notes are not the same"
 
-    # is the following more efficient?
-    # assert np.array_equal(original_ann.sample, output_ann.sample), "The annotations are not the same"
-    # assert np.array_equal(original_ann.symbol, output_ann.symbol), "The annotation symbols are not the same"
-    # assert np.array_equal(original_ann.subtype, output_ann.subtype), "The annotation subtypes are not the same"
-    # assert np.array_equal(original_ann.chan, output_ann.chan), "The annotation channels are not the same"
-    # assert np.array_equal(original_ann.num, output_ann.num), "The number of annotations are not the same"
-    # assert np.array_equal(original_ann.aux_note, output_ann.aux_note), "The auxiliary notes are not the same"
 
 
 def create_subset_directory(filename):
-    subset_dir = '/home/liranc6/ecg/state-spaces/data/icentia11k-continuous-ecg_normal_sinus_subset'
+    subset_dir = '/home/liranc6/ecg/ecg_forecasting/data/icentia11k-continuous-ecg_normal_sinus_subset'
     # Extract the patient ID and segment ID from the filename
     patient_id = int(filename.split('/')[-2][1:])
 
@@ -142,7 +135,7 @@ def extract_sinus_rhythms_to_new_subset(data_dir, min_window_size):
     iterator = itertools.product(range(0, num_of_patients+1), range(0, 50))
     num_of_new_files = 0
     for patient_id, segment_id in tqdm(iterator, total=num_of_patients * 50):
-        print(f"patient_id: {patient_id}, segment_id: {segment_id}")
+        # print(f"patient_id: {patient_id}, segment_id: {segment_id}")
         filename = os.path.join(data_dir,
                                 f'p{patient_id:05d}'[:3],
                                 f'p{patient_id:05d}',
@@ -163,7 +156,7 @@ def extract_sinus_rhythms_to_new_subset(data_dir, min_window_size):
 
 
 if __name__ == "__main__":
-    raw_data_dir = "/home/liranc6/ecg/state-spaces/data/icentia11k-continuous-ecg"
+    raw_data_dir = "/home/liranc6/ecg/ecg_forecasting/data/icentia11k-continuous-ecg"
 
     # creating subset of normal sinus rhythms (NSR) from the raw data
 
@@ -177,7 +170,7 @@ if __name__ == "__main__":
     # after creating the subset, with 10 first patients I have more than 10 hours of NSR data
     # divided to 62 files of at least 10 minutes each.
     # I know its small but I dont need more for now. when I will, I will add more patients. (I used 10/11000 patients)
-    data_path = "/home/liranc6/ecg/state-spaces/data/icentia11k-continuous-ecg_normal_sinus_subset"
+    data_path = "/home/liranc6/ecg/ecg_forecasting/data/icentia11k-continuous-ecg_normal_sinus_subset"
 
 # at first I will try 9 minutes for sample and 1 minute for label.
 # the idea is not to learn patient personal rythem but to learn the NSR rythem. afterwards, I hope to be able to
