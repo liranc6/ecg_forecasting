@@ -109,18 +109,24 @@ def create_new_subset_file(filename, timestamp):
     compare_files(filename, output_filename, timestamp)
 
 
-def timestamps_of_normal_rhythms_in_all_segments(filename):
+def timestamps_of_rhythm_type_in_all_segments(filename, rhythm_type):
+
+    r_type = ''
+    if rhythm_type == "normal":
+        r_type = '(N'
+        # {"(N":0, "(AFIB":1, "(AFL":2, "(SVTA":3, "(VT":4 }
+
     # Read the annotations
     ann = wfdb.rdann(filename, 'atr')
 
     # Find the indices of '(N' and the corresponding ')'
-    start_indices = [i for i, aux_note in enumerate(ann.aux_note) if aux_note == '(N']
+    start_indices = [i for i, aux_note in enumerate(ann.aux_note) if aux_note == r_type]
     end_indices = [
         next(i for i, aux_note in enumerate(ann.aux_note[start_index:], start=start_index) if aux_note == ')')
         for start_index in start_indices
     ]
 
-    # Find the timestamps of '(N' and the corresponding ')'
+    # Find the timestamps of r_type and the corresponding ')'
     start_timestamps = [ann.sample[i] for i in start_indices]
     end_timestamps = [ann.sample[i] for i in end_indices]
 
@@ -144,7 +150,7 @@ def extract_sinus_rhythms_to_new_subset(data_dir, min_window_size):
         if not os.path.exists(f'{filename}.atr'):
             break
         else:
-            timestamps = timestamps_of_normal_rhythms_in_all_segments(filename)
+            timestamps = timestamps_of_rhythm_type_in_all_segments(filename, 'normal')
             for timestamp in timestamps:
                 start_time, end_time = timestamp
                 duration = end_time - start_time
