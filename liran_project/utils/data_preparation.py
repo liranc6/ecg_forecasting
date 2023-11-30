@@ -13,6 +13,16 @@ ProjectPath = os.path.dirname(os.path.abspath(os.getcwd()))
 
 
 def compare_arrays(arr1, arr2):
+    """
+       Compare two arrays and return the differences.
+
+       Parameters:
+       - arr1: First array
+       - arr2: Second array
+
+       Returns:
+       - 'equal' if arrays are identical, otherwise a DataFrame with differences.
+       """
     arr1, arr2 = np.atleast_1d(arr1, arr2)
 
     # Find the differences
@@ -33,6 +43,14 @@ def compare_arrays(arr1, arr2):
 
 
 def compare_files(original_filename, output_filename, timestamp):
+    """
+    Compare original and output ECG records and annotations.
+
+    Parameters:
+    - original_filename: Path to the original ECG record file.
+    - output_filename: Path to the output ECG record file.
+    - timestamp: Tuple representing the start and end time for comparison.
+    """
     (start_time, end_time) = timestamp
 
     # Read the original and output records
@@ -62,6 +80,15 @@ def compare_files(original_filename, output_filename, timestamp):
 
 
 def create_subset_directory(filename):
+    """
+    Create a directory structure for storing subset files.
+
+    Parameters:
+    - filename: Path to the original ECG record file.
+
+    Returns:
+    - Directory path for the subset file.
+    """
     subset_dir = '/home/liranc6/ecg/ecg_forecasting/data/icentia11k-continuous-ecg_normal_sinus_subset'
     # Extract the patient ID and segment ID from the filename
     patient_id = int(filename.split('/')[-2][1:])
@@ -74,6 +101,16 @@ def create_subset_directory(filename):
 
 
 def create_new_subset_file(filename, timestamp):
+    """
+    Create a new subset file from a specified time range in the original file.
+
+    Parameters:
+    - filename: Path to the original ECG record file.
+    - timestamp: Tuple representing the start and end time for the subset.
+
+    Returns:
+    - None
+    """
     (start_time, end_time) = timestamp
 
     rec = wfdb.rdrecord(filename, sampfrom=start_time, sampto=end_time)
@@ -110,7 +147,16 @@ def create_new_subset_file(filename, timestamp):
 
 
 def timestamps_of_rhythm_type_in_all_segments(filename, rhythm_type):
+    """
+    Find timestamps of a specific rhythm type in all segments of an ECG record.
 
+    Parameters:
+    - filename: Path to the ECG record file.
+    - rhythm_type: Rhythm type to search for.
+
+    Returns:
+    - List of tuples representing start and end timestamps for the specified rhythm type.
+    """
     r_type = ''
     if rhythm_type == "normal":
         r_type = '(N'
@@ -137,6 +183,16 @@ def timestamps_of_rhythm_type_in_all_segments(filename, rhythm_type):
 
 
 def extract_sinus_rhythms_to_new_subset(data_dir, min_window_size):
+    """
+        Iterate through patients and segments, extract NSR, and create new subset files.
+
+        Parameters:
+        - data_dir: Directory containing ECG data.
+        - min_window_size: Minimum window size for NSR.
+
+        Returns:
+        - None
+        """
     num_of_patients = 10
     iterator = itertools.product(range(0, num_of_patients+1), range(0, 50))
     num_of_new_files = 0
