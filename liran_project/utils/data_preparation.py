@@ -7,7 +7,8 @@ import json
 import os
 import collections
 import numpy as np
-
+import glob
+import h5py
 
 ProjectPath = os.path.dirname(os.path.abspath(os.getcwd()))
 
@@ -76,7 +77,6 @@ def compare_files(original_filename, output_filename, timestamp):
     assert np.array_equal(original_ann.chan, output_ann.chan), "The annotation channels are not the same"
     assert np.array_equal(original_ann.num, output_ann.num), "The number of annotations are not the same"
     assert original_ann.aux_note == output_ann.aux_note, "The auxiliary notes are not the same"
-
 
 
 def create_subset_directory(filename):
@@ -194,7 +194,7 @@ def extract_sinus_rhythms_to_new_subset(data_dir, min_window_size):
         - None
         """
     num_of_patients = 10
-    iterator = itertools.product(range(0, num_of_patients+1), range(0, 50))
+    iterator = itertools.product(range(0, num_of_patients + 1), range(0, 50))
     num_of_new_files = 0
     for patient_id, segment_id in tqdm(iterator, total=num_of_patients * 50):
         # print(f"patient_id: {patient_id}, segment_id: {segment_id}")
@@ -217,12 +217,180 @@ def extract_sinus_rhythms_to_new_subset(data_dir, min_window_size):
     print(f"Number of new files: {num_of_new_files}")
 
 
+def extract_and_save_p_signal_to_HDF5(input_dir, output_file):
+    """
+    Read ECG signals and save the p_signal data as NumPy arrays in an HDF5 file
+    while preserving the directory hierarchy.
+
+    Parameters:
+    - input_dir: Directory containing ECG data.
+    - output_file: The HDF5 file to save the p_signal data.
+
+    Returns:
+    - None
+    """
+    # Create the output directory if it doesn't exist
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+
+    # Open the HDF5 file in write mode
+    with h5py.File(output_file, 'w') as h5_file:
+        # Traverse the input directory to find data files
+        for root, _, files in tqdm(os.walk(input_dir), desc="Processing files", unit="file"):
+            for file in files:
+                # Check if the file is a data file (ends with .dat)
+                if file.endswith('.dat'):
+                    record_name = os.path.splitext(file)[0]
+
+                    # Get the relative path from the input directory
+                    relative_path = os.path.relpath(root, input_dir)
+                    dataset_name = os.path.join(relative_path, f"{record_name}_p_signal")
+
+                    # Read the signal using wfdb
+                    signals, fields = wfdb.rdsamp(os.path.join(root, record_name))
+
+                    # Save the p_signal data in the HDF5 file with the dataset name
+                    h5_file.create_dataset(dataset_name, data=signals[:, 0])
+
+
+def print_h5_hierarchy(file_path):
+    """
+    Print the directory hierarchy of an HDF5 file.
+
+    Parameters:
+    - file_path: The path to the HDF5 file.
+
+    Returns:
+    - None
+    """
+    with h5py.File(file_path, 'r') as h5_file:
+        # Define a recursive function to print the hierarchy
+        def print_group_hierarchy(group, indent=""):
+            for name, item in group.items():
+                if isinstance(item, h5py.Group):
+                    print(f"{indent}Group: {name}")
+                    print_group_hierarchy(item, indent + "  ")
+                elif isinstance(item, h5py.Dataset):
+                    print(f"{indent}Dataset: {name}")
+
+        # Call the recursive function starting from the root group
+        print_group_hierarchy(h5_file)
+
+
+def split_and_save_data(input_h5_file, window_size, output_h5_file):
+    """
+    Split each dataset in the input HDF5 file into windows of the specified size
+    and save the resulting windows into an output HDF5 file while preserving the directory hierarchy.
+
+    :param input_h5_file: The input HDF5 file with datasets to split.
+    :param window_size: The size of each window.
+    :param output_h5_file: The output HDF5 file to save the split data.
+    :return: None
+    """
+    # Create the output directory if it doesn't exist
+    os.makedirs(os.path.dirname(output_h5_file), exist_ok=True)
+
+    with h5py.File(input_h5_file, 'r') as input_file, h5py.File(output_h5_file, 'w') as output_file:
+        # Define a recursive function to process groups and datasets
+        def process_group(input_group, output_group):
+            for name, item in input_group.items():
+                if isinstance(item, h5py.Group):
+                    # Create a corresponding group in the output file
+                    new_output_group = output_group.create_group(name)
+                    # Recursively process the subgroup
+                    process_group(item, new_output_group)
+                elif isinstance(item, h5py.Dataset):
+                    # Split the dataset into windows
+                    data = item[:]
+                    num_windows = len(data) // window_size
+
+                    # Save each window as a dataset in the output file
+                    for i in tqdm(range(num_windows), desc=f"Processing {name}", unit="window"):
+                        window_data = data[i * window_size: (i + 1) * window_size]
+                        output_dataset_name = f"{name}_window_{i}"
+                        output_group.create_dataset(output_dataset_name, data=window_data)
+
+        # Start processing from the root group
+        process_group(input_file, output_file)
+
+
+def merge_datasets(input_h5_file, output_h5_file):
+    """
+    Merge all datasets in each group of the input HDF5 file into a single dataset,
+    and save the resulting datasets into an output HDF5 file.
+
+    :param input_h5_file: The input HDF5 file with datasets to merge.
+    :param output_h5_file: The output HDF5 file to save the merged datasets.
+    :return: None
+    """
+    # Create the output directory if it doesn't exist
+    os.makedirs(os.path.dirname(output_h5_file), exist_ok=True)
+
+    with (h5py.File(input_h5_file, 'r') as input_file, h5py.File(output_h5_file, 'w') as output_file):
+        # Create the 'p00' group in the output file
+
+        # Define a function to process groups and datasets
+        def process_group(input_group):
+            all_data = []
+            for name, item in input_group.items():
+
+                if isinstance(item, h5py.Dataset):
+                    # Collect the dataset data into a list
+                    all_data.append(item[:])
+
+            # Save the concatenated data as a single dataset in the output file
+            if all_data:
+                output_dataset_name = input_group.name.split('/')[-1]
+                output_dataset_name = extract_integers(output_dataset_name)
+                output_group.create_dataset(output_dataset_name, data=all_data)
+
+        def extract_integers(text):
+            """
+            Extract integers from the given text.
+
+            :param text: The input text containing characters and integers.
+            :return: A string containing only the integers found in the text.
+            """
+            return ''.join(filter(str.isdigit, str(text)))
+
+        # Process each group in the 'p00' group of the input file
+        for name, group in input_file.items():
+            if isinstance(group, h5py.Group):
+                new_name = extract_integers(name)
+                output_group = output_file.create_group(new_name)
+                for sub_name, sub_group in input_file[name].items():
+                    if isinstance(sub_group, h5py.Group):
+                        process_group(sub_group)
+
+def count_items(file_path):
+    total_count = 0
+    with h5py.File(file_path, 'r') as f:
+        for group_name in f.keys():
+            group = f[group_name]
+            for dataset_name in group.keys():
+                dataset = group[dataset_name]
+                count = dataset.shape[0]  # assuming 1D dataset
+                print(f"Dataset: {dataset_name}, Count: {count}")
+                total_count += count
+    print(f"Total count: {total_count}")
+
+
+def arrays_to_fixed_size_windows(input_h5_file, window_size, output_h5_file):
+    base_name, extension = os.path.splitext(os.path.basename(output_h5_file))
+    new_base_name = f"{base_name}_temp{extension}"
+    temp_filename = os.path.join(os.path.dirname(output_h5_file), new_base_name)
+
+    split_and_save_data(input_h5_file, window_size, temp_filename)
+    merge_datasets(input_h5_file, output_h5_file)
+    os.remove(temp_filename)
+
+
+
 if __name__ == "__main__":
     raw_data_dir = "/home/liranc6/ecg/ecg_forecasting/data/icentia11k-continuous-ecg"
 
     # creating subset of normal sinus rhythms (NSR) from the raw data
 
-    min_window_size = 10*60*250  # minutes * seconds * sampling rate
+    min_window_size = 10 * 60 * 250  # minutes * seconds * sampling rate
     # the reason for min_window_size is that I hope to forecast 1-5 minutes ahead.
     # and I dont know if a smaller window will give me enough context data
     # on top of that, I think I have enough data so I can fiter out the shorter NSR.
@@ -232,7 +400,29 @@ if __name__ == "__main__":
     # after creating the subset, with 10 first patients I have more than 10 hours of NSR data
     # divided to 62 files of at least 10 minutes each.
     # I know its small but I dont need more for now. when I will, I will add more patients. (I used 10/11000 patients)
-    data_path = "/home/liranc6/ecg/ecg_forecasting/data/icentia11k-continuous-ecg_normal_sinus_subset"
+    subset_data_dir = os.path.join(ProjectPath, 'data', 'icentia11k-continuous-ecg_normal_sinus_subset')
+
+    pSignal_npArray_data_dir_h5 = os.path.join(ProjectPath, 'data', 'icentia11k-continuous-ecg_normal_sinus_subset_npArrays.h5')
+
+    extract_and_save_p_signal_to_HDF5(subset_data_dir, pSignal_npArray_data_dir_h5)
+
+    # split the arrays to fixed size windows
+    fs = 250
+    context_window_size = 9*60*fs  # minutes * seconds * fs
+    label_window_size = 1*60*fs  # minutes * seconds * fs
+    window_size = context_window_size+label_window_size
+
+    split_pSignal_file = os.path.join(ProjectPath, 'data',
+                                      'icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits',
+                                      '10minutes_window.h5')
+
+    base_name, extension = os.path.splitext(os.path.basename(split_pSignal_file))
+    new_base_name = f"{base_name}_temp{extension}"
+    temp_filename = os.path.join(os.path.dirname(split_pSignal_file), new_base_name)
+    split_and_save_data(pSignal_npArray_data_dir_h5, window_size, temp_filename)
+    merge_datasets(temp_filename, split_pSignal_file)
+    os.remove(temp_filename)
+
 
 # at first I will try 9 minutes for sample and 1 minute for label.
 # the idea is not to learn patient personal rythem but to learn the NSR rythem. afterwards, I hope to be able to
