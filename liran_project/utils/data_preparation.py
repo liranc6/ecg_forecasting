@@ -279,38 +279,58 @@ def print_h5_hierarchy(file_path):
 def split_and_save_data(input_h5_file, window_size, output_h5_file):
     """
     Split each dataset in the input HDF5 file into windows of the specified size
-    and save the resulting windows into an output HDF5 file while preserving the directory hierarchy.
+    and save the resulting windows into an output HDF5 file.
 
     :param input_h5_file: The input HDF5 file with datasets to split.
     :param window_size: The size of each window.
     :param output_h5_file: The output HDF5 file to save the split data.
     :return: None
     """
+
+    def extract_integers(text):
+        """
+        Extract integers from the given text.
+
+        :param text: The input text containing characters and integers.
+        :return: A string containing only the integers found in the text.
+        """
+        return ''.join(filter(str.isdigit, str(text)))
+
     # Create the output directory if it doesn't exist
     os.makedirs(os.path.dirname(output_h5_file), exist_ok=True)
 
     with h5py.File(input_h5_file, 'r') as input_file, h5py.File(output_h5_file, 'w') as output_file:
-        # Define a recursive function to process groups and datasets
-        def process_group(input_group, output_group):
-            for name, item in input_group.items():
-                if isinstance(item, h5py.Group):
-                    # Create a corresponding group in the output file
-                    new_output_group = output_group.create_group(name)
-                    # Recursively process the subgroup
-                    process_group(item, new_output_group)
-                elif isinstance(item, h5py.Dataset):
+        total_leaf_iterations = 0
+        for group_name, group_item in input_file.items():
+            assert not isinstance(group_name, h5py.Group), "create only leaf groups"
+            for subgroup_name, subgroup_item in tqdm(group_item.items(), desc="Processing Subgroups", unit="subgroup"):
+                # print(f"subgroup_name: {subgroup_name}")
+                assert not isinstance(subgroup_name, h5py.Group), "leaf groups"
+                dataset_data = []
+                total_leaf_iterations += len(subgroup_item)
+
+        progress_bar = tqdm(total=total_leaf_iterations, position=0, leave=False, desc='Processing')
+        for group_name, group_item in input_file.items():
+            assert not isinstance(group_name, h5py.Group), "create only leaf groups"
+            for subgroup_name, subgroup_item in group_item.items():
+                # print(f"subgroup_name: {subgroup_name}")
+                assert not isinstance(subgroup_name, h5py.Group), "leaf groups"
+                dataset_data = []
+                for dataset_name, dataset_item in subgroup_item.items():
+                    # print(f"dataset_name: {dataset_name}")
+                    assert not isinstance(dataset_name, h5py.Dataset)
                     # Split the dataset into windows
-                    data = item[:]
+                    data = dataset_item[:]
                     num_windows = len(data) // window_size
 
-                    # Save each window as a dataset in the output file
-                    for i in tqdm(range(num_windows), desc=f"Processing {name}", unit="window"):
+                    # Save each window as numpy array and add it to the output dataset
+                    for i in range(num_windows):
                         window_data = data[i * window_size: (i + 1) * window_size]
-                        output_dataset_name = f"{name}_window_{i}"
-                        output_group.create_dataset(output_dataset_name, data=window_data)
+                        dataset_data.append(window_data)
 
-        # Start processing from the root group
-        process_group(input_file, output_file)
+                    dataset_name = extract_integers(subgroup_name)
+                    progress_bar.update(1)
+                output_file.create_dataset(dataset_name, data=dataset_data)
 
 
 def merge_datasets(input_h5_file, output_h5_file):
@@ -361,16 +381,24 @@ def merge_datasets(input_h5_file, output_h5_file):
                     if isinstance(sub_group, h5py.Group):
                         process_group(sub_group)
 
+
 def count_items(file_path):
+    def count_items_recursive(item):
+        count = 0
+        if isinstance(item, h5py.Group):
+            group = item
+            for name, item in group.items():
+                print(f"Group: {group.name}")
+                count += count_items_recursive(item)
+        elif isinstance(item, h5py.Dataset):
+            count += item.shape[0]
+            print(f"Dataset: {item.name}, Count: {item.shape[0]}")
+        return count
+
     total_count = 0
     with h5py.File(file_path, 'r') as f:
-        for group_name in f.keys():
-            group = f[group_name]
-            for dataset_name in group.keys():
-                dataset = group[dataset_name]
-                count = dataset.shape[0]  # assuming 1D dataset
-                print(f"Dataset: {dataset_name}, Count: {count}")
-                total_count += count
+        for item_name, item in f.items():
+            total_count += count_items_recursive(item)
     print(f"Total count: {total_count}")
 
 
