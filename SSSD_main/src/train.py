@@ -23,17 +23,16 @@ def train(output_directory,
           only_generate_missing,
           masking,
           missing_k):
-    
     """
     Train Diffusion Models
 
     Parameters:
     output_directory (str):         save model checkpoints to this path
-    ckpt_iter (int or 'max'):       the pretrained checkpoint to be loaded; 
+    ckpt_iter (int or 'max'):       the pretrained checkpoint to be loaded;
                                     automatically selects the maximum iteration if 'max' is selected
     data_path (str):                path to dataset, numpy array.
     n_iters (int):                  number of iterations to train
-    iters_per_ckpt (int):           number of iterations to save checkpoint, 
+    iters_per_ckpt (int):           number of iterations to save checkpoint,
                                     default is 10k, for models with residual_channel=64 this number can be larger
     iters_per_logging (int):        number of iterations to save training log and compute validation loss, default is 100
     learning_rate (float):          learning rate
@@ -97,32 +96,43 @@ def train(output_directory,
         ckpt_iter = -1
         print('No valid checkpoint model found, start training from initialization.')
 
-        
-        
-    
     ### Custom data loading and reshaping ###
-        
-        
-
     training_data = np.load(trainset_config['train_data_path'])
     training_data = np.split(training_data, 160, 0)
     training_data = np.array(training_data)
     training_data = torch.from_numpy(training_data).float().cuda()
     print('Data loaded')
 
-    
-    
     # training
     n_iter = ckpt_iter + 1
     while n_iter < n_iters + 1:
         for batch in training_data:
 
+            # TODO: what is the porpuse and use of the masking in here?
+            """
+            copilot answer:
+            In this code, masking is used to selectively ignore or pay attention to certain elements of the data during the training process.
+            The mask is a tensor of the same shape as the input data, where each element of the mask corresponds to an element of the input data. 
+
+            The type of mask applied depends on the `masking` variable, which can be 'rm', 'mnr', or 'bm'. Each of these values corresponds to a
+            different masking strategy, implemented by the `get_mask_rm`, `get_mask_mnr`, and `get_mask_bm` functions respectively.
+
+            Once the mask is created, it is permuted, repeated across the batch size, and converted to a float tensor on the GPU with `.float().cuda()`.
+            The `loss_mask` is the logical negation of `mask`, converted to a boolean tensor with `.bool()`. 
+            This means that wherever `mask` is True, `loss_mask` is False, and vice versa.
+
+            The `mask` and `loss_mask` are then used in the `training_loss` function. While the exact usage depends on the implementation of
+            `training_loss`, typically, elements of the input data where `mask` is True are ignored or treated differently during the computation
+            of the loss. Conversely, elements where `loss_mask` is True are used normally. This allows the model to focus on certain parts of the
+            data while ignoring others, which can be useful in many machine learning tasks.
+            """
             if masking == 'rm':
                 transposed_mask = get_mask_rm(batch[0], missing_k)
             elif masking == 'mnr':
                 transposed_mask = get_mask_mnr(batch[0], missing_k)
             elif masking == 'bm':
                 transposed_mask = get_mask_bm(batch[0], missing_k)
+
 
             mask = transposed_mask.permute(1, 0)
             mask = mask.repeat(batch.size()[0], 1, 1).float().cuda()

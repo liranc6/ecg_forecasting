@@ -2,8 +2,11 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from utils.util import calc_diffusion_step_embedding
-from imputers.S4Model import S4Layer
+import sys
+
+sys.path.append('../../../SSSD_main')
+from SSSD_main.src.utils.util import calc_diffusion_step_embedding
+from SSSD_main.src.imputers.S4Model import S4Layer
 
 
 def swish(x):
@@ -21,8 +24,8 @@ class Conv(nn.Module):
     def forward(self, x):
         out = self.conv(x)
         return out
-    
-    
+
+
 class ZeroConv1d(nn.Module):
     def __init__(self, in_channel, out_channel):
         super(ZeroConv1d, self).__init__()
@@ -36,42 +39,40 @@ class ZeroConv1d(nn.Module):
 
 
 class Residual_block(nn.Module):
-    def __init__(self, res_channels, skip_channels, 
+    def __init__(self, res_channels, skip_channels,
                  diffusion_step_embed_dim_out, in_channels,
-                s4_lmax,
-                s4_d_state,
-                s4_dropout,
-                s4_bidirectional,
-                s4_layernorm):
+                 s4_lmax,
+                 s4_d_state,
+                 s4_dropout,
+                 s4_bidirectional,
+                 s4_layernorm):
         super(Residual_block, self).__init__()
         self.res_channels = res_channels
 
-
         self.fc_t = nn.Linear(diffusion_step_embed_dim_out, self.res_channels)
-        
-        self.S41 = S4Layer(features=2*self.res_channels, 
-                          lmax=s4_lmax,
-                          N=s4_d_state,
-                          dropout=s4_dropout,
-                          bidirectional=s4_bidirectional,
-                          layer_norm=s4_layernorm)
- 
+
+        self.S41 = S4Layer(features=2*self.res_channels,
+                           lmax=s4_lmax,
+                           N=s4_d_state,
+                           dropout=s4_dropout,
+                           bidirectional=s4_bidirectional,
+                           layer_norm=s4_layernorm)
+
         self.conv_layer = Conv(self.res_channels, 2 * self.res_channels, kernel_size=3)
 
-        self.S42 = S4Layer(features=2*self.res_channels, 
-                          lmax=s4_lmax,
-                          N=s4_d_state,
-                          dropout=s4_dropout,
-                          bidirectional=s4_bidirectional,
-                          layer_norm=s4_layernorm)
-        
-        self.cond_conv = Conv(2*in_channels, 2*self.res_channels, kernel_size=1)  
+        self.S42 = S4Layer(features=2*self.res_channels,
+                           lmax=s4_lmax,
+                           N=s4_d_state,
+                           dropout=s4_dropout,
+                           bidirectional=s4_bidirectional,
+                           layer_norm=s4_layernorm)
+
+        self.cond_conv = Conv(2*in_channels, 2*self.res_channels, kernel_size=1)
 
         self.res_conv = nn.Conv1d(res_channels, res_channels, kernel_size=1)
         self.res_conv = nn.utils.weight_norm(self.res_conv)
         nn.init.kaiming_normal_(self.res_conv.weight)
 
-        
         self.skip_conv = nn.Conv1d(res_channels, skip_channels, kernel_size=1)
         self.skip_conv = nn.utils.weight_norm(self.skip_conv)
         nn.init.kaiming_normal_(self.skip_conv.weight)
@@ -80,21 +81,21 @@ class Residual_block(nn.Module):
         x, cond, diffusion_step_embed = input_data
         h = x
         B, C, L = x.shape
-        assert C == self.res_channels                      
-                 
+        assert C == self.res_channels
+
         part_t = self.fc_t(diffusion_step_embed)
-        part_t = part_t.view([B, self.res_channels, 1])  
+        part_t = part_t.view([B, self.res_channels, 1])
         h = h + part_t
-        
+
         h = self.conv_layer(h)
-        h = self.S41(h.permute(2,0,1)).permute(1,2,0)     
-        
+        h = self.S41(h.permute(2,0,1)).permute(1,2,0)
+
         assert cond is not None
         cond = self.cond_conv(cond)
         h += cond
-        
+
         h = self.S42(h.permute(2,0,1)).permute(1,2,0)
-        
+
         out = torch.tanh(h[:,:self.res_channels,:]) * torch.sigmoid(h[:,self.res_channels:,:])
 
         res = self.res_conv(out)
@@ -105,8 +106,8 @@ class Residual_block(nn.Module):
 
 
 class Residual_group(nn.Module):
-    def __init__(self, res_channels, skip_channels, num_res_layers, 
-                 diffusion_step_embed_dim_in, 
+    def __init__(self, res_channels, skip_channels, num_res_layers,
+                 diffusion_step_embed_dim_in,
                  diffusion_step_embed_dim_mid,
                  diffusion_step_embed_dim_out,
                  in_channels,
@@ -121,10 +122,10 @@ class Residual_group(nn.Module):
 
         self.fc_t1 = nn.Linear(diffusion_step_embed_dim_in, diffusion_step_embed_dim_mid)
         self.fc_t2 = nn.Linear(diffusion_step_embed_dim_mid, diffusion_step_embed_dim_out)
-        
+
         self.residual_blocks = nn.ModuleList()
         for n in range(self.num_res_layers):
-            self.residual_blocks.append(Residual_block(res_channels, skip_channels, 
+            self.residual_blocks.append(Residual_block(res_channels, skip_channels,
                                                        diffusion_step_embed_dim_out=diffusion_step_embed_dim_out,
                                                        in_channels=in_channels,
                                                        s4_lmax=s4_lmax,
@@ -133,27 +134,40 @@ class Residual_group(nn.Module):
                                                        s4_bidirectional=s4_bidirectional,
                                                        s4_layernorm=s4_layernorm))
 
-            
-    def forward(self, input_data):
-        noise, conditional, diffusion_steps = input_data
 
-        diffusion_step_embed = calc_diffusion_step_embedding(diffusion_steps, self.diffusion_step_embed_dim_in)
-        diffusion_step_embed = swish(self.fc_t1(diffusion_step_embed))
-        diffusion_step_embed = swish(self.fc_t2(diffusion_step_embed))
+def forward(self, input_data):
+    # Unpack the input data
+    noise, conditional, diffusion_steps = input_data
 
-        h = noise
-        skip = 0
-        for n in range(self.num_res_layers):
-            h, skip_n = self.residual_blocks[n]((h, conditional, diffusion_step_embed))  
-            skip += skip_n  
+    # Calculate the diffusion step embedding
+    diffusion_step_embed = calc_diffusion_step_embedding(diffusion_steps, self.diffusion_step_embed_dim_in)
 
-        return skip * math.sqrt(1.0 / self.num_res_layers)  
+    # Apply the swish activation function after passing through the first fully connected layer
+    diffusion_step_embed = swish(self.fc_t1(diffusion_step_embed))
+
+    # Apply the swish activation function again after passing through the second fully connected layer
+    diffusion_step_embed = swish(self.fc_t2(diffusion_step_embed))
+
+    # Initialize h with the noise tensor
+    h = noise
+
+    # Initialize the skip connection accumulator
+    skip = 0
+
+    # Loop over the residual blocks
+    for n in range(self.num_res_layers):
+        # Pass the input through the n-th residual block and accumulate the skip connections
+        h, skip_n = self.residual_blocks[n]((h, conditional, diffusion_step_embed))
+        skip += skip_n
+
+        # Return the accumulated skip connections, scaled by the square root of the inverse number of residual layers
+    return skip * math.sqrt(1.0 / self.num_res_layers)
 
 
 class SSSDS4Imputer(nn.Module):
-    def __init__(self, in_channels, res_channels, skip_channels, out_channels, 
+    def __init__(self, in_channels, res_channels, skip_channels, out_channels,
                  num_res_layers,
-                 diffusion_step_embed_dim_in, 
+                 diffusion_step_embed_dim_in,
                  diffusion_step_embed_dim_mid,
                  diffusion_step_embed_dim_out,
                  s4_lmax,
@@ -164,10 +178,10 @@ class SSSDS4Imputer(nn.Module):
         super(SSSDS4Imputer, self).__init__()
 
         self.init_conv = nn.Sequential(Conv(in_channels, res_channels, kernel_size=1), nn.ReLU())
-        
-        self.residual_layer = Residual_group(res_channels=res_channels, 
-                                             skip_channels=skip_channels, 
-                                             num_res_layers=num_res_layers, 
+
+        self.residual_layer = Residual_group(res_channels=res_channels,
+                                             skip_channels=skip_channels,
+                                             num_res_layers=num_res_layers,
                                              diffusion_step_embed_dim_in=diffusion_step_embed_dim_in,
                                              diffusion_step_embed_dim_mid=diffusion_step_embed_dim_mid,
                                              diffusion_step_embed_dim_out=diffusion_step_embed_dim_out,
@@ -177,15 +191,15 @@ class SSSDS4Imputer(nn.Module):
                                              s4_dropout=s4_dropout,
                                              s4_bidirectional=s4_bidirectional,
                                              s4_layernorm=s4_layernorm)
-        
+
         self.final_conv = nn.Sequential(Conv(skip_channels, skip_channels, kernel_size=1),
                                         nn.ReLU(),
                                         ZeroConv1d(skip_channels, out_channels))
 
     def forward(self, input_data):
-        
-        noise, conditional, mask, diffusion_steps = input_data 
+        noise, conditional, mask, diffusion_steps = input_data
 
+        # Conditional masking focuses error computations on available data
         conditional = conditional * mask
         conditional = torch.cat([conditional, mask.float()], dim=1)
 
