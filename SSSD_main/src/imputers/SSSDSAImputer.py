@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from einops import rearrange
+# from einops import rearrange
 from imputers.S4Model import S4, LinearActivation
 from utils.util import calc_diffusion_step_embedding
 

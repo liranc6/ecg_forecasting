@@ -4,14 +4,19 @@ import json
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader
 
-from utils.util import find_max_epoch, print_size, training_loss, calc_diffusion_hyperparams
-from utils.util import get_mask_mnr, get_mask_bm, get_mask_rm, get_mask_fm
+import sys
+sys.path.append('../SSSD_main')
 
-from imputers.DiffWaveImputer import DiffWaveImputer
-from imputers.SSSDSAImputer import SSSDSAImputer
-from imputers.SSSDS4Imputer import SSSDS4Imputer
+from SSSD_main.src.utils.util import find_max_epoch, print_size, training_loss, calc_diffusion_hyperparams
+from SSSD_main.src.utils.util import get_mask_mnr, get_mask_bm, get_mask_rm, get_mask_fm
+from SSSD_main.src.imputers.DiffWaveImputer import DiffWaveImputer
+from SSSD_main.src.imputers.SSSDSAImputer import SSSDSAImputer
+from SSSD_main.src.imputers.SSSDS4Imputer import SSSDS4Imputer
 
+# Import your custom dataset class here
+from liran_project.utils.dataset_loader import SingleLeadECGDatasetCrops as CustomDataset
 
 def train(output_directory,
           ckpt_iter,
@@ -22,7 +27,9 @@ def train(output_directory,
           use_model,
           only_generate_missing,
           masking,
-          missing_k):
+          missing_k,
+          context_size,
+          label_size):
     """
     Train Diffusion Models
 
@@ -132,8 +139,8 @@ def train(output_directory,
                 transposed_mask = get_mask_mnr(batch[0], missing_k)
             elif masking == 'bm':
                 transposed_mask = get_mask_bm(batch[0], missing_k)
-            # elif masking == 'fm':
-                # transposed_mask = get_mask_fm(batch[0], context_size, label_size)
+            elif masking == 'fm':
+                transposed_mask = get_mask_fm(batch[0], context_size, label_size)
 
             mask = transposed_mask.permute(1, 0)
             mask = mask.repeat(batch.size()[0], 1, 1).float().cuda()

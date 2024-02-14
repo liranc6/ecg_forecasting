@@ -135,33 +135,33 @@ class Residual_group(nn.Module):
                                                        s4_layernorm=s4_layernorm))
 
 
-def forward(self, input_data):
-    # Unpack the input data
-    noise, conditional, diffusion_steps = input_data
+    def forward(self, input_data):
+        # Unpack the input data
+        noise, conditional, diffusion_steps = input_data
 
-    # Calculate the diffusion step embedding
-    diffusion_step_embed = calc_diffusion_step_embedding(diffusion_steps, self.diffusion_step_embed_dim_in)
+        # Calculate the diffusion step embedding
+        diffusion_step_embed = calc_diffusion_step_embedding(diffusion_steps, self.diffusion_step_embed_dim_in)
 
-    # Apply the swish activation function after passing through the first fully connected layer
-    diffusion_step_embed = swish(self.fc_t1(diffusion_step_embed))
+        # Apply the swish activation function after passing through the first fully connected layer
+        diffusion_step_embed = swish(self.fc_t1(diffusion_step_embed))
 
-    # Apply the swish activation function again after passing through the second fully connected layer
-    diffusion_step_embed = swish(self.fc_t2(diffusion_step_embed))
+        # Apply the swish activation function again after passing through the second fully connected layer
+        diffusion_step_embed = swish(self.fc_t2(diffusion_step_embed))
 
-    # Initialize h with the noise tensor
-    h = noise
+        # Initialize h with the noise tensor
+        h = noise
 
-    # Initialize the skip connection accumulator
-    skip = 0
+        # Initialize the skip connection accumulator
+        skip = 0
 
-    # Loop over the residual blocks
-    for n in range(self.num_res_layers):
-        # Pass the input through the n-th residual block and accumulate the skip connections
-        h, skip_n = self.residual_blocks[n]((h, conditional, diffusion_step_embed))
-        skip += skip_n
+        # Loop over the residual blocks
+        for n in range(self.num_res_layers):
+            # Pass the input through the n-th residual block and accumulate the skip connections
+            h, skip_n = self.residual_blocks[n]((h, conditional, diffusion_step_embed))
+            skip += skip_n
 
-        # Return the accumulated skip connections, scaled by the square root of the inverse number of residual layers
-    return skip * math.sqrt(1.0 / self.num_res_layers)
+            # Return the accumulated skip connections, scaled by the square root of the inverse number of residual layers
+        return skip * math.sqrt(1.0 / self.num_res_layers)
 
 
 class SSSDS4Imputer(nn.Module):
