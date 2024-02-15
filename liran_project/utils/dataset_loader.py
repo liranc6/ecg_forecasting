@@ -20,17 +20,17 @@ class SingleLeadECGDatasetCrops(Dataset):
             # print(f'{key=} : {len(item)=}')
             datasets_sizes.append(len(item))
 
-        print(f'{datasets_sizes=}')
         self.cumulative_sizes = np.cumsum(datasets_sizes)
 
+
     def __len__(self):
-        return self.cumulative_sizes[-1]
+        return self.cumulative_sizes[-1] if self.cumulative_sizes.any() else 0
 
     @property
     def is_empty(self):
         return self.__len__() == 0
 
-    def _getitem(self, idx):
+    def __getitem__(self, idx):
         dataset_idx = bisect.bisect_right(self.cumulative_sizes, idx)
 
         if dataset_idx == 0:
@@ -45,3 +45,5 @@ class SingleLeadECGDatasetCrops(Dataset):
         assert self.context_window_size + self.label_window_size == len(
             window), "context_window_size+label_window_size != len(window)"
         return x, y
+
+

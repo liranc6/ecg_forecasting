@@ -2,7 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from utils.util import calc_diffusion_step_embedding
+from SSSD_main.src.utils.util import calc_diffusion_step_embedding
 
 
 def swish(x):

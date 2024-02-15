@@ -1,9 +1,15 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+<<<<<<< Updated upstream
 # from einops import rearrange
 from imputers.S4Model import S4, LinearActivation
 from utils.util import calc_diffusion_step_embedding
+=======
+from einops import rearrange
+from SSSD_main.src.imputers.S4Model import S4, LinearActivation
+from SSSD_main.src.utils.util import calc_diffusion_step_embedding
+>>>>>>> Stashed changes
 
 
 def swish(x):
