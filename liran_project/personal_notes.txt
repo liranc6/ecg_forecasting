@@ -1,0 +1,29 @@
+workflow:
+
+1. learn how to work with time series as structured state spaces
+    and learn how to run time series forecasting.
+    The file state-spaces/models/s4/experiments.md examines how to run the time series forecasting with the model from
+    the paper. I ran the model on the given data (state_spaces/data/informer/*)
+    Unfortunately the dataset it uses comes as CSV and the repo wasn’t helpful yet.
+    I hope to learn more about time series as structured state spaces later on.
+2. understand my dataset (icentia11k):
+    - how to sample from it
+    - how to plot samples
+3. create subset from icentia11k dataset:
+    - only Normal Sinus Rhythm (NSR) samples
+4. run SSSDs4 model on my costume dataset
+    - understand how to divide a time window into sample and label:
+    - understand how to run the model on a batch of samples
+    - understand how to evaluate the model on a batch of samples
+    - understand how to plot the results
+    - understand how to save the results
+5. run s4 model on my costume dataset with different time windows
+
+
+
+
+
+
+1. Add validation and test sets
+4. Add early_stopping
+5. 

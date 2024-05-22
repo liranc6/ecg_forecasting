@@ -8,7 +8,10 @@ __cache__
 # Added to ignore
 data
 *.idea
-liran_project/personal_notes.txt
+/home/liranc6/ecg/ecg_forecasting/liran_project/notebooks/wandb/*
+/home/liranc6/ecg/ecg_forecasting/liran_project/results/*
+/home/liranc6/ecg/ecg_forecasting/liran_project/wandb/*
+/home/liranc6/ecg/ecg_forecasting/wandb/*
 
 # Created by https://www.gitignore.io/api/python
 # Edit at https://www.gitignore.io/?templates=python
