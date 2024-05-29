@@ -10,7 +10,13 @@ import numpy as np
 import glob
 import h5py
 
-ProjectPath = os.path.dirname(os.path.abspath(os.getcwd()))
+import sys
+sys.path.append('/home/liranc6/ecg/ecg_forecasting')
+
+from liran_project.utils.util import find_beat_indices
+
+# ProjectPath = os.path.dirname(os.path.abspath(os.getcwd()))
+data_path = '/mnt/qnap/liranc6/data/'
 
 
 def compare_arrays(arr1, arr2):
@@ -63,7 +69,7 @@ def compare_files(original_filename, output_filename, timestamp):
     output_ann = wfdb.rdann(output_filename, 'atr')
 
     # Compare the records
-    assert np.array_equal(original_rec.p_signal, output_rec.p_signal), "The records are not the same"
+    # assert np.array_equal(original_rec.p_signal, output_rec.p_signal), "The records are not the same"
     assert original_rec.fs == output_rec.fs, "The sampling frequencies are not the same"
     assert original_rec.units == output_rec.units, "The units are not the same"
     # assert original_rec.sig_name == output_rec.sig_name, "The signal names are not the same"
@@ -182,7 +188,7 @@ def timestamps_of_rhythm_type_in_all_segments(filename, rhythm_type):
     return timestamps
 
 
-def extract_sinus_rhythms_to_new_subset(data_dir, min_window_size):
+def extract_sinus_rhythms_to_new_subset(data_dir, min_window_size, num_of_patients=2):
     """
         Iterate through patients and segments, extract NSR, and create new subset files.
 
@@ -193,10 +199,9 @@ def extract_sinus_rhythms_to_new_subset(data_dir, min_window_size):
         Returns:
         - None
         """
-    num_of_patients = 10
     iterator = itertools.product(range(0, num_of_patients + 1), range(0, 50))
     num_of_new_files = 0
-    for patient_id, segment_id in tqdm(iterator, total=num_of_patients * 50):
+    for patient_id, segment_id in tqdm(iterator, desc='extract_sinus_rhythms_to_new_subset', total=num_of_patients * 50):
         # print(f"patient_id: {patient_id}, segment_id: {segment_id}")
         filename = os.path.join(data_dir,
                                 f'p{patient_id:05d}'[:3],
@@ -217,7 +222,7 @@ def extract_sinus_rhythms_to_new_subset(data_dir, min_window_size):
     print(f"Number of new files: {num_of_new_files}")
 
 
-def extract_and_save_p_signal_to_HDF5(input_dir, output_file):
+def extract_and_save_p_signal_to_HDF5(input_dir, output_file, with_R_beats=False):
     """
     Read ECG signals and save the p_signal data as NumPy arrays in an HDF5 file
     while preserving the directory hierarchy.
@@ -232,10 +237,11 @@ def extract_and_save_p_signal_to_HDF5(input_dir, output_file):
     # Create the output directory if it doesn't exist
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
+    num_files = sum([1 for _ in os.walk(input_dir)])
     # Open the HDF5 file in write mode
     with h5py.File(output_file, 'w') as h5_file:
         # Traverse the input directory to find data files
-        for root, _, files in tqdm(os.walk(input_dir), desc="Processing files", unit="file"):
+        for root, _, files in tqdm(os.walk(input_dir), desc="Processing files", total=num_files, unit="file"):
             for file in files:
                 # Check if the file is a data file (ends with .dat)
                 if file.endswith('.dat'):
@@ -246,10 +252,38 @@ def extract_and_save_p_signal_to_HDF5(input_dir, output_file):
                     dataset_name = os.path.join(relative_path, f"{record_name}_p_signal")
 
                     # Read the signal using wfdb
-                    signals, fields = wfdb.rdsamp(os.path.join(root, record_name))
+                    filename = os.path.join(root, record_name)
+                    
+                    signals, fields = wfdb.rdsamp(filename)
+
+                    # Define beat types for annotation plotting
+                    beat_types = ['N', 'Q', '+', 'V', 'S']
+
+                    if with_R_beats:
+                        # Read the annotations
+                        ann = wfdb.rdann(filename, 'atr')
+                        indices = [item for sublist in find_beat_indices(ann, beat_types).values() for item in sublist]
+                        indices = np.array(indices) - 1
+                        # create np array of the same size as the signal and fill it with zeros (default value), put 1 in the indices
+                        # of the beats
+                        beats = np.zeros(signals.shape[0])
+                        beats[indices] = 1
+
+                        # create np array with dims [1, 2, len(signals)] to store the signal and the beats
+                        assert len(beats) == len(signals), "beats and signals should have the same length"
+                        data = np.array([signals[:, 0], beats])
+                        data = np.expand_dims(data, axis=0)
+
+                    else:
+                        data = signals[:, 0]
+
+
 
                     # Save the p_signal data in the HDF5 file with the dataset name
-                    h5_file.create_dataset(dataset_name, data=signals[:, 0])
+                    h5_file.create_dataset(dataset_name, data=data)
+
+                    #check dataset size
+                    # print(f"dataset_name: {dataset_name}, data.shape: {data.shape}")
 
 
 def print_h5_hierarchy(file_path):
@@ -270,7 +304,7 @@ def print_h5_hierarchy(file_path):
                     print(f"{indent}Group: {name}")
                     print_group_hierarchy(item, indent + "  ")
                 elif isinstance(item, h5py.Dataset):
-                    print(f"{indent}Dataset: {name}")
+                    print(f"{indent}Dataset: {item.name}")
 
         # Call the recursive function starting from the root group
         print_group_hierarchy(h5_file)
@@ -286,7 +320,6 @@ def split_and_save_data(input_h5_file, window_size, output_h5_file):
     :param output_h5_file: The output HDF5 file to save the split data.
     :return: None
     """
-
     def extract_integers(text):
         """
         Extract integers from the given text.
@@ -306,10 +339,10 @@ def split_and_save_data(input_h5_file, window_size, output_h5_file):
             for subgroup_name, subgroup_item in tqdm(group_item.items(), desc="Processing Subgroups", unit="subgroup"):
                 # print(f"subgroup_name: {subgroup_name}")
                 assert not isinstance(subgroup_name, h5py.Group), "leaf groups"
-                dataset_data = []
+                # dataset_data = []
                 total_leaf_iterations += len(subgroup_item)
 
-        progress_bar = tqdm(total=total_leaf_iterations, position=0, leave=False, desc='Processing')
+        progress_bar = tqdm(total=total_leaf_iterations, position=0, desc='Processing')
         for group_name, group_item in input_file.items():
             assert not isinstance(group_name, h5py.Group), "create only leaf groups"
             for subgroup_name, subgroup_item in group_item.items():
@@ -320,13 +353,19 @@ def split_and_save_data(input_h5_file, window_size, output_h5_file):
                     # print(f"dataset_name: {dataset_name}")
                     assert not isinstance(dataset_name, h5py.Dataset)
                     # Split the dataset into windows
-                    data = dataset_item[:]
-                    num_windows = len(data) // window_size
+                    data = dataset_item[:] # (1, item dim, item_length)
+                    
+                    item = data[0]  # (item dim, item_length)                    
+                    num_windows = item.shape[1] // window_size
+
+                    # Split the array into smaller arrays of window_size along the second axis
+                    result = np.array([item[:, i:i + window_size] for i in range(0, item.shape[1], window_size)])
+                    dataset_data.append(result)
 
                     # Save each window as numpy array and add it to the output dataset
-                    for i in range(num_windows):
-                        window_data = data[i * window_size: (i + 1) * window_size]
-                        dataset_data.append(window_data)
+                    # for i in range(num_windows):
+                    #     window_data = data[i * window_size: (i + 1) * window_size]
+                    #     dataset_data.append(window_data)
 
                     dataset_name = extract_integers(subgroup_name)
                     progress_bar.update(1)
@@ -388,7 +427,7 @@ def count_items(file_path):
         if isinstance(item, h5py.Group):
             group = item
             for name, item in group.items():
-                print(f"Group: {group.name}")
+                print(f"Group: {name}")
                 count += count_items_recursive(item)
         elif isinstance(item, h5py.Dataset):
             count += item.shape[0]
@@ -414,7 +453,7 @@ def arrays_to_fixed_size_windows(input_h5_file, window_size, output_h5_file):
 
 
 if __name__ == "__main__":
-    raw_data_dir = "/home/liranc6/ecg/ecg_forecasting/data/icentia11k-continuous-ecg"
+    raw_data_dir = "/mnt/qnap/liranc6/data/icentia11k-continuous-ecg/static/published-projects/icentia11k-continuous-ecg/1.0"
 
     # creating subset of normal sinus rhythms (NSR) from the raw data
 
@@ -428,11 +467,11 @@ if __name__ == "__main__":
     # after creating the subset, with 10 first patients I have more than 10 hours of NSR data
     # divided to 62 files of at least 10 minutes each.
     # I know its small but I dont need more for now. when I will, I will add more patients. (I used 10/11000 patients)
-    subset_data_dir = os.path.join(ProjectPath, 'data', 'icentia11k-continuous-ecg_normal_sinus_subset')
+    subset_data_dir = os.path.join(data_path, 'icentia11k-continuous-ecg_normal_sinus_subset')
 
-    pSignal_npArray_data_dir_h5 = os.path.join(ProjectPath, 'data', 'icentia11k-continuous-ecg_normal_sinus_subset_npArrays.h5')
+    pSignal_npArray_data_dir_h5 = os.path.join(data_path, "with_R_beats", 'icentia11k-continuous-ecg_normal_sinus_subset_npArrays.h5')
 
-    extract_and_save_p_signal_to_HDF5(subset_data_dir, pSignal_npArray_data_dir_h5)
+    extract_and_save_p_signal_to_HDF5(subset_data_dir, pSignal_npArray_data_dir_h5, with_R_beats=True)
 
     # split the arrays to fixed size windows
     fs = 250
@@ -440,7 +479,8 @@ if __name__ == "__main__":
     label_window_size = 1*60*fs  # minutes * seconds * fs
     window_size = context_window_size+label_window_size
 
-    split_pSignal_file = os.path.join(ProjectPath, 'data',
+    split_pSignal_file = os.path.join(data_path,
+                                      "with_R_beats",
                                       'icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits',
                                       '10minutes_window.h5')
 

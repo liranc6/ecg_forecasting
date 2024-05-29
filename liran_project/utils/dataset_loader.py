@@ -10,6 +10,7 @@ class SingleLeadECGDatasetCrops(Dataset):
     def __init__(self, context_window_size, label_window_size, h5_filename):
         self.context_window_size = context_window_size
         self.label_window_size = label_window_size
+        self.h5_filename = h5_filename
         self.h5_file = h5py.File(h5_filename, 'r')
         self.keys = sorted(self.h5_file.keys())
         self.group_keys = sorted(self.h5_file.keys())
@@ -21,6 +22,8 @@ class SingleLeadECGDatasetCrops(Dataset):
             datasets_sizes.append(len(item))
 
         self.cumulative_sizes = np.cumsum(datasets_sizes)
+
+        self.h5_file.close()
 
 
     def __len__(self):
@@ -38,12 +41,13 @@ class SingleLeadECGDatasetCrops(Dataset):
         else:
             data_idx = idx - self.cumulative_sizes[dataset_idx - 1]
 
-        key = str(self.keys[dataset_idx])  # Convert key to string
-        window = self.h5_file[key][data_idx]
-        x = window[:self.context_window_size]
-        y = window[self.context_window_size:]
-        assert self.context_window_size + self.label_window_size == len(
-            window), "context_window_size+label_window_size != len(window)"
-        return x, y
+        with h5py.File(h5_filename, 'r') as h5_file:
+            key = str(self.keys[dataset_idx])  # Convert key to string
+            window = h5_file[key][data_idx]
+            x = window[:self.context_window_size]
+            y = window[self.context_window_size:]
+            assert self.context_window_size + self.label_window_size == len(
+                window), "context_window_size+label_window_size != len(window)"
+            return x, y
 
 
