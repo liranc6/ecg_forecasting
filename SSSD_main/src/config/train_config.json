@@ -13,7 +13,7 @@
     "train_config": {
         "batch_size": 20,
         "output_directory": "/home/liranc6/ecg/ecg_forecasting/liran_project/results/icentia11k",
-        "ckpt_iter": "max",
+        "ckpt_iter": 0,
         "iters_per_ckpt": 2,
         "iters_per_logging": 10,
         "n_iters": 300,

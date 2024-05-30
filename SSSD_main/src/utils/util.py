@@ -2,6 +2,7 @@ import os
 import numpy as np
 import torch
 import random
+from tqdm.notebook import tqdm
 
 
 def flatten(v):
@@ -12,7 +13,7 @@ def flatten(v):
     return [x for y in v for x in y]
 
 
-def find_max_epoch(path):
+def find_epoch(path, num=-1, critirion='max'):
     """
     Find maximum epoch/iteration in path, formatted ${n_iter}.pkl
     E.g. 100000.pkl
@@ -23,17 +24,32 @@ def find_max_epoch(path):
     Returns:
     maximum iteration, -1 if there is no (valid) checkpoint
     """
+    assert os.path.exists(path), "path does not exist"
+    assert os.path.isdir(path), "path is not a directory"
+    assert num < 0, "num starts from end, end is -1"
 
+    #print absulute path
+    # print('abs path:', os.path.abspath(path))
+    # assert os.path.abspath(path) == "/home/liranc6/ecg/ecg_forecasting/liran_project/results/mujoco/90/T200_beta00.0001_betaT0.02", "path is not valid"
     files = os.listdir(path)
     epoch = -1
-    for f in files:
-        if len(f) <= 4:
+    file_i = 1
+
+    for f in files[::-1]:
+        if not os.path.isfile(os.path.join(path, f)):
             continue
-        if f[-4:] == '.pkl':
-            try:
-                epoch = max(epoch, int(f[:-4]))
-            except:
-                continue
+        assert len(f) > 4
+        if critirion == 'max' and f[-4:] == '.pkl':
+            epoch = int(f[:-4])
+            if num+file_i==0:
+                return epoch
+            file_i += 1
+        elif critirion == 'best' and f[:5] == 'best_':
+            epoch = f.split('_')[3]
+            if num+file_i==0:
+                return epoch
+            file_i += 1
+
     return epoch
 
 
@@ -132,6 +148,19 @@ def sampling(net, size, diffusion_hyperparams, cond, mask, only_generate_missing
 
     Returns:
     the generated audio(s) in torch.tensor, shape=size
+
+    
+    The function first extracts the diffusion hyperparameters and checks that they have the correct lengths. It then initializes `x` with a tensor of standard Gaussian noise.
+
+    The function then enters a loop that runs in reverse order from `T-1` to `0`. In each iteration of the loop, the function performs a step of the diffusion process.
+    If the `only_generate_missing` flag is set, the function first fills in the missing data in `x` with the corresponding data from `cond`.
+    The function then calculates the diffusion step and uses the model to predict the next state of `x`. The state of `x` is then updated based on the predicted
+    state and the diffusion hyperparameters. If `t` is greater than 0, the function also adds a variance term to `x`.
+
+    Finally, the function returns the generated tensor `x`.
+
+    The `std_normal` function is a helper function that generates a tensor of standard Gaussian noise of a given size.
+    This noise is used to initialize `x` and to add the variance term to `x` in each step of the diffusion process.
     """
 
     _dh = diffusion_hyperparams
@@ -146,7 +175,7 @@ def sampling(net, size, diffusion_hyperparams, cond, mask, only_generate_missing
     x = std_normal(size)
 
     with torch.no_grad():
-        for t in range(T - 1, -1, -1):
+        for t in tqdm(range(T - 1, -1, -1)):
             if only_generate_missing == 1:
                 x = x * (1 - mask).float() + cond * mask.float()
             diffusion_steps = (t * torch.ones((size[0], 1))).cuda()  # use the corresponding reverse step
@@ -158,9 +187,9 @@ def sampling(net, size, diffusion_hyperparams, cond, mask, only_generate_missing
 
     return x
 
-def training_loss(net, loss_fn, X, diffusion_hyperparams, only_generate_missing=1):
+def calculate_loss(net, loss_fn, X, diffusion_hyperparams, only_generate_missing=1):
     """
-    Compute the training loss of epsilon and epsilon_theta
+    Compute the loss of epsilon and epsilon_theta
 
     Parameters:
     net (torch network):            the wavenet model
@@ -173,21 +202,22 @@ def training_loss(net, loss_fn, X, diffusion_hyperparams, only_generate_missing=
 
 
     Returns:
-    training loss
+    loss
     """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Extract diffusion hyperparameters
     _dh = diffusion_hyperparams
     T, Alpha_bar = _dh["T"], _dh["Alpha_bar"]
 
     # Extract audio, condition, mask, and loss_mask from input tensor X
-    audio = X[0]
-    cond = X[1]
-    mask = X[2]
-    loss_mask = X[3]
+    audio = X[0].to(device)
+    cond = X[1].to(device)
+    mask = X[2].to(device)
+    loss_mask = X[3].to(device)
 
     # Get the shape of the audio data
-    B, C, L = audio.shape  # B is batchsize, C=1, L is audio length
+    B, C, L = audio.shape  # B is batchsize, C=num_channels, L is audio length
 
     # Randomly sample diffusion steps from 1~T
     diffusion_steps = torch.randint(T, size=(B, 1, 1)).cuda()
@@ -212,8 +242,8 @@ def training_loss(net, loss_fn, X, diffusion_hyperparams, only_generate_missing=
     transformed_X is the tensor that represents the state of the system at a certain diffusion step. It's a mix of the original data
         and some added noise, with the balance between the two controlled by the Alpha_bar parameter.
     """
-    transformed_X = torch.sqrt(Alpha_bar[diffusion_steps]) * audio + torch.sqrt(
-        1 - Alpha_bar[diffusion_steps]) * z
+    transformed_X = torch.sqrt(Alpha_bar[diffusion_steps]) * audio + \
+                    torch.sqrt(1 - Alpha_bar[diffusion_steps]) * z
 
     # Predict \epsilon according to \epsilon_\theta using the transformed_X, cond, mask, and diffusion_steps. i.e. calling forward
     epsilon_theta = net(
@@ -257,7 +287,6 @@ def get_mask_mnr(sample, k):
 
     return mask
 
-
 def get_mask_bm(sample, k):
     """Get mask of same segments (black-out missing) across channels based on k,
     where k == number of segments. Mask of sample's shape where 0's to be imputed, and 1's to be preserved
@@ -281,26 +310,26 @@ def get_mask_bm(sample, k):
     # Return the mask
     return mask
 
-def get_mask_fm(sample, context_size, label_size):
+def get_mask_pred(sample, context_size, pred_size):
     """
     Applies masking to a given sample for forecasting.
 
     Args:
         sample (torch.Tensor): The input sample.
         context_size (int): The size of the context window.
-        label_size (int): The size of the label window.
+        pred_size (int): The size of the prediction window.
 
     Returns:
         torch.Tensor: The masked sample.
     """
-    assert sample.shape[0] == context_size + label_size, "sample.shape[0] != context_size + label_size"
+
+    assert sample.shape[1] == context_size + pred_size, f"{sample.size()=} != {context_size=} + {pred_size=}"
 
     # Initialize a mask of ones with the same shape as the sample
     mask = torch.ones(sample.shape)
 
     # Set the last label_size elements in each channel to 0
-    for channel in range(mask.shape[1]):
-        mask[-label_size:, channel] = 0
+    mask[:, -pred_size:] = 0
 
     # Return the mask
     return mask
