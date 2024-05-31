@@ -1,0 +1,24 @@
+{   "_comments_servers": "newton, rambo",
+    "_comments_this_file_location": {
+        "rambo": "/home/liranc6/ecg/ecg_forecasting/liran_project/utils/server_config.json",
+        "newton": "/home/liranc6/ecg_forecasting/liran_project/utils/server_config.json"
+    },
+    "newton":{
+    "project_path": "/home/liranc6/ecg_forecasting/",
+    "data_preprocess":{
+        "data_path": "'/home/liranc6/data/",
+        "raw_data_dir": "/mnt/qnap/liranc6/data/icentia11k-continuous-ecg/static/published-projects/icentia11k-continuous-ecg/1.0"
+                    }
+    },
+    "rambo":{
+        "project_path": "/home/liranc6/ecg/ecg_forecasting",
+        "data_preprocess":{
+            "data_path": "/mnt/qnap/liranc6/data/",
+            "raw_data_dir": "/mnt/qnap/liranc6/data/icentia11k-continuous-ecg/static/published-projects/icentia11k-continuous-ecg/1.0"
+        },
+        "SSSD_train":{
+            
+        }
+    }
+    
+}
