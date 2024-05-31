@@ -82,6 +82,8 @@ def train_new(output_directory,
           context_size,
           label_size,
           batch_size,
+          train_dataset,
+          val_dataset,
           **kwargs):
     """
     Train Diffusion Models
@@ -200,21 +202,21 @@ def train_new(output_directory,
         wandb.init(project=project_name, config=wandb_config)
 
     # Define the size of training and validation sets (e.g., 80% train, 20% validation)
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
+    # train_size = int(0.8 * len(dataset))
+    # val_size = len(dataset) - train_size
 
     # Create indices for each split
-    indices = list(range(len(dataset)))
-    train_indices = indices[:train_size]
-    val_indices = indices[train_size:]
+    # indices = list(range(len(dataset)))
+    # train_indices = indices[:train_size]
+    # val_indices = indices[train_size:]
 
     # Create samplers for each split
-    train_sampler = SubsetRandomSampler(train_indices)
-    val_sampler = SubsetRandomSampler(val_indices)
+    # train_sampler = SubsetRandomSampler(train_indices)
+    # val_sampler = SubsetRandomSampler(val_indices)
 
     # Create data loaders for training and validation sets
-    train_loader = DataLoader(dataset, batch_size=batch_size, sampler=train_sampler)
-    val_loader = DataLoader(dataset, batch_size=batch_size, sampler=val_sampler)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size)
     
     start_time = time.time()
     
@@ -392,7 +394,8 @@ if __name__ == "__main__":
     assert os.path.isfile(train_data_path), f"{train_data_path=} does not exist"
 
     # Instantiate the class
-    dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_data_path)
+    train_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_data_path, start_patiant=0, end_patient=5)
+    val_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_data_path, start_patiant=6, end_patient=7)
 
 
     batch_size = train_config["train_config"]["batch_size"]
@@ -400,9 +403,9 @@ if __name__ == "__main__":
 
     
     print(f"{batch_size * window_size=}")
-    if model_name == "SSSDS4":
+    if model_name == "SSSDS4" and server == "rambo":
         max_batch_size = 31000
-        # assert max_batch_size >= batch_size * window_size, f"{max_batch_size=} should be greater than or equal to {batch_size * window_size=}"
+        assert max_batch_size >= batch_size * window_size, f"{max_batch_size=} should be greater than or equal to {batch_size * window_size=}"
     
 
     wandb_config = {
@@ -445,7 +448,8 @@ if __name__ == "__main__":
     diffusion_hyperparams = calc_diffusion_hyperparams(**train_config['diffusion_config'])
 
     train_new(
-        dataset=dataset,
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
         output_directory=train_config["train_config"][f"output_directory_{server}"],
         ckpt_iter=train_config["train_config"]['ckpt_iter'],
         n_iters= train_config["train_config"]['n_iters'],
