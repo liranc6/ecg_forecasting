@@ -9,15 +9,64 @@ import collections
 import numpy as np
 import glob
 import h5py
-
 import sys
-sys.path.append('/home/liranc6/ecg/ecg_forecasting')
+
+server = "rambo"
+server_config_path = os.path.join("/home/liranc6/ecg/ecg_forecasting",
+                                  "liran_project/utils/server_config.json"
+                                  )
+
+# set server configuration
+with open(server_config_path) as f:
+    server_config = json.load(f)
+    server_config = server_config[server]
+    project_path = server_config['project_path']
+    data_path = server_config['data_preprocess']['data_path']
+    raw_data_dir = server_config['data_preprocess']['raw_data_dir']
+
+sys.path.append(project_path)
 
 from liran_project.utils.util import find_beat_indices
 
-# ProjectPath = os.path.dirname(os.path.abspath(os.getcwd()))
-data_path = '/mnt/qnap/liranc6/data/'
 
+# ProjectPath = os.path.dirname(os.path.abspath(os.getcwd()))
+# data_path = '/mnt/qnap/liranc6/data/'
+
+
+def print_first_n_datasets_in_HDF5(hdf5_file, n=10):
+    """
+    Print the first n datasets in an HDF5 file.
+
+    Parameters:
+    - hdf5_file: The HDF5 file to read the data from.
+    - n: The number of datasets to print.
+    """
+    with h5py.File(hdf5_file, 'r') as h5_file:
+        datasets = []
+
+        def visitor_func(name, node):
+            if isinstance(node, h5py.Dataset):
+                datasets.append(name)
+
+        h5_file.visititems(visitor_func)
+        for dataset in datasets[:n]:
+            print(dataset)
+
+def read_dataset_content(hdf5_file, dataset_name):
+    """
+    Read the content of a specific dataset from an HDF5 file.
+
+    Parameters:
+    - hdf5_file: The HDF5 file to read the data from.
+    - dataset_name: The name of the dataset to read.
+    """
+    with h5py.File(hdf5_file, 'r') as h5_file:
+        if dataset_name in h5_file:
+            data = h5_file[dataset_name][:]
+            return data
+        else:
+            print(f"Dataset {dataset_name} not found in the file.")
+            return None
 
 def compare_arrays(arr1, arr2):
     """
@@ -95,7 +144,9 @@ def create_subset_directory(filename):
     Returns:
     - Directory path for the subset file.
     """
-    subset_dir = '/home/liranc6/ecg/ecg_forecasting/data/icentia11k-continuous-ecg_normal_sinus_subset'
+    subset_dir = os.path.join(data_path,
+                              'icentia11k-continuous-ecg_normal_sinus_subset'
+                              )
     # Extract the patient ID and segment ID from the filename
     patient_id = int(filename.split('/')[-2][1:])
 
@@ -188,7 +239,7 @@ def timestamps_of_rhythm_type_in_all_segments(filename, rhythm_type):
     return timestamps
 
 
-def extract_sinus_rhythms_to_new_subset(data_dir, min_window_size, num_of_patients=2):
+def extract_sinus_rhythms_to_new_subset(data_dir, min_window_size, num_of_patients=10):
     """
         Iterate through patients and segments, extract NSR, and create new subset files.
 
@@ -347,7 +398,7 @@ def split_and_save_data(input_h5_file, window_size, output_h5_file):
     else:
         print(f"The file {input_h5_file} is not locked.")
 
-    print(f"{os.path.exists(input_h5_file)=}, {os.path.exists(output_h5_file)=}")
+    print(f"{os.path.exists(input_h5_file)=}, {os.path.exists(output_h5_file)=}, its ok if output_h5_file doesnt exist yet")
     with h5py.File(input_h5_file, 'r') as input_file, h5py.File(output_h5_file, 'w') as output_file:
         total_leaf_iterations = 0
         for group_name, group_item in input_file.items():
@@ -469,7 +520,7 @@ def arrays_to_fixed_size_windows(input_h5_file, window_size, output_h5_file):
 
 
 if __name__ == "__main__":
-    raw_data_dir = "/mnt/qnap/liranc6/data/icentia11k-continuous-ecg/static/published-projects/icentia11k-continuous-ecg/1.0"
+    # raw_data_dir = "/mnt/qnap/liranc6/data/icentia11k-continuous-ecg/static/published-projects/icentia11k-continuous-ecg/1.0"
 
     fs = 250 #sampling rate
     SECONDS_IN_MINUTE = 60
@@ -504,9 +555,17 @@ if __name__ == "__main__":
     base_name, extension = os.path.splitext(os.path.basename(split_pSignal_file))
     new_base_name = f"{base_name}_temp{extension}"
     temp_filename = os.path.join(os.path.dirname(split_pSignal_file), new_base_name)
-    split_and_save_data(pSignal_npArray_data_dir_h5, window_size, temp_filename)
-    merge_datasets(temp_filename, split_pSignal_file)
-    os.remove(temp_filename)
+    print(f"{temp_filename}")
+    split_and_save_data(pSignal_npArray_data_dir_h5, window_size, split_pSignal_file)
+
+    print("split_pSignal_file:")
+    print_first_n_datasets_in_HDF5(split_pSignal_file, 5)
+    # print("temp_filename")
+    # print_first_n_datasets_in_HDF5(temp_filename, 5)
+    # merge_datasets(temp_filename, split_pSignal_file)
+    # os.remove(temp_filename)
+    print_h5_hierarchy(split_pSignal_file)
+    count_items(split_pSignal_file)
 
 
 # at first I will try 9 minutes for sample and 1 minute for label.
