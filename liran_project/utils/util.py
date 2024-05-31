@@ -2,7 +2,120 @@ import os
 import numpy as np
 import torch
 import random
+import matplotlib.pyplot as plt
+import wfdb
+import pandas as pd
 
+def modify_z_and_omega(net, model_name, checkpoint, device):
+    if model_name == "SSSDS4":
+        net.residual_layer.residual_blocks[35].S42.s4_layer.kernel.kernel.z = checkpoint['model_state_dict']['residual_layer.residual_blocks.35.S42.s4_layer.kernel.kernel.z']
+    elif model_name == "SSSDSA":
+        for i in range(len(net.d_layers)):
+            if f'd_layers.{i}.layer.kernel.kernel.z' in checkpoint['model_state_dict']:
+                net.d_layers[i].layer.kernel.kernel.z = checkpoint['model_state_dict'][f'd_layers.{i}.layer.kernel.kernel.z'].to(device)
+                net.d_layers[i].layer.kernel.kernel.omega = checkpoint['model_state_dict'][f'd_layers.{i}.layer.kernel.kernel.omega'].to(device)
+        for i in range(len(net.c_layers)):
+            if f'c_layers.{i}.layer.kernel.kernel.z' in checkpoint['model_state_dict']:
+                net.c_layers[i].layer.kernel.kernel.z = checkpoint['model_state_dict'][f'c_layers.{i}.layer.kernel.kernel.z'].to(device)
+                net.c_layers[i].layer.kernel.kernel.omega = checkpoint['model_state_dict'][f'c_layers.{i}.layer.kernel.kernel.omega'].to(device)
+        for i in range(len(net.u_layers)):
+            if f'u_layers.{i}.layer.kernel.kernel.z' in checkpoint['model_state_dict']:
+                net.u_layers[i].layer.kernel.kernel.z = checkpoint['model_state_dict'][f'u_layers.{i}.layer.kernel.kernel.z'].to(device)
+                net.u_layers[i].layer.kernel.kernel.omega = checkpoint['model_state_dict'][f'u_layers.{i}.layer.kernel.kernel.omega'].to(device)
+            for j in range(len(net.u_layers[i])):
+                if f'u_layers.{i}.{j}.layer.kernel.kernel.z' in checkpoint['model_state_dict']:
+                    net.u_layers[i][j].layer.kernel.kernel.z = checkpoint['model_state_dict'][f'u_layers.{i}.{j}.layer.kernel.kernel.z'].to(device)
+                    net.u_layers[i][j].layer.kernel.kernel.omega = checkpoint['model_state_dict'][f'u_layers.{i}.{j}.layer.kernel.kernel.omega'].to(device)
+
+
+
+def find_beat_indices(ann, beat_types):
+    """
+    Find the indices of specified beat types in the annotations.
+    
+    Parameters:
+    ann (wfdb.Annotation): The annotation object containing beat annotations.
+    beat_types (list): List of beat types to find indices for (e.g., ['N', 'Q', '+', 'V', 'S']).
+    
+    Returns:
+    dict: A dictionary with beat types as keys and lists of indices as values.
+    """
+    beat_indices = {beat: [] for beat in beat_types}
+    for i, symbol in enumerate(ann.symbol):
+        if symbol in beat_indices:
+            beat_indices[symbol].append(ann.sample[i])
+    return beat_indices
+
+def print_signal(patient_id, segment_id, begins_at, ends_at, start, length, data_path):
+    """
+    Print and plot the ECG signal and annotations for a specified patient and segment.
+    
+    Parameters:
+    patient_id (int): ID of the patient.
+    segment_id (int): ID of the segment.
+    begins_at (int): The starting sample index of the segment.
+    ends_at (int): The ending sample index of the segment.
+    start (int): The starting sample index for plotting.
+    length (int): The length of the signal to plot (in samples).
+    data_path (str): The base path to the data files.
+    
+    Returns:
+    None
+    """
+    filename = os.path.join(data_path, f'p{patient_id:05d}'[:3], f'p{patient_id:05d}', 
+                            f'p{patient_id:05d}_s{segment_id:02d}_{begins_at}_to_{ends_at}')
+    
+    # Read the ECG record and annotations
+    rec = wfdb.rdrecord(filename, sampfrom=start, sampto=start + length)
+    ann = wfdb.rdann(filename, "atr", sampfrom=start, sampto=start + length, shift_samps=True)
+    
+    # Create a time array in seconds
+    time = np.arange(len(rec.p_signal)) / rec.fs
+    
+    # Create a new figure and two subplots, sharing both x axes
+    fig, ax1 = plt.subplots(figsize=(15, 4))
+    ax2 = ax1.twiny()
+    
+    # Plot the ECG signal on the first x-axis
+    ax1.plot(time, rec.p_signal, label='ECG signal')
+    # Label the y-axis
+    ax1.set_ylabel('Amplitude')
+    
+    # Define beat types for annotation plotting
+    beat_types = ['N', 'Q', '+', 'V', 'S']
+    
+    # Plot the annotations on the first x-axis
+    for i in range(len(ann.sample)):
+        if ann.symbol[i] in beat_types:
+            ax1.plot(ann.sample[i] / rec.fs, rec.p_signal[ann.sample[i]], 'ro')
+    
+    # Set the limits of the primary x-axis
+    ax1.set_xlim([0, time[-1]])
+    
+    # Set the limits of the secondary x-axis to match the primary x-axis
+    ax2.set_xlim(ax1.get_xlim())
+    ax2.set_xticks(ax1.get_xticks())
+    ax2.set_xticklabels(np.linspace(start, start + length, len(ax1.get_xticks())).astype(int))
+    
+    # Label the axes
+    ax1.set_xlabel('Time (s)')
+    ax2.set_xlabel('Sample Index')
+    plt.title('ECG Signal')
+    plt.show()
+    
+    print("Beat symbols locations:")
+    indices = find_beat_indices(ann, beat_types)
+    for beat_type, idx_list in indices.items():
+        print(f"Beat type '{beat_type}': Indices {idx_list}")
+    
+    # Print the counts of beat symbols and auxiliary notes
+    print("Beat symbols count:")
+    print(pd.Series(ann.symbol).value_counts())
+    
+    print("Auxiliary notes count:")
+    print(pd.Series(ann.aux_note).value_counts())
+    
+    
 
 def flatten(v):
     """

@@ -11,9 +11,8 @@ import glob
 import h5py
 import sys
 
-server = "rambo"
-server_config_path = os.path.join("/home/liranc6/ecg/ecg_forecasting",
-                                  "liran_project/utils/server_config.json"
+server = "newton"
+server_config_path = os.path.join("/home/liranc6/ecg_forecasting/liran_project/utils/server_config.json"
                                   )
 
 # set server configuration
@@ -554,8 +553,6 @@ if __name__ == "__main__":
 
     base_name, extension = os.path.splitext(os.path.basename(split_pSignal_file))
     new_base_name = f"{base_name}_temp{extension}"
-    temp_filename = os.path.join(os.path.dirname(split_pSignal_file), new_base_name)
-    print(f"{temp_filename}")
     split_and_save_data(pSignal_npArray_data_dir_h5, window_size, split_pSignal_file)
 
     print("split_pSignal_file:")
@@ -566,6 +563,8 @@ if __name__ == "__main__":
     # os.remove(temp_filename)
     print_h5_hierarchy(split_pSignal_file)
     count_items(split_pSignal_file)
+
+    print("file finished")
 
 
 # at first I will try 9 minutes for sample and 1 minute for label.
