@@ -269,11 +269,8 @@ def extract_and_save_p_signal_to_HDF5(input_dir, output_file, with_R_beats=False
                         beats = np.zeros(signals.shape[0])
                         beats[indices] = 1
 
-                        # create np array with dims [1, 2, len(signals)] to store the signal and the beats
-                        assert len(beats) == len(signals), "beats and signals should have the same length"
-                        data = np.array([signals[:, 0], beats])
-                        data = np.expand_dims(data, axis=0)
-
+                        # create np array with dims [2, len(signals)] to store the signal and the beats
+                        data = np.vstack((signals[:, 0], beats))
                     else:
                         data = signals[:, 0]
 
@@ -281,9 +278,6 @@ def extract_and_save_p_signal_to_HDF5(input_dir, output_file, with_R_beats=False
 
                     # Save the p_signal data in the HDF5 file with the dataset name
                     h5_file.create_dataset(dataset_name, data=data)
-
-                    #check dataset size
-                    # print(f"dataset_name: {dataset_name}, data.shape: {data.shape}")
 
 
 def print_h5_hierarchy(file_path):
@@ -332,6 +326,28 @@ def split_and_save_data(input_h5_file, window_size, output_h5_file):
     # Create the output directory if it doesn't exist
     os.makedirs(os.path.dirname(output_h5_file), exist_ok=True)
 
+    #check if file is being written by another process
+    import fcntl
+
+    def is_file_locked(file_path):
+        locked = None
+        file_object = open(file_path, 'r')
+        try:
+            fcntl.flock(file_object, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            locked = False
+        except IOError:
+            locked = True
+        finally:
+            file_object.close()
+        return locked
+
+    # Usage
+    if is_file_locked(input_h5_file):
+        print(f"The file {input_h5_file} is being written by another process.")
+    else:
+        print(f"The file {input_h5_file} is not locked.")
+
+    print(f"{os.path.exists(input_h5_file)=}, {os.path.exists(output_h5_file)=}")
     with h5py.File(input_h5_file, 'r') as input_file, h5py.File(output_h5_file, 'w') as output_file:
         total_leaf_iterations = 0
         for group_name, group_item in input_file.items():
@@ -353,24 +369,24 @@ def split_and_save_data(input_h5_file, window_size, output_h5_file):
                     # print(f"dataset_name: {dataset_name}")
                     assert not isinstance(dataset_name, h5py.Dataset)
                     # Split the dataset into windows
-                    data = dataset_item[:] # (1, item dim, item_length)
+                    data = dataset_item[:] # data.shape = (2, len(signal))
+                    num_windows = len(data[1]) // window_size
+                    if num_windows > 1:
+                        pass
                     
-                    item = data[0]  # (item dim, item_length)                    
-                    num_windows = item.shape[1] // window_size
-
-                    # Split the array into smaller arrays of window_size along the second axis
-                    result = np.array([item[:, i:i + window_size] for i in range(0, item.shape[1], window_size)])
-                    dataset_data.append(result)
-
+                    # window_data = np.array([data[:, i:i + window_size] for i in range(0, data.shape[1], window_size)])
+                    window_data = np.array([data[:, i:i + window_size] for i in range(0, data.shape[1], window_size) if i + window_size <= data.shape[1]])
+                    dataset_data.extend(window_data)
                     # Save each window as numpy array and add it to the output dataset
                     # for i in range(num_windows):
                     #     window_data = data[i * window_size: (i + 1) * window_size]
+                        
                     #     dataset_data.append(window_data)
 
                     dataset_name = extract_integers(subgroup_name)
                     progress_bar.update(1)
                 output_file.create_dataset(dataset_name, data=dataset_data)
-
+    
 
 def merge_datasets(input_h5_file, output_h5_file):
     """
@@ -455,9 +471,11 @@ def arrays_to_fixed_size_windows(input_h5_file, window_size, output_h5_file):
 if __name__ == "__main__":
     raw_data_dir = "/mnt/qnap/liranc6/data/icentia11k-continuous-ecg/static/published-projects/icentia11k-continuous-ecg/1.0"
 
-    # creating subset of normal sinus rhythms (NSR) from the raw data
+    fs = 250 #sampling rate
+    SECONDS_IN_MINUTE = 60
 
-    min_window_size = 10 * 60 * 250  # minutes * seconds * sampling rate
+    # creating subset of normal sinus rhythms (NSR) from the raw data
+    min_window_size = 10 * SECONDS_IN_MINUTE * fs  # minutes * seconds * sampling rate
     # the reason for min_window_size is that I hope to forecast 1-5 minutes ahead.
     # and I dont know if a smaller window will give me enough context data
     # on top of that, I think I have enough data so I can fiter out the shorter NSR.
@@ -474,9 +492,8 @@ if __name__ == "__main__":
     extract_and_save_p_signal_to_HDF5(subset_data_dir, pSignal_npArray_data_dir_h5, with_R_beats=True)
 
     # split the arrays to fixed size windows
-    fs = 250
-    context_window_size = 9*60*fs  # minutes * seconds * fs
-    label_window_size = 1*60*fs  # minutes * seconds * fs
+    context_window_size = 9*SECONDS_IN_MINUTE*fs  # minutes * seconds * fs
+    label_window_size = 1*SECONDS_IN_MINUTE*fs  # minutes * seconds * fs
     window_size = context_window_size+label_window_size
 
     split_pSignal_file = os.path.join(data_path,
