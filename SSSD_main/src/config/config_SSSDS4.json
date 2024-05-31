@@ -5,40 +5,40 @@
         "beta_T": 0.02
     },
     "wavenet_config": {
-        "in_channels": 150,
-        "out_channels": 150,
+        "in_channels": 1,
+        "out_channels": 1,
         "num_res_layers": 36,
         "res_channels": 100,
         "skip_channels": 100,
         "diffusion_step_embed_dim_in": 128,
         "diffusion_step_embed_dim_mid": 512,
         "diffusion_step_embed_dim_out": 512,
-        "s4_lmax": 100,
+        "s4_lmax": 3200,
         "s4_d_state":64,
         "s4_dropout":0.0,
         "s4_bidirectional":1,
         "s4_layernorm":1
     },
     "train_config": {
-        "output_directory": "/home/liranc6/ecg/ecg_forecasting/liran_project/results/try",
-        "ckpt_iter": "max",
-        "iters_per_ckpt": 100,
-        "iters_per_logging": 100,
-        "n_iters": 3,
+        "output_directory": "/home/liranc6/ecg/ecg_forecasting/liran_project/results/icentia11k/SSSDS4/",
+        "ckpt_iter": -1,
+        "iters_per_ckpt": 5,
+        "iters_per_logging": 10,
+        "n_iters": 300,
         "learning_rate": 2e-4,
         "only_generate_missing": 1,
         "use_model": 2,
-        "masking": "rm",
+        "masking": "pred",
         "missing_k": 90
     },
     "trainset_config":{
-        "train_data_path": "/home/liranc6/ecg/ecg_forecasting/data/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes_window.h5",
-        "test_data_path": "/home/liranc6/ecg/ecg_forecasting/liran_project/results/test.npy",
+        "train_data_path": "./datasets/train_mujoco.npy",
+        "test_data_path": "./datasets/test_mujoco.npy",
         "segment_length":100,
         "sampling_rate": 100
     },
     "gen_config":{
-        "output_directory": "./results/mujoco/90",
-        "ckpt_path": "./results/mujoco/90/"
+        "output_directory": "/home/liranc6/ecg/ecg_forecasting/liran_project/results/icentia11k/SSSDS4/",
+        "ckpt_path": "/home/liranc6/ecg/ecg_forecasting/liran_project/results/icentia11k/SSSDS4/"
     }
 }

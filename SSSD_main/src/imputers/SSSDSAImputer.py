@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
+import sys
+sys.path.append('../../../SSSD_main')
 from SSSD_main.src.imputers.S4Model import S4, LinearActivation
 from SSSD_main.src.utils.util import calc_diffusion_step_embedding
 
@@ -42,8 +44,24 @@ class DownPool(nn.Module):
         )
 
     def forward(self, x):
-        x = rearrange(x, '... h (l s) -> ... (h s) l', s=self.pool)
-        x = self.linear(x)
+        # x: (..., H, L)
+        #
+        try:
+            x = rearrange(x, '... h (l s) -> ... (h s) l', s=self.pool)
+            x = self.linear(x)
+        except Exception as e:
+            print(f"DownPool: {e}")
+            print(f"{x.size()=}")
+            print(f"{self.pool=}")
+            print(f"{self.d_output=}")
+            print("adding padding to the input to ensure the sequence length is divisible by the pool factor")
+            x = F.pad(x, (0, self.pool - x.size(-1) % self.pool))
+            print(f"{x.size()=}")
+            x = rearrange(x, '... h (l s) -> ... (h s) l', s=self.pool)
+            print(f"{x.size()=}")
+            x = self.linear(x)
+            print(f"{x.size()=}")
+            # x = x[..., :-1]
         return x
 
     def step(self, x, state, **kwargs):
@@ -417,7 +435,7 @@ class SSSDSAImputer(nn.Module):
         # Down blocks
         outputs = []
         outputs.append(x)
-        for layer in self.d_layers:
+        for i, layer in enumerate(self.d_layers):
             if isinstance(layer, ResidualBlock):
                 x = layer((x,conditional,diffusion_step_embed))
             else:

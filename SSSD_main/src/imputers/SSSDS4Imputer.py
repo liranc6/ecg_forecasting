@@ -51,6 +51,7 @@ class Residual_block(nn.Module):
 
         self.fc_t = nn.Linear(diffusion_step_embed_dim_out, self.res_channels)
 
+        # print(f"{2*self.res_channels=} {s4_lmax=} {s4_d_state=} {s4_dropout=} {s4_bidirectional=} {s4_layernorm=}")
         self.S41 = S4Layer(features=2*self.res_channels,
                            lmax=s4_lmax,
                            N=s4_d_state,
@@ -89,6 +90,8 @@ class Residual_block(nn.Module):
 
         h = self.conv_layer(h)
         h = self.S41(h.permute(2,0,1)).permute(1,2,0)
+
+        # print(f"{self.S41.s4_layer.kernel.kernel.z.shape=}")
 
         assert cond is not None
         cond = self.cond_conv(cond)
@@ -200,12 +203,12 @@ class SSSDS4Imputer(nn.Module):
         noise, conditional, mask, diffusion_steps = input_data
 
         # Conditional masking focuses error computations on available data
-        conditional = conditional * mask
-        conditional = torch.cat([conditional, mask.float()], dim=1)
+        conditional = torch.cat([conditional * mask, mask.float()], dim=1)
 
-        x = noise
-        x = self.init_conv(x)
+        x = self.init_conv(noise)
         x = self.residual_layer((x, conditional, diffusion_steps))
         y = self.final_conv(x)
 
         return y
+   
+

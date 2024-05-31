@@ -34,9 +34,7 @@ from liran_project.utils.dataset_loader import SingleLeadECGDatasetCrops as Cust
 
 
 os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-os.environ['CUDA_VISIBLE_DEVICES'] = '5'
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+os.environ['CUDA_VISIBLE_DEVICES'] = '6'
 
 def train_new(output_directory,
           ckpt_iter, 
@@ -47,12 +45,10 @@ def train_new(output_directory,
           only_generate_missing,
           masking,
           missing_k,
-          model_name,
           net,
           diffusion_config,
           diffusion_hyperparams,
-          wandb_config,
-          train_config,
+          trainset_config,
           context_size,
           label_size,
           batch_size,
@@ -122,39 +118,18 @@ def train_new(output_directory,
             model_path = os.path.join(output_directory, '{}.pkl'.format(ckpt_iter))
             checkpoint = torch.load(model_path, map_location='cpu')
 
-            if model_name == "SSSDS4":
-                net.residual_layer.residual_blocks[35].S42.s4_layer.kernel.kernel.z = checkpoint['model_state_dict']['residual_layer.residual_blocks.35.S42.s4_layer.kernel.kernel.z']
-            elif model_name == "SSSDSA":
-                for i in range(len(net.d_layers)):
-                    if f'd_layers.{i}.layer.kernel.kernel.z' in checkpoint['model_state_dict']:
-                        net.d_layers[i].layer.kernel.kernel.z = checkpoint['model_state_dict'][f'd_layers.{i}.layer.kernel.kernel.z'].to(device)
-                        net.d_layers[i].layer.kernel.kernel.omega = checkpoint['model_state_dict'][f'd_layers.{i}.layer.kernel.kernel.omega'].to(device)
-                for i in range(len(net.c_layers)):
-                    if f'c_layers.{i}.layer.kernel.kernel.z' in checkpoint['model_state_dict']:
-                        net.c_layers[i].layer.kernel.kernel.z = checkpoint['model_state_dict'][f'c_layers.{i}.layer.kernel.kernel.z'].to(device)
-                        net.c_layers[i].layer.kernel.kernel.omega = checkpoint['model_state_dict'][f'c_layers.{i}.layer.kernel.kernel.omega'].to(device)
-                for i in range(len(net.u_layers)):
-                    if f'u_layers.{i}.layer.kernel.kernel.z' in checkpoint['model_state_dict']:
-                        net.u_layers[i].layer.kernel.kernel.z = checkpoint['model_state_dict'][f'u_layers.{i}.layer.kernel.kernel.z'].to(device)
-                        net.u_layers[i].layer.kernel.kernel.omega = checkpoint['model_state_dict'][f'u_layers.{i}.layer.kernel.kernel.omega'].to(device)
-                    for j in range(len(net.u_layers[i])):
-                        if f'u_layers.{i}.{j}.layer.kernel.kernel.z' in checkpoint['model_state_dict']:
-                            net.u_layers[i][j].layer.kernel.kernel.z = checkpoint['model_state_dict'][f'u_layers.{i}.{j}.layer.kernel.kernel.z'].to(device)
-                            net.u_layers[i][j].layer.kernel.kernel.omega = checkpoint['model_state_dict'][f'u_layers.{i}.{j}.layer.kernel.kernel.omega'].to(device)
+            net.residual_layer.residual_blocks[35].S42.s4_layer.kernel.kernel.z = checkpoint['model_state_dict']['residual_layer.residual_blocks.35.S42.s4_layer.kernel.kernel.z']
 
-                                
             # feed model dict and optimizer state
             net.load_state_dict(checkpoint['model_state_dict'])
-
             if 'optimizer_state_dict' in checkpoint:
                 optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             print('Successfully loaded model at iteration {}'.format(ckpt_iter))
             return checkpoint["wandb_id"]
             
         except Exception as e:
-            # print(e)
-            raise e
-
+            print(e)
+            raise ValueError('Failed to load model at iteration {}'.format(ckpt_iter))
 
     print(f"{ckpt_iter=}")
             
@@ -182,28 +157,20 @@ def train_new(output_directory,
                 else:
                     last_file -= 1
             except Exception as e:
-                # print(e)
+                print(e)
                 last_file -= 1
-                raise e
     else:
         ckpt_iter = -1
         print('No valid checkpoint model found, start training from initialization.')
 
-    # Initialize wandb with your project name and the relevant configuration
-    wandb_project_name = f'ecg_SSSD_{model_name}'
-
-    wandb_config["wandb_id"] = str(wandb_id)
-
-    print(f"{wandb_id=}")
-
     if wandb_id:
-        wandb.init(project=wandb_project_name, id=wandb_id, resume="must")
+        wandb.init(project="ecg_SSSD", id=wandb_id, resume="must")
         print(wandb.run.id)
     else:
-        wandb.init(project=wandb_project_name, config=wandb_config)
+        wandb.init(project=project_name, config=wandb_config)
 
     # Specify the path to the H5 file
-    file_path = train_config["trainset_config"]["train_data_path"]
+    file_path = "/mnt/qnap/liranc6/data/icentia11k-continuous-ecg_new_subsets/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes_window.h5"
     # Load data from the first dataset
     dataset = SingleLeadECGDatasetCrops(context_size, label_size, file_path)
 
@@ -246,7 +213,9 @@ def train_new(output_directory,
                 pbar_inner = tqdm(enumerate(val_loader), total=len(val_loader), position=1, leave=True, dynamic_ncols=True)
 
             for i, batch in pbar_inner:
-
+                
+                if i>10:
+                    break
                 # Concatenate tensors along the last dimension
                 concatenated_batch = torch.cat(batch, dim=-1)
 
@@ -382,9 +351,8 @@ if __name__ == "__main__":
     label_window_size = (label_window_num_minutes*60 + label_window_num_secondes) * fs  # minutes * seconds * fs
     window_size = context_window_size+label_window_size
 
-    if model_name == "SSSDSA":
-        context_window_size -= (context_window_size%4) # patch bug fix for SSSDSA impputator forward, the input size should be divisible by 4
-        label_window_size -= (label_window_size%4)
+    context_window_size -= (context_window_size%4) # patch bug fix for SSSDSA impputator forward, the input size should be divisible by 4
+    label_window_size -= (label_window_size%4)
 
 
 
@@ -414,42 +382,31 @@ if __name__ == "__main__":
                     "learning_rate": train_config["train_config"]["learning_rate"],
                     "model_name": model_name,
                     }
+    
+    # Initialize wandb with your project name and the relevant configuration
+    project_name = f'ecg_SSSD_{model_name}'
 
          
     train_config["output_directory"] = os.path.join(train_config["output_directory"], train_config['train_config']['model_name'])
-    trainset_config = {
+    trainset_config_SSSDS4 = {
         "train_data_path": train_config["trainset_config"]["train_data_path"],
         "test_data_path": train_config["trainset_config"]["test_data_path"],
         "segment_length": window_size,
         "sampling_rate": fs
     }
 
-    # if model_name == "SSSDS4":
-    #     with open(model_config_path) as f:
-    #         config_SSSDS4 = json.load(f)
-    #     # Initialize your models and optimizers based on the chosen 'use_model'
-    #     inner_model_config = config_SSSDS4['wavenet_config']
-    #     net = SSSDS4Imputer(**inner_model_config).cuda()
-    # elif train_config['train_config']['model_name'] == "SSSDSA":
-    #     with open(model_config_path) as f:
-    #         config_SSSDSA = json.load(f)
-    #     inner_model_config = config_SSSDSA['sashimi_config']
-    #     net = SSSDSAImputer(**inner_model_config).cuda()
-
-    with open(model_config_path) as f:
-        config_SSSD_inner_model = json.load(f)
-        
     if model_name == "SSSDS4":
-        inner_model_config = config_SSSD_inner_model['wavenet_config']
-    elif model_name == "SSSDSA":
-        inner_model_config = config_SSSD_inner_model['sashimi_config']
-
-    if model_name == "SSSDS4":
+        with open(model_config_path) as f:
+            config_SSSDS4 = json.load(f)
+        # Initialize your models and optimizers based on the chosen 'use_model'
+        inner_model_config = config_SSSDS4['wavenet_config']
         net = SSSDS4Imputer(**inner_model_config).cuda()
-    elif model_name == "SSSDSA":
+    elif train_config['train_config']['model_name'] == "SSSDSA":
+        with open(model_config_path) as f:
+            config_SSSDSA = json.load(f)
+        inner_model_config = config_SSSDSA['sashimi_config']
         net = SSSDSAImputer(**inner_model_config).cuda()
-    else:
-        raise ValueError(f"model_name should be either 'SSSDS4' or 'SSSDSA', but got {model_name}")
+
 
     global diffusion_hyperparams
     diffusion_hyperparams = calc_diffusion_hyperparams(**train_config['diffusion_config'])
@@ -464,15 +421,13 @@ if __name__ == "__main__":
         only_generate_missing=train_config["train_config"]['only_generate_missing'],
         masking= train_config["train_config"]['masking'],
         missing_k=train_config["train_config"]['missing_k'],
-        model_name = model_name,
         net=net,
         diffusion_config=train_config['diffusion_config'],
         diffusion_hyperparams = diffusion_hyperparams,
-        train_config = train_config,
+        trainset_config = trainset_config_SSSDS4,
         context_size=context_window_size,
         label_size=label_window_size,
         batch_size=batch_size
         )
 
     wandb.finish()
-

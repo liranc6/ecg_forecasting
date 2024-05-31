@@ -102,6 +102,15 @@ except ImportError:
             z: (..., L)
             returns: (..., L)
             """
+
+            # Determine device
+            device = v.device
+
+            # Move tensors to the same device
+            v = v.to(device)
+            z = z.to(device)
+            w = w.to(device)
+            
             cauchy_matrix = v.unsqueeze(-1) / (z.unsqueeze(-2) - w.unsqueeze(-1)) # (... N L)
             return torch.sum(cauchy_matrix, dim=-2)
 
@@ -1198,7 +1207,7 @@ class S4Layer(nn.Module):
         x = x.permute((1,2,0)) #batch, feature, seq (as expected from S4 with transposed=True)
         xout, _ = self.s4_layer(x) #batch, feature, seq
         xout = self.dropout(xout)
+        # print(f"{x.shape=} -> {xout.shape=}")
         xout = xout + x # skip connection   # batch, feature, seq
         xout = xout.permute((2,0,1)) # seq, batch, feature
         return self.norm_layer(xout)
-   
