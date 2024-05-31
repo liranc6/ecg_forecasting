@@ -1,0 +1,28 @@
+# from the icentia-ecg dir
+*.npz
+~*
+*.pyc
+__cache__
+*.sw*
+
+# Added to ignore
+data
+*.idea
+liran_project/personal_notes.txt
+wandb/*
+ecg-segmentation/*
+liran_project/notebooks/wandb
+ecg-deep-segmentation
+ecg-segmentation
+data
+ScoreGradPred
+liran_project/wandb/
+liran_project/results/
+.vscode/
+QRS_detector/
+R-Peak-Detection-1D-SelfONN/
+
+# Created by https://www.gitignore.io/api/python
+# Edit at https://www.gitignore.io/?templates=python
+
+# End of https://www.gitignore.io/api/python
