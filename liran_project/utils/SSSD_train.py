@@ -12,10 +12,13 @@ import argparse
 import numpy as np
 import wandb
 
-server = "rambo"
-server_config_path = os.path.join("/home/liranc6/ecg/ecg_forecasting",
-                                  "liran_project/utils/server_config.json"
+server = "newton"
+server_config_path = os.path.join("/home/liranc6/ecg_forecasting/liran_project/utils/server_config.json"
                                   )
+
+if server == "rambo":
+    os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '6'
 
 # set server configuration
 with open(server_config_path) as f:
@@ -24,7 +27,6 @@ with open(server_config_path) as f:
     project_path = server_config['project_path']
 
 sys.path.append(project_path)
-import liran_project.utils.dataset_loader as dataset_loader
 
 from liran_project.utils.dataset_loader import SingleLeadECGDatasetCrops
 
@@ -36,12 +38,34 @@ from SSSD_main.src.imputers.SSSDSAImputer import SSSDSAImputer
 from SSSD_main.src.imputers.SSSDS4Imputer import SSSDS4Imputer
 
 # Import your custom dataset class here
-from liran_project.utils.dataset_loader import SingleLeadECGDatasetCrops as CustomDataset
+# from liran_project.utils.dataset_loader import SingleLeadECGDatasetCrops as CustomDataset
 
+def check_gpu_memory_usage(device_id=0):
+    if torch.cuda.is_available():
+        device_properties = torch.cuda.get_device_properties(device_id)
+        gpu_name = device_properties.name
+        total_memory = device_properties.total_memory / (1024 ** 3)  # Convert from bytes to GB
+        reserved_memory = torch.cuda.memory_reserved(device_id) / (1024 ** 3)  # Convert from bytes to GB
+        allocated_memory = torch.cuda.memory_allocated(device_id) / (1024 ** 3)  # Convert from bytes to GB
+        free_memory = reserved_memory - allocated_memory  # Memory that is currently free
 
-os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-os.environ['CUDA_VISIBLE_DEVICES'] = '6'
+        print(f"GPU {device_id} ({gpu_name}) Memory Usage:")
+        print(f"  Total Memory: {total_memory:.2f} GB")
+        print(f"  Reserved Memory: {reserved_memory:.2f} GB")
+        print(f"  Allocated Memory: {allocated_memory:.2f} GB")
+        print(f"  Free Memory: {free_memory:.2f} GB")
 
+        return {
+            'gpu_name': gpu_name,
+            'total_memory_gb': total_memory,
+            'reserved_memory_gb': reserved_memory,
+            'allocated_memory_gb': allocated_memory,
+            'free_memory_gb': free_memory
+        }
+    else:
+        print("CUDA is not available.")
+        return None
+    
 def train_new(output_directory,
           ckpt_iter, 
           n_iters, 
@@ -175,11 +199,6 @@ def train_new(output_directory,
     else:
         wandb.init(project=project_name, config=wandb_config)
 
-    # Specify the path to the H5 file
-    file_path = "/mnt/qnap/liranc6/data/icentia11k-continuous-ecg_new_subsets/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes_window.h5"
-    # Load data from the first dataset
-    dataset = SingleLeadECGDatasetCrops(context_size, label_size, file_path)
-
     # Define the size of training and validation sets (e.g., 80% train, 20% validation)
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
@@ -220,8 +239,6 @@ def train_new(output_directory,
 
             for i, batch in pbar_inner:
                 
-                if i>10:
-                    break
                 # Concatenate tensors along the last dimension
                 concatenated_batch = torch.cat(batch, dim=-1)
 
@@ -263,8 +280,13 @@ def train_new(output_directory,
                 loss_mask = ~mask.bool()
 
                 assert batch.size() == mask.size() == loss_mask.size(), f'{batch.size()=} {mask.size()=} {loss_mask.size()=}'
-                
+
+                batch = batch.to(device)
+                mask = mask.to(device)
+                loss_mask = loss_mask.to(device)
+ 
                 X = batch, batch, mask, loss_mask #audio = X[0], cond = X[1], mask = X[2], loss_mask = X[3]
+
                 if stage == "train":
                     # back-propagation
                     optimizer.zero_grad()
@@ -306,6 +328,8 @@ def train_new(output_directory,
                                     best_model_path)
                     wandb.run.summary["best_validation_loss"] = avg_val_loss
                     tqdm.write(f'Validation loss improved at iteration {n_iter}. Model saved at {best_model_path}')
+            
+            gpu_memory_stats = check_gpu_memory_usage()
                     
         elapsed_time = time.time() - start_time
         minuts_elapsed_time = int(elapsed_time)/60
@@ -338,7 +362,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"{device=}")
 
-    train_config_path = os.path.join(ProjectPath, 'SSSD_main', 'src','config','train_config.json')
+    train_config_path = os.path.join(project_path, 'SSSD_main', 'src','config','train_config.json')
     with open(train_config_path) as f:
         train_config = json.load(f)
 
@@ -357,6 +381,7 @@ if __name__ == "__main__":
     label_window_size = (label_window_num_minutes*60 + label_window_num_secondes) * fs  # minutes * seconds * fs
     window_size = context_window_size+label_window_size
 
+    print(f"{context_num_secondes=}, {label_window_num_secondes=}")
     context_window_size -= (context_window_size%4) # patch bug fix for SSSDSA impputator forward, the input size should be divisible by 4
     label_window_size -= (label_window_size%4)
 
@@ -367,7 +392,9 @@ if __name__ == "__main__":
     assert os.path.isfile(train_data_path), f"{train_data_path=} does not exist"
 
     # Instantiate the class
-    dataset = dataset_loader.SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_data_path)
+    dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_data_path)
+
+
     batch_size = train_config["train_config"]["batch_size"]
     print(f"{batch_size=}")
 
@@ -375,7 +402,7 @@ if __name__ == "__main__":
     print(f"{batch_size * window_size=}")
     if model_name == "SSSDS4":
         max_batch_size = 31000
-        assert max_batch_size >= batch_size * window_size, f"{max_batch_size=} should be greater than or equal to {batch_size * window_size=}"
+        # assert max_batch_size >= batch_size * window_size, f"{max_batch_size=} should be greater than or equal to {batch_size * window_size=}"
     
 
     wandb_config = {
@@ -418,6 +445,7 @@ if __name__ == "__main__":
     diffusion_hyperparams = calc_diffusion_hyperparams(**train_config['diffusion_config'])
 
     train_new(
+        dataset=dataset,
         output_directory=train_config["train_config"][f"output_directory_{server}"],
         ckpt_iter=train_config["train_config"]['ckpt_iter'],
         n_iters= train_config["train_config"]['n_iters'],

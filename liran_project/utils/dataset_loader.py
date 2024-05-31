@@ -1,3 +1,4 @@
+from pickle import FALSE
 from torch.utils.data import Dataset
 import h5py
 import numpy as np
@@ -8,7 +9,7 @@ from collections import OrderedDict
 
 
 class SingleLeadECGDatasetCrops(Dataset):
-    def __init__(self, context_window_size, label_window_size, h5_filename, cache_size=5000):
+    def __init__(self, context_window_size, label_window_size, h5_filename, data_with_RR=True, cache_size=5000, return_with_RR = False):
         self.context_window_size = context_window_size
         self.label_window_size = label_window_size
         self.h5_file = h5py.File(h5_filename, 'r')
@@ -23,6 +24,8 @@ class SingleLeadECGDatasetCrops(Dataset):
         self.cumulative_sizes = np.cumsum(datasets_sizes)
         self.cache = OrderedDict()
         self.cache_size = cache_size
+        self.data_with_RR = data_with_RR
+        self.return_with_RR = return_with_RR
 
 
     def __len__(self):
@@ -35,7 +38,16 @@ class SingleLeadECGDatasetCrops(Dataset):
     def __getitem__(self, idx):
         if idx in self.cache.keys():
             x, y = self.cache[idx]
+            assert self.data_with_RR and not self.return_with_RR, f"{self.data_with_RR=} {self.return_with_RR=}"
+            if self.data_with_RR and not self.return_with_RR:
+                # print("self.data_with_RR and not self.return_with_RR")
+                x, y = x[0], y[0]
+            else:
+                print("not self.data_with_RR and not self.return_with_RR")
             return x, y
+
+
+        # idx not in cache:
 
         dataset_idx = bisect.bisect_right(self.cumulative_sizes, idx)
 
@@ -58,12 +70,36 @@ class SingleLeadECGDatasetCrops(Dataset):
             for i in range(len(to_cache)):
                 self.cache.popitem(last=True)
 
-        for i in range(len(to_cache)):
-            window = to_cache[i]
-            assert self.context_window_size + self.label_window_size <= len(window), "context_window_size+label_window_size > len(window)"
-            x = window[advance: advance + self.context_window_size]
-            y = window[advance + self.context_window_size : advance + self.context_window_size + self.label_window_size]
-            self.cache[idx + i] = (x, y)
 
+        assert self.data_with_RR, f"{self.data_with_RR=}"
+        if self.data_with_RR:
+            # print("self.data_with_RR")
+            for i in range(len(to_cache)):
+                window = to_cache[i]
+                signal_len = len(window[0])
+                assert self.context_window_size + self.label_window_size <= signal_len, f"{self.context_window_size=} + {self.label_window_size=} > {signal_len=}"
+                x = window[:, advance: advance + self.context_window_size]
+                y = window[:, advance + self.context_window_size : advance + self.context_window_size + self.label_window_size]
+                self.cache[idx + i] = (x, y)
+
+        else:
+            print("not self.data_with_RR")
+            for i in range(len(to_cache)):
+                window = to_cache[i]
+                window = window[0]
+                print(f"{window.shape=}")
+                assert self.context_window_size + self.label_window_size <= len(window), f"{self.context_window_size=} + {self.label_window_size=} > {len(window)=}"
+                x = window[advance: advance + self.context_window_size]
+                y = window[advance + self.context_window_size : advance + self.context_window_size + self.label_window_size]
+                self.cache[idx + i] = (x, y)
+
+        assert self.data_with_RR and not self.return_with_RR, f"{self.data_with_RR=} {self.return_with_RR=}"
         x, y = self.cache[idx]
+        if self.data_with_RR and not self.return_with_RR:
+                x, y = x[0], y[0]
+                # print("self.data_with_RR and not self.return_with_RR")
+                # print(f"{x.shape=}")
+                # print(f"{y.shape=}")
+        else:
+            print("not self.data_with_RR and not self.return_with_RR")
         return x, y

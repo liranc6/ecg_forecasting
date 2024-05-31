@@ -1,11 +1,12 @@
 {   "_comments_servers": "rambo, newton",
+    "_window_max_size_in_seconds_on_newton": 25,
     
     "window_info":{
     "fs": 250, 
     "context_num_minutes": 0,
-    "context_num_secondes": 15,
+    "context_num_secondes": 16,
     "label_window_num_minutes": 0,
-    "label_window_num_secondes": 8
+    "label_window_num_secondes": 10
 },
 "diffusion_config":{
     "T": 200,
@@ -13,13 +14,13 @@
     "beta_T": 0.02
 },
 "train_config": {
-    "batch_size": 9,
+    "batch_size": 8,
     "output_directory_rambo": "/home/liranc6/ecg/ecg_forecasting/liran_project/results/icentia11k",
     "output_directory_newton": "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k",
     "ckpt_iter": 0,
     "iters_per_ckpt": 2,
     "iters_per_logging": 10,
-    "n_iters": 3,
+    "n_iters": 300,
     "learning_rate": 2e-4,
     "only_generate_missing": 1,
     "_comments_model_name": "model options: SSSDS4, SSSDSA",
@@ -33,7 +34,7 @@
 },
 "trainset_config":{
     "train_data_path_rambo": "/mnt/qnap/liranc6/data/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes_window.h5",
-    "train_data_path_newton": "/home/liranc6/data/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes_window.h5",
+    "train_data_path_newton": "/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes_window.h5",
     "test_data_path": "./datasets/test_mujoco.npy",
     "segment_length": 0,
     "sampling_rate": 250
