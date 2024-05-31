@@ -6,7 +6,7 @@
     "newton":{
     "project_path": "/home/liranc6/ecg_forecasting/",
     "data_preprocess":{
-        "data_path": "'/home/liranc6/data/",
+        "data_path": "/home/liranc6/data/",
         "raw_data_dir": "/mnt/qnap/liranc6/data/icentia11k-continuous-ecg/static/published-projects/icentia11k-continuous-ecg/1.0"
                     }
     },
