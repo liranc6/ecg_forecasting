@@ -9,14 +9,25 @@ from collections import OrderedDict
 
 
 class SingleLeadECGDatasetCrops(Dataset):
-    def __init__(self, context_window_size, label_window_size, h5_filename, data_with_RR=True, cache_size=5000, return_with_RR = False):
+    def __init__(self, context_window_size, label_window_size, h5_filename, data_with_RR=True, cache_size=5000, return_with_RR = False, start_patiant=0, end_patiant=-1):
+               
         self.context_window_size = context_window_size
         self.label_window_size = label_window_size
         self.h5_file = h5py.File(h5_filename, 'r')
-        self.keys = sorted(self.h5_file.keys())
-        self.group_keys = sorted(self.h5_file.keys())
+        self.group_keys = list(self.h5_file.keys())
+
+        self.start_patiant = int(f'{start_patiant:05d}')
+        self.end_patiant = int(f'{end_patiant:05d}')
+        
+        if self.end_patiant == -1:
+            self.end_patiant = int(self.group_keys[-1])
+
+        assert self.start_patiant <= self.end_patiant, f"{self.start_patiant=} {self.end_patiant=}"
+        
+        self.keys = self.group_keys[self.start_patiant:self.end_patiant+1]
         datasets_sizes = []
-        for key in self.keys:
+        for key in self.keys:      
+            print(f"{key=}")      
             item = self.h5_file[key]
             assert isinstance(item, h5py.Dataset)
             datasets_sizes.append(len(item))
@@ -26,7 +37,7 @@ class SingleLeadECGDatasetCrops(Dataset):
         self.cache_size = cache_size
         self.data_with_RR = data_with_RR
         self.return_with_RR = return_with_RR
-
+        
 
     def __len__(self):
         return self.cumulative_sizes[-1] if self.cumulative_sizes.any() else 0
@@ -38,12 +49,11 @@ class SingleLeadECGDatasetCrops(Dataset):
     def __getitem__(self, idx):
         if idx in self.cache.keys():
             x, y = self.cache[idx]
-            assert self.data_with_RR and not self.return_with_RR, f"{self.data_with_RR=} {self.return_with_RR=}"
             if self.data_with_RR and not self.return_with_RR:
                 # print("self.data_with_RR and not self.return_with_RR")
                 x, y = x[0], y[0]
             else:
-                print("not self.data_with_RR and not self.return_with_RR")
+                pass
             return x, y
 
 
@@ -93,7 +103,6 @@ class SingleLeadECGDatasetCrops(Dataset):
                 y = window[advance + self.context_window_size : advance + self.context_window_size + self.label_window_size]
                 self.cache[idx + i] = (x, y)
 
-        assert self.data_with_RR and not self.return_with_RR, f"{self.data_with_RR=} {self.return_with_RR=}"
         x, y = self.cache[idx]
         if self.data_with_RR and not self.return_with_RR:
                 x, y = x[0], y[0]
@@ -101,5 +110,6 @@ class SingleLeadECGDatasetCrops(Dataset):
                 # print(f"{x.shape=}")
                 # print(f"{y.shape=}")
         else:
-            print("not self.data_with_RR and not self.return_with_RR")
+            pass
         return x, y
+   
