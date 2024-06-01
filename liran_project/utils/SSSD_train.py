@@ -30,11 +30,10 @@ with open(server_config_path) as f:
 sys.path.append(project_path)
 
 from liran_project.utils.dataset_loader import SingleLeadECGDatasetCrops
+from liran_project.utils.util import ecg_signal_difference
 
-from SSSD_main.src.utils.util import find_epoch, print_size, calc_diffusion_hyperparams, calculate_loss #, training_loss
-from SSSD_main.src.utils.util import get_mask_mnr, get_mask_bm, get_mask_rm, get_mask_pred
-import SSSD_main.src.utils.util as util
-from SSSD_main.src.imputers.DiffWaveImputer import DiffWaveImputer
+from SSSD_main.src.utils.util import find_epoch, print_size, calc_diffusion_hyperparams, calculate_loss, \
+                                     get_mask_mnr, get_mask_bm, get_mask_rm, get_mask_pred, sampling #, training_loss
 from SSSD_main.src.imputers.SSSDSAImputer import SSSDSAImputer
 from SSSD_main.src.imputers.SSSDS4Imputer import SSSDS4Imputer
 
@@ -235,10 +234,11 @@ def train_new(output_directory,
                 net.train()
                 train_losses = []
                 pbar_inner = tqdm(enumerate(train_loader), total=len(train_loader), position=1, leave=True, dynamic_ncols=True)
-            else:
+            else: # validation
                 net.eval()
                 val_losses = []
                 pbar_inner = tqdm(enumerate(val_loader), total=len(val_loader), position=1, leave=True, dynamic_ncols=True)
+                avg_val_acc = []
 
             for i, batch in pbar_inner:
                 
@@ -317,6 +317,22 @@ def train_new(output_directory,
                                                 "iteration": n_iter})
                         pbar_inner.update()
 
+                        #calculate validation accuracy
+                        
+                        generated_ecg = sampling(net,
+                                           size=batch.size(),
+                                           diffusion_hyperparams=diffusion_hyperparams,
+                                           cond=batch,
+                                           mask=mask,
+                                           only_generate_missing=only_generate_missing
+                                           )
+                        
+                        generated_ecg = generated_ecg[..., context_size:]
+
+                        batch_diffs = [ecg_signal_difference(label, pred) for label, pred in zip(batch, generated_ecg)]
+                        avg_diff = sum(batch_diffs) / len(batch_diffs)
+                        avg_val_acc.append(avg_diff)        
+
             if stage == "train":
                 avg_train_loss = sum(train_losses) / len(train_losses)
                 
@@ -336,7 +352,14 @@ def train_new(output_directory,
                     
         elapsed_time = time.time() - start_time
         minuts_elapsed_time = int(elapsed_time)/60
-        wandb.log({"training_loss": avg_train_loss, "validation_loss": avg_val_loss, "elapsed_time": minuts_elapsed_time , "iteration": n_iter})
+        avg_diff = sum(avg_val_acc) / len(avg_val_acc)
+        wandb.log({"training_loss": avg_train_loss,
+                   "validation_loss": avg_val_loss, 
+                   "elapsed_time": minuts_elapsed_time , 
+                   "iteration": n_iter,
+                   "validation_accuracy": avg_diff
+                        }
+                   )
         tqdm.write(f'Time elapsed: {str(timedelta(seconds=int(elapsed_time)))}')
 
         # save checkpoint

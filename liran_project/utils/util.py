@@ -1,10 +1,30 @@
 import os
 import numpy as np
 import torch
+import torch.nn.functional as F
 import random
 import matplotlib.pyplot as plt
 import wfdb
 import pandas as pd
+from fastdtw import fastdtw
+
+
+def ecg_signal_difference(a, b):
+    """
+    Compute the difference between two ECG signals.
+    I created a function to it so I can use it as a level of abstraction, if I want to change the way I calculate the difference between two signals, I can do it here.
+    """
+    
+    # Dynamic Time Warping (DTW)
+    """
+    DTW Distance is good for measuring ECG forecast accuracy because it can capture similarities between
+    time-series signals with varying lengths or temporal distortions, which are common in ECG data due to irregular heartbeats or noise.
+    """
+    #to cpu because fastdtw does not support cuda tensors
+    dtw_distance, _ = fastdtw(a.cpu(), b.cpu())
+    # dtw_distance = dtw.distance(a.cpu().numpy(), b.cpu().numpy())  # more accurate but much slower
+    
+    return dtw_distance / len(a)
 
 def modify_z_and_omega(net, model_name, checkpoint, device):
     if model_name == "SSSDS4":
@@ -26,8 +46,6 @@ def modify_z_and_omega(net, model_name, checkpoint, device):
                 if f'u_layers.{i}.{j}.layer.kernel.kernel.z' in checkpoint['model_state_dict']:
                     net.u_layers[i][j].layer.kernel.kernel.z = checkpoint['model_state_dict'][f'u_layers.{i}.{j}.layer.kernel.kernel.z'].to(device)
                     net.u_layers[i][j].layer.kernel.kernel.omega = checkpoint['model_state_dict'][f'u_layers.{i}.{j}.layer.kernel.kernel.omega'].to(device)
-
-
 
 def find_beat_indices(ann, beat_types):
     """
