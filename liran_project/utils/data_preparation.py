@@ -31,6 +31,55 @@ from liran_project.utils.util import find_beat_indices
 # ProjectPath = os.path.dirname(os.path.abspath(os.getcwd()))
 # data_path = '/mnt/qnap/liranc6/data/'
 
+def split_to_train_val_test(input_h5_file, output_directory, idx_start_val, idx_start_test, idx_end_test):
+
+    # Paths to your source and destination files
+    train_file = os.path.join(output_directory,
+                               "train",
+                               f'p0_to_p{idx_start_val-1}.h5')
+    
+    val_file = os.path.join(output_directory,
+                                "val",
+                                f'p{idx_start_val}_to_p{idx_start_test-1}.h5')
+    
+    test_file = os.path.join(output_directory,
+                                "test",
+                                f'p{idx_start_test}_to_p{idx_end_test}.h5')
+    
+    os.makedirs(os.path.dirname(train_file), exist_ok=True)
+    os.makedirs(os.path.dirname(val_file), exist_ok=True)
+    os.makedirs(os.path.dirname(test_file), exist_ok=True)
+    
+    # Indices for the datasets to be copied
+    indices_1 = list(range(0, idx_start_val))    # 00000-00025
+    indices_2 = list(range(idx_start_val-1, idx_start_test))   # 00026-00040
+    indices_3 = list(range(idx_start_test, idx_end_test))   # 00040-00046
+
+    pbar = tqdm(total=3, desc="Splitting datasets")
+    # Copy datasets to the new files
+    copy_datasets(input_h5_file, train_file, indices_1)
+    count_items(train_file)
+    pbar.update(1)
+    copy_datasets(input_h5_file, val_file, indices_2)
+    count_items(val_file)
+    pbar.update(1)
+    copy_datasets(input_h5_file, test_file, indices_3)
+    count_items(test_file)
+    pbar.update(1)
+
+    pbar.close()
+
+    print("Datasets split into three HDF5 files successfully.")
+
+    
+# Function to copy datasets from source to destination HDF5 file
+def copy_datasets(src_file, dest_file, dataset_indices):
+    with h5py.File(src_file, 'r') as src, h5py.File(dest_file, 'w') as dest:
+        for index in tqdm(dataset_indices, total=len(dataset_indices), desc="Copying datasets"):
+            dataset_name = f'/{index:05d}'
+            if dataset_name in src:
+                data = src[dataset_name][:]
+                dest.create_dataset(dataset_name, data=data)
 
 def print_first_n_datasets_in_HDF5(hdf5_file, n=10):
     """
@@ -249,7 +298,7 @@ def extract_sinus_rhythms_to_new_subset(data_dir, min_window_size, num_of_patien
         Returns:
         - None
         """
-    iterator = itertools.product(range(0, num_of_patients + 1), range(0, 50))
+    iterator = itertools.product(range(7, num_of_patients + 1), range(0, 50))
     num_of_new_files = 0
     for patient_id, segment_id in tqdm(iterator, desc='extract_sinus_rhythms_to_new_subset', total=num_of_patients * 50):
         # print(f"patient_id: {patient_id}, segment_id: {segment_id}")
@@ -259,7 +308,7 @@ def extract_sinus_rhythms_to_new_subset(data_dir, min_window_size, num_of_patien
                                 f'p{patient_id:05d}_s{segment_id:02d}')
 
         if not os.path.exists(f'{filename}.atr'):
-            break
+            print(f"File {filename} not found.")
         else:
             timestamps = timestamps_of_rhythm_type_in_all_segments(filename, 'normal')
             for timestamp in timestamps:
@@ -530,7 +579,7 @@ if __name__ == "__main__":
     # and I dont know if a smaller window will give me enough context data
     # on top of that, I think I have enough data so I can fiter out the shorter NSR.
 
-    extract_sinus_rhythms_to_new_subset(raw_data_dir, min_window_size)
+    # extract_sinus_rhythms_to_new_subset(raw_data_dir, min_window_size, num_of_patients=46)
 
     # after creating the subset, with 10 first patients I have more than 10 hours of NSR data
     # divided to 62 files of at least 10 minutes each.
@@ -539,7 +588,7 @@ if __name__ == "__main__":
 
     pSignal_npArray_data_dir_h5 = os.path.join(data_path, "with_R_beats", 'icentia11k-continuous-ecg_normal_sinus_subset_npArrays.h5')
 
-    extract_and_save_p_signal_to_HDF5(subset_data_dir, pSignal_npArray_data_dir_h5, with_R_beats=True)
+    # extract_and_save_p_signal_to_HDF5(subset_data_dir, pSignal_npArray_data_dir_h5, with_R_beats=True)
 
     # split the arrays to fixed size windows
     context_window_size = 9*SECONDS_IN_MINUTE*fs  # minutes * seconds * fs
@@ -549,11 +598,11 @@ if __name__ == "__main__":
     split_pSignal_file = os.path.join(data_path,
                                       "with_R_beats",
                                       'icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits',
-                                      '10minutes_window.h5')
+                                      '10minutes_window_p0_to_p46.h5')
 
     base_name, extension = os.path.splitext(os.path.basename(split_pSignal_file))
     new_base_name = f"{base_name}_temp{extension}"
-    split_and_save_data(pSignal_npArray_data_dir_h5, window_size, split_pSignal_file)
+    # split_and_save_data(pSignal_npArray_data_dir_h5, window_size, split_pSignal_file)
 
     print("split_pSignal_file:")
     print_first_n_datasets_in_HDF5(split_pSignal_file, 5)
@@ -563,6 +612,24 @@ if __name__ == "__main__":
     # os.remove(temp_filename)
     print_h5_hierarchy(split_pSignal_file)
     count_items(split_pSignal_file)
+
+
+    idx_start_val = 33
+    idx_start_test = 40
+    idx_end_test = 46
+    split_to_train_val_test(input_h5_file=split_pSignal_file,
+                            output_directory=os.path.join(data_path,
+                                                          "with_R_beats",
+                                                          'icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits',
+                                                          '10minutes'
+                                                          ),
+                            idx_start_val=idx_start_val,
+                            idx_start_test=idx_start_test,
+                            idx_end_test=idx_end_test
+                            )
+    
+
+
 
     print("file finished")
 
