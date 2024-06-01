@@ -25,6 +25,7 @@ with open(server_config_path) as f:
     server_config = json.load(f)
     server_config = server_config[server]
     project_path = server_config['project_path']
+    data_path = server_config['data_path']
 
 sys.path.append(project_path)
 
@@ -388,14 +389,33 @@ if __name__ == "__main__":
     label_window_size -= (label_window_size%4)
 
 
+    idx_start_val = 33
+    idx_start_test = 40
+    idx_end_test = 46
 
-    train_data_path = train_config["trainset_config"][f"train_data_path_{server}"]
-    # assert file exist
-    assert os.path.isfile(train_data_path), f"{train_data_path=} does not exist"
+    data_path = train_config["trainset_config"][f"data_path_{server}"]
+
+    train_file = os.path.join(data_path,
+                               "train",
+                               f'p0_to_p{idx_start_val-1}.h5')
+    
+    val_file = os.path.join(data_path,
+                                "val",
+                                f'p{idx_start_val}_to_p{idx_start_test-1}.h5')
+    test_file = os.path.join(data_path,
+                                "test",
+                                f'p{idx_start_test}_to_p{idx_end_test}.h5')
+
+    # assert files exist
+    assert os.path.isfile(train_file), f"{train_file=} does not exist"
+    assert os.path.isfile(val_file), f"{val_file=} does not exist"
+    assert os.path.isfile(test_file), f"{test_file=} does not exist"
+
+    
 
     # Instantiate the class
-    train_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_data_path, start_patiant=0, end_patient=5)
-    val_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_data_path, start_patiant=6, end_patient=7)
+    train_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_file)
+    val_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, val_file)
 
 
     batch_size = train_config["train_config"]["batch_size"]
