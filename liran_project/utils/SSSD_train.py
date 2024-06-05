@@ -25,7 +25,6 @@ with open(server_config_path) as f:
     server_config = json.load(f)
     server_config = server_config[server]
     project_path = server_config['project_path']
-    data_path = server_config['data_path']
 
 sys.path.append(project_path)
 
@@ -128,7 +127,7 @@ def train_new(output_directory,
                                     local_path)
     
     if not os.path.isdir(output_directory):
-        os.makedirs(output_directory)
+        os.makedirs(output_directory, exist_ok=True)
         os.chmod(output_directory, 0o775)
     print("output directory", output_directory, flush=True)
 
@@ -242,11 +241,17 @@ def train_new(output_directory,
 
             for i, batch in pbar_inner:
                 
+                if stage == "train":
+                    ecg_signals_batch = batch
+                elif stage == "val":
+                    ecg_signals_batch = batch[:, 0, :]
+                
+                
                 # Concatenate tensors along the last dimension
-                concatenated_batch = torch.cat(batch, dim=-1)
+                concatenated_batch = torch.cat(ecg_signals_batch, dim=-1)
 
                 # Reshape to the desired shape
-                batch = concatenated_batch.unsqueeze(0)[:, :, :].permute(1, 0, 2).float().to(device)
+                ecg_signals_batch = concatenated_batch.unsqueeze(0)[:, :, :].permute(1, 0, 2).float().to(device)
 
                 """
                 copilot answer:
@@ -269,26 +274,26 @@ def train_new(output_directory,
 
                 transposed_mask = None
                 if masking == 'rm':
-                    transposed_mask = get_mask_rm(batch[0], missing_k) # batch[0] is the first sample
+                    transposed_mask = get_mask_rm(ecg_signals_batch[0], missing_k) # batch[0] is the first sample
                 elif masking == 'mnr':
-                    transposed_mask = get_mask_mnr(batch[0], missing_k)
+                    transposed_mask = get_mask_mnr(ecg_signals_batch[0], missing_k)
                 elif masking == 'bm':
-                    transposed_mask = get_mask_bm(batch[0], missing_k)
+                    transposed_mask = get_mask_bm(ecg_signals_batch[0], missing_k)
                 elif masking == 'pred':
-                    transposed_mask = get_mask_pred(batch[0], context_size, label_size)
+                    transposed_mask = get_mask_pred(ecg_signals_batch[0], context_size, label_size)
 
                 assert transposed_mask is not None, "Masking strategy not found"
                 mask = transposed_mask #.permute(1, 0)
-                mask = mask.repeat(batch.size()[0], 1, 1).float().cuda()
+                mask = mask.repeat(ecg_signals_batch.size()[0], 1, 1).float().cuda()
                 loss_mask = ~mask.bool()
 
-                assert batch.size() == mask.size() == loss_mask.size(), f'{batch.size()=} {mask.size()=} {loss_mask.size()=}'
+                assert ecg_signals_batch.size() == mask.size() == loss_mask.size(), f'{ecg_signals_batch.size()=} {mask.size()=} {loss_mask.size()=}'
 
-                batch = batch.to(device)
+                ecg_signals_batch = ecg_signals_batch.to(device)
                 mask = mask.to(device)
                 loss_mask = loss_mask.to(device)
  
-                X = batch, batch, mask, loss_mask #audio = X[0], cond = X[1], mask = X[2], loss_mask = X[3]
+                X = ecg_signals_batch, ecg_signals_batch, mask, loss_mask #audio = X[0], cond = X[1], mask = X[2], loss_mask = X[3]
 
                 if stage == "train":
                     # back-propagation
@@ -296,6 +301,7 @@ def train_new(output_directory,
                     
                     train_loss = calculate_loss(net, nn.MSELoss(), X, diffusion_hyperparams,
                                         only_generate_missing=only_generate_missing)
+                    check_gpu_memory_usage()
                     
                     train_losses.append(train_loss.item())
 
@@ -318,20 +324,25 @@ def train_new(output_directory,
                         pbar_inner.update()
 
                         #calculate validation accuracy
-                        
+                        print(f"generating ecg for validation batch {i}")
+                        #check devices of: net, batch, mask
+                        print(f"{net.device=}, {ecg_signals_batch.device=}, {mask.device=}")
+
                         generated_ecg = sampling(net,
-                                           size=batch.size(),
+                                           size=ecg_signals_batch.size(),
                                            diffusion_hyperparams=diffusion_hyperparams,
-                                           cond=batch,
+                                           cond=ecg_signals_batch,
                                            mask=mask,
                                            only_generate_missing=only_generate_missing
                                            )
+                        print(f"generated_ecg shape: {generated_ecg.shape}")
                         
                         generated_ecg = generated_ecg[..., context_size:]
 
-                        batch_diffs = [ecg_signal_difference(label, pred) for label, pred in zip(batch, generated_ecg)]
-                        avg_diff = sum(batch_diffs) / len(batch_diffs)
-                        avg_val_acc.append(avg_diff)        
+                        print("calculating accuracy")
+
+                        diffs = ecg_signal_difference(batch, generated_ecg)
+
 
             if stage == "train":
                 avg_train_loss = sum(train_losses) / len(train_losses)
@@ -345,10 +356,8 @@ def train_new(output_directory,
                                     'optimizer_state_dict': optimizer.state_dict(),
                                     'wandb_id': wandb.run.id},
                                     best_model_path)
-                    wandb.run.summary["best_validation_loss"] = avg_val_loss
                     tqdm.write(f'Validation loss improved at iteration {n_iter}. Model saved at {best_model_path}')
-            
-            gpu_memory_stats = check_gpu_memory_usage()
+
                     
         elapsed_time = time.time() - start_time
         minuts_elapsed_time = int(elapsed_time)/60
@@ -437,8 +446,11 @@ if __name__ == "__main__":
     
 
     # Instantiate the class
-    train_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_file)
-    val_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, val_file)
+    train_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_file, end_patiant=1)
+    val_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, val_file, start_patiant=33, end_patiant=34, return_with_RR=True)
+
+    assert len(train_dataset) > 0, f"{len(train_dataset)=} should be greater than 0"
+    assert len(val_dataset) > 0, f"{len(val_dataset)=} should be greater than 0"
 
 
     batch_size = train_config["train_config"]["batch_size"]
@@ -449,6 +461,10 @@ if __name__ == "__main__":
     if model_name == "SSSDS4" and server == "rambo":
         max_batch_size = 31000
         assert max_batch_size >= batch_size * window_size, f"{max_batch_size=} should be greater than or equal to {batch_size * window_size=}"
+    elif model_name == "SSSDSA":
+        context_window_size -= (context_window_size%4) # patch bug fix for SSSDSA impputator forward, the input size should be divisible by 4
+        label_window_size -= (label_window_size%4)
+
     
 
     wandb_config = {
@@ -468,7 +484,6 @@ if __name__ == "__main__":
          
     train_config[f"output_directory_{server}"] = os.path.join(train_config[f"output_directory_{server}"], train_config['train_config']['model_name'])
     trainset_config_SSSDS4 = {
-        f"train_data_path_{server}": train_config["trainset_config"][f"train_data_path_{server}"],
         "test_data_path": train_config["trainset_config"]["test_data_path"],
         "segment_length": window_size,
         "sampling_rate": fs

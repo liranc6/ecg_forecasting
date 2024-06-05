@@ -7,24 +7,247 @@ import matplotlib.pyplot as plt
 import wfdb
 import pandas as pd
 from fastdtw import fastdtw
+import neurokit2 as nk
 
 
-def ecg_signal_difference(a, b):
+def plot_tensor(input_tensor, smoothed_tensor):
     """
-    Compute the difference between two ECG signals.
-    I created a function to it so I can use it as a level of abstraction, if I want to change the way I calculate the difference between two signals, I can do it here.
+    other option: plt.plot(range(len(input_tensor)), input_tensor, marker='o')
     """
+    plt.figure(figsize=(12, 6))
+    plt.plot(input_tensor, label='Original Tensor', marker='o')
+    plt.plot(smoothed_tensor, label='Smoothed Tensor', marker='o')
+    plt.title('Smoothed Tensor Plot')
+    plt.xlabel('Index')
+    plt.ylabel('Value')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+def smooth_batch(input_tensor, kernel_size=3, sigma=1):
+    """
+    Function to apply Gaussian smoothing to a batch of 1D tensors.
+    exmaple:
+    smooth_batch(a_batch, kernel_size=2*smooth_to_each_side+1, sigma=smooth_to_each_side)
+    """
+    # Check if the kernel size is odd and greater than zero
+    if kernel_size % 2 == 0 or kernel_size <= 0:
+        raise ValueError("Kernel size must be an odd number and greater than zero.")
     
-    # Dynamic Time Warping (DTW)
+    # Create a Gaussian kernel
+    kernel_range = torch.arange(-(kernel_size // 2), kernel_size // 2 + 1, dtype=torch.float32)
+    kernel = torch.exp(-0.5 * (kernel_range / sigma)**2)
+    kernel /= kernel.sum()
+
+    padded_tensor = F.pad(input_tensor, (kernel_size // 2, kernel_size // 2), mode='constant', value=0)
+
+    smoothed_tensor = F.conv2d(padded_tensor.unsqueeze(0).unsqueeze(0), kernel.view(1, -1).unsqueeze(0).unsqueeze(0), padding=(0, kernel_size // 2))
+
+    return smoothed_tensor.squeeze(0).squeeze(0)
+
+def smooth_tensor(input_tensor, kernel_size=3, sigma=1):
+    # Check if the kernel size is odd and greater than zero
+    if kernel_size % 2 == 0 or kernel_size <= 0:
+        raise ValueError("Kernel size must be an odd number and greater than zero.")
+    
+    # Create a Gaussian kernel
+    kernel_range = torch.arange(-(kernel_size // 2), kernel_size // 2 + 1, dtype=torch.float32)
+    kernel = torch.exp(-0.5 * (kernel_range / sigma)**2)
+    kernel /= kernel.sum()
+
+    # Pad input tensor with zeros - kernel_size // 2 at the beginning and end
+    padded_tensor = F.pad(input_tensor, (kernel_size // 2, kernel_size // 2), mode='constant', value=0)
+
+    # Perform convolution
+    smoothed_tensor = F.conv1d(padded_tensor.view(1, 1, -1), kernel.view(1, 1, -1), padding=0).view(-1)
+    
+    return smoothed_tensor
+
+def prune_to_same_length(a, b, min_distance=100):
+    while len(a) > len(b):
+        if b[0] - a[0] > abs(b[0] - a[1]):
+            assert b[0] - a[0] > min_distance, f"{b[0] - a[0]=}"
+            a = a[1:]
+        
+        elif a[-1] - b[-1] > abs(b[-1] - a[-2]):
+            assert a[-1] - b[-1] > min_distance, f"{a[-1] - b[-1]=}"
+            a = a[:-1]
+
+    while len(b) > len(a):
+        if b[0] - a[0] > abs(b[0] - a[1]):
+            assert b[0] - a[0] > min_distance, f"{b[0] - a[0]=}"
+            b = b[1:]
+        
+        elif a[-1] - b[-1] > abs(b[-1] - a[-2]):
+            assert a[-1] - b[-1] > min_distance, f"{a[-1] - b[-1]=}"
+            b = b[:-1]
+
+    return (a, b)
+
+def align_batch(binary_batch, binary_batch_pred, smooth_to_each_side):
+    # assert bateches has only 1s and 0s
+    assert torch.all((binary_batch == 0) | (binary_batch == 1)).item(), "binary_batch must contain only 1s and 0s. Found other values."
+    assert torch.all((binary_batch_pred == 0) | (binary_batch_pred == 1)).item(), "binary_batch_pred must contain only 1s and 0s. Found other values."
+
+
+    smooth_to_each_side = 100
+    binary_batch_smoothed = smooth_batch(binary_batch, kernel_size=2*smooth_to_each_side+1, sigma=smooth_to_each_side)
+
+    binary_batch_pred_modified = modify_a_pred_batch(binary_batch_smoothed, binary_batch_pred)
+
+    binary_batch_pred_modified_indices = [torch.nonzero(row == 1).squeeze(1) for row in binary_batch_pred_modified]
+    binary_batch_indices = [torch.nonzero(row == 1).squeeze(1) for row in binary_batch]
+
+    pairs = torch.tensor([list(prune_to_same_length(a, b)) for a, b in zip(binary_batch_indices, binary_batch_pred_modified_indices)])
+
+    return pairs[:, 0], pairs[:, 1]
+
+
+def modify_a_pred_batch(a_smoothed_batch, a_pred_batch):
+    batch_size = a_smoothed_batch.shape[0]
+    modified_a_pred_batch = torch.zeros_like(a_pred_batch)
+
+    for b in range(batch_size):
+        a_smoothed = a_smoothed_batch[b]
+        a_pred = a_pred_batch[b]
+        intervals = []
+        new_indices = []
+        in_interval = False
+        start = 0
+
+        for i in range(len(a_smoothed)):
+            if a_smoothed[i] > 0 and not in_interval:
+                start = i
+                in_interval = True
+            elif a_smoothed[i] == 0 and in_interval:
+                intervals.append((start, i))
+                in_interval = False
+
+        if in_interval:
+            intervals.append((start, len(a_smoothed)))
+
+        for start, end in intervals:
+            ones_indices = (start + torch.nonzero(a_pred[start:end] == 1)).squeeze().tolist()
+
+            if isinstance(ones_indices, int):
+                # ones_indices = [ones_indices]
+                new_indices.append(ones_indices)
+                continue
+
+            if len(ones_indices) > 1:
+                max_index = ones_indices[a_smoothed[ones_indices].argmax()]
+                new_indices.append(max_index)
+
+        modified_a_pred_batch[b, new_indices] = 1
+
+    return modified_a_pred_batch
+
+def indices_to_binary_tensor(indices, size_like):
+    binary_tensor = torch.zeros_like(size_like)
+    binary_tensor[indices] = 1
+
+    return binary_tensor
+
+def ecg_signal_difference(ecg_batch, ecg_batch_pred, sampling_rate):
     """
+    Compute the difference between multiple ECG signals.
+    I created a function to it so I can use it as a level of abstraction, if I want to change the way I calculate the difference between two signals, I can do it here.
+
+    other feuatures we can add:
+    _ , y_waves_info = nk.ecg_delineate(y, rpeaks=info["ECG_R_Peaks"], sampling_rate=sampling_rate, method="dwt")
+        _, y_pred_waves_info = nk.ecg_delineate(y_pred, rpeaks=info["ECG_R_Peaks"], sampling_rate=sampling_rate, method="dwt")
+    wave_features = [
+            "ECG_P_Onsets", "ECG_P_Peaks", "ECG_P_Offsets",
+            "ECG_Q_Peaks", "ECG_S_Peaks",
+            "ECG_T_Onsets", "ECG_T_Peaks", "ECG_T_Offsets",
+            "ECG_R_Onsets", "ECG_R_Offsets"
+            ]
+
+    """
+
+    ecg_signals_batch = ecg_batch[:, 0, :]
+    ecg_R_beats_batch = ecg_batch[:, 1, :]
+
+    assert len(ecg_signals_batch) == len(ecg_batch_pred) and len(ecg_signals_batch) > 0, "Input lists must have the same length and contain at least one element."
+
+    
+
+    dtw_dist = dtw_distance_batch(ecg_signals_batch, ecg_batch_pred)
+
+    new_ecg_batch_pred = torch.zeros_like(ecg_batch_pred.unsqueeze(1))
+    # create binary batch of R beats from the ecg_batch_pred
+    for i, ecg_pred in enumerate(ecg_batch_pred):
+        new_ecg_batch_pred[i][0] = ecg_pred
+        
+        _, info = nk.ecg_process(ecg_pred, sampling_rate=sampling_rate)
+        ecg_pred_R_beats = info['ECG_R_Peaks']
+
+        binary_ecg_pred_R_beats = indices_to_binary_tensor(ecg_pred_R_beats, ecg_pred)
+
+        new_ecg_batch_pred[i][1] = binary_ecg_pred_R_beats
+        
+
+    ecg_pred_R_beats_batch = new_ecg_batch_pred[:, 1, :]
+
+    # align the pred_batch indices to the batch indices
+    ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices = align_batch(ecg_R_beats_batch, ecg_pred_R_beats_batch, smooth_to_each_side=100)
+
+    ecg_len = ecg_signals_batch.shape[1]
+
+    for i, (y, y_pred) in enumerate(zip(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices)):
+        y, y_pred = indices_to_binary_tensor(y, torch.zeros(ecg_len)), indices_to_binary_tensor(y_pred, torch.zeros(ecg_len))
+        ecg_R_beats_batch[i] = y
+        ecg_pred_R_beats_batch[i] = binary_ecg_pred_R_beats
+
+    mse_total = mse_distance_batch(ecg_R_beats_batch, ecg_pred_R_beats_batch)
+    mae_total = mae_distance_batch(ecg_R_beats_batch, ecg_pred_R_beats_batch)
+
+    return dtw_dist, mse_total, mae_total
+
+def dtw_distance_batch(y_list, y_pred_list):
+    """
+    Dynamic Time Warping (DTW)
     DTW Distance is good for measuring ECG forecast accuracy because it can capture similarities between
     time-series signals with varying lengths or temporal distortions, which are common in ECG data due to irregular heartbeats or noise.
     """
-    #to cpu because fastdtw does not support cuda tensors
-    dtw_distance, _ = fastdtw(a.cpu(), b.cpu())
-    # dtw_distance = dtw.distance(a.cpu().numpy(), b.cpu().numpy())  # more accurate but much slower
-    
-    return dtw_distance / len(a)
+    assert len(y_list) == len(y_pred_list) and len(y_list) > 0, "Input lists must have the same length and contain at least one element."
+    assert isinstance(y_list, np.array) and isinstance(y_pred_list, np.array), "Both inputs must be lists."
+
+    total_error = 0
+    for y, y_pred in zip(y_list, y_pred_list):
+        #to cpu because fastdtw does not support cuda tensors
+        dtw_distance, _ = fastdtw(y.cpu(), y_pred.cpu())
+        # dtw_distance = dtw.distance(a.cpu().numpy(), b.cpu().numpy())  # more accurate but much slower
+
+        total_error += dtw_distance / len(y)
+
+    return total_error / len(y_list)
+
+def mse_distance_batch(y_list, y_pred_list):
+    assert len(y_list) == len(y_pred_list) and len(y_list) > 0, "Input lists must have the same length and contain at least one element."
+    assert isinstance(y_list, list) and isinstance(y_pred_list, list), "Both inputs must be lists."
+
+    total_error = 0
+    for y, y_pred in zip(y_list, y_pred_list):
+        assert y.shape == y_pred.shape, "Each pair of tensors must have the same shape."
+        assert isinstance(y, torch.Tensor) and isinstance(y_pred, torch.Tensor), "Both inputs in each pair must be tensors."
+
+        total_error += F.mse_loss(y.float(), y_pred.float()).item()
+
+    return total_error / len(y_list)
+
+def mae_distance_batch(y_list, y_pred_list):
+    assert len(y_list) == len(y_pred_list) and len(y_list) > 0, "Input lists must have the same length and contain at least one element."
+    assert isinstance(y_list, list) and isinstance(y_pred_list, list), "Both inputs must be lists."
+
+    total_error = 0
+    for y, y_pred in zip(y_list, y_pred_list):
+        assert y.shape == y_pred.shape, "Each pair of tensors must have the same shape."
+        assert isinstance(y, torch.Tensor) and isinstance(y_pred, torch.Tensor), "Both inputs in each pair must be tensors."
+
+        total_error += torch.mean(torch.abs(y_pred.float() - y.float())).item()
+
+    return total_error / len(y_list)
 
 def modify_z_and_omega(net, model_name, checkpoint, device):
     if model_name == "SSSDS4":

@@ -26,7 +26,12 @@ class SingleLeadECGDatasetCrops(Dataset):
         
         self.keys = self.group_keys[self.start_patiant:self.end_patiant+1]
         datasets_sizes = []
-        for key in self.keys:      
+        for key in self.group_keys:
+            if int(key) < self.start_patiant:
+                continue
+            elif int(key) > self.end_patiant:
+                break
+            self.keys.append(key)
             print(f"{key=}")      
             item = self.h5_file[key]
             assert isinstance(item, h5py.Dataset)
