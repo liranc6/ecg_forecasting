@@ -8,9 +8,9 @@ import time
 from datetime import timedelta
 import h5py
 from tqdm import tqdm
-import argparse
 import numpy as np
 import wandb
+from collections import defaultdict
 
 server = "newton"
 server_config_path = os.path.join("/home/liranc6/ecg_forecasting/liran_project/utils/server_config.json"
@@ -225,6 +225,7 @@ def train_new(output_directory,
     best_val_loss = float('inf')
     best_model_path = None
 
+    prev_avg_diff = 0
     while n_iter < n_iters + 1:
         if n_iter % 50 == 0:
             tqdm.write(f'n_iter: {n_iter}')
@@ -237,9 +238,12 @@ def train_new(output_directory,
                 net.eval()
                 val_losses = []
                 pbar_inner = tqdm(enumerate(val_loader), total=len(val_loader), position=1, leave=True, dynamic_ncols=True)
-                avg_val_acc = []
+                total_diffs = defaultdict(lambda: 0)
 
             for i, batch in pbar_inner:
+
+                if i>5:
+                    break
                 
                 if stage == "train":
                     ecg_signals_batch = batch
@@ -301,7 +305,7 @@ def train_new(output_directory,
                     
                     train_loss = calculate_loss(net, nn.MSELoss(), X, diffusion_hyperparams,
                                         only_generate_missing=only_generate_missing)
-                    check_gpu_memory_usage()
+                    # check_gpu_memory_usage()
                     
                     train_losses.append(train_loss.item())
 
@@ -334,14 +338,17 @@ def train_new(output_directory,
                                            cond=ecg_signals_batch,
                                            mask=mask,
                                            only_generate_missing=only_generate_missing
-                                           )
+                                        )
+                        check_gpu_memory_usage()
                         print(f"generated_ecg shape: {generated_ecg.shape}")
                         
                         generated_ecg = generated_ecg[..., context_size:]
 
                         print("calculating accuracy")
 
-                        diffs = ecg_signal_difference(batch, generated_ecg)
+                        curr_diffs = ecg_signal_difference(batch, generated_ecg) # return dtw_dist, mse_total, mae_total
+                        for diff_name, val in curr_diffs.items():
+                            total_diffs[diff_name] += val
 
 
             if stage == "train":
@@ -361,14 +368,13 @@ def train_new(output_directory,
                     
         elapsed_time = time.time() - start_time
         minuts_elapsed_time = int(elapsed_time)/60
-        avg_diff = sum(avg_val_acc) / len(avg_val_acc)
-        wandb.log({"training_loss": avg_train_loss,
+        log = {key: val/ecg_signals_batch.shape[0] for key, val in total_diffs.items()}
+        log.update({"training_loss": avg_train_loss,
                    "validation_loss": avg_val_loss, 
                    "elapsed_time": minuts_elapsed_time , 
-                   "iteration": n_iter,
-                   "validation_accuracy": avg_diff
-                        }
-                   )
+                   "iteration": n_iter
+                    })
+        wandb.log(log)
         tqdm.write(f'Time elapsed: {str(timedelta(seconds=int(elapsed_time)))}')
 
         # save checkpoint

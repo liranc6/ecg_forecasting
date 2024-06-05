@@ -202,7 +202,9 @@ def ecg_signal_difference(ecg_batch, ecg_batch_pred, sampling_rate):
     mse_total = mse_distance_batch(ecg_R_beats_batch, ecg_pred_R_beats_batch)
     mae_total = mae_distance_batch(ecg_R_beats_batch, ecg_pred_R_beats_batch)
 
-    return dtw_dist, mse_total, mae_total
+    diffs = {"dtw_dist": dtw_dist, "mse_total": mse_total, "mae_total": mae_total}
+
+    return diffs
 
 def dtw_distance_batch(y_list, y_pred_list):
     """
