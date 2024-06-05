@@ -24,7 +24,7 @@ def ecg_signal_difference(a, b):
     dtw_distance, _ = fastdtw(a.cpu(), b.cpu())
     # dtw_distance = dtw.distance(a.cpu().numpy(), b.cpu().numpy())  # more accurate but much slower
     
-    return dtw_distance / len(a)
+    return dtw_distance / ( len(a) * 6 )
 
 def modify_z_and_omega(net, model_name, checkpoint, device):
     if model_name == "SSSDS4":

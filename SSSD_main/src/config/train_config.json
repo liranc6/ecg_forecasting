@@ -4,7 +4,7 @@
     "window_info":{
     "fs": 250, 
     "context_num_minutes": 0,
-    "context_num_secondes": 16,
+    "context_num_secondes": 15,
     "label_window_num_minutes": 0,
     "label_window_num_secondes": 10
 },
@@ -18,9 +18,9 @@
     "output_directory_rambo": "/home/liranc6/ecg/ecg_forecasting/liran_project/results/icentia11k",
     "output_directory_newton": "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k",
     "ckpt_iter": 0,
-    "iters_per_ckpt": 2,
+    "iters_per_ckpt": 5,
     "iters_per_logging": 10,
-    "n_iters": 300,
+    "n_iters": 50,
     "learning_rate": 2e-4,
     "only_generate_missing": 1,
     "_comments_model_name": "model options: SSSDS4, SSSDSA",

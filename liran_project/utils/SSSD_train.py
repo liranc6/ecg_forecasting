@@ -8,7 +8,6 @@ import time
 from datetime import timedelta
 import h5py
 from tqdm import tqdm
-import argparse
 import numpy as np
 import wandb
 
@@ -25,7 +24,6 @@ with open(server_config_path) as f:
     server_config = json.load(f)
     server_config = server_config[server]
     project_path = server_config['project_path']
-    data_path = server_config['data_path']
 
 sys.path.append(project_path)
 
@@ -226,6 +224,7 @@ def train_new(output_directory,
     best_val_loss = float('inf')
     best_model_path = None
 
+    prev_avg_diff = 0
     while n_iter < n_iters + 1:
         if n_iter % 50 == 0:
             tqdm.write(f'n_iter: {n_iter}')
@@ -296,6 +295,7 @@ def train_new(output_directory,
                     
                     train_loss = calculate_loss(net, nn.MSELoss(), X, diffusion_hyperparams,
                                         only_generate_missing=only_generate_missing)
+                    # check_gpu_memory_usage()
                     
                     train_losses.append(train_loss.item())
 
@@ -318,20 +318,30 @@ def train_new(output_directory,
                         pbar_inner.update()
 
                         #calculate validation accuracy
-                        
-                        generated_ecg = sampling(net,
-                                           size=batch.size(),
-                                           diffusion_hyperparams=diffusion_hyperparams,
-                                           cond=batch,
-                                           mask=mask,
-                                           only_generate_missing=only_generate_missing
-                                           )
-                        
-                        generated_ecg = generated_ecg[..., context_size:]
+                        #check devices of: net, batch, mask
+                        # print(f"{net.device=}, {batch.device=}, {mask.device=}")
 
-                        batch_diffs = [ecg_signal_difference(label, pred) for label, pred in zip(batch, generated_ecg)]
-                        avg_diff = sum(batch_diffs) / len(batch_diffs)
-                        avg_val_acc.append(avg_diff)        
+                        if i % 5 == 0 :
+                            print(f"generating ecg for validation batch {i}")
+                            generated_ecg = sampling(net,
+                                            size=batch.size(),
+                                            diffusion_hyperparams=diffusion_hyperparams,
+                                            cond=batch,
+                                            mask=mask,
+                                            only_generate_missing=only_generate_missing
+                                            )
+                            check_gpu_memory_usage()
+                            
+                            print(f"generated_ecg shape: {generated_ecg.shape}")
+                            
+                            generated_ecg = generated_ecg[..., context_size:]
+                            batch_labels = batch[..., context_size:]
+
+                            print("calculating accuracy")
+                            batch_diffs = [ecg_signal_difference(label, pred) for label, pred in zip(batch_labels, generated_ecg)]
+                            avg_diff = sum(batch_diffs) / len(batch_diffs)
+                            avg_val_acc.append(avg_diff)
+                            print(f"avg_diff: {avg_diff}")        
 
             if stage == "train":
                 avg_train_loss = sum(train_losses) / len(train_losses)
@@ -345,10 +355,8 @@ def train_new(output_directory,
                                     'optimizer_state_dict': optimizer.state_dict(),
                                     'wandb_id': wandb.run.id},
                                     best_model_path)
-                    wandb.run.summary["best_validation_loss"] = avg_val_loss
                     tqdm.write(f'Validation loss improved at iteration {n_iter}. Model saved at {best_model_path}')
-            
-            gpu_memory_stats = check_gpu_memory_usage()
+
                     
         elapsed_time = time.time() - start_time
         minuts_elapsed_time = int(elapsed_time)/60
@@ -437,8 +445,11 @@ if __name__ == "__main__":
     
 
     # Instantiate the class
-    train_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_file)
-    val_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, val_file)
+    train_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_file, end_patiant=1)
+    val_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, val_file, start_patiant=33, end_patiant=34)
+
+    assert len(train_dataset) > 0, f"{len(train_dataset)=} should be greater than 0"
+    assert len(val_dataset) > 0, f"{len(val_dataset)=} should be greater than 0"
 
 
     batch_size = train_config["train_config"]["batch_size"]
@@ -468,7 +479,6 @@ if __name__ == "__main__":
          
     train_config[f"output_directory_{server}"] = os.path.join(train_config[f"output_directory_{server}"], train_config['train_config']['model_name'])
     trainset_config_SSSDS4 = {
-        f"train_data_path_{server}": train_config["trainset_config"][f"train_data_path_{server}"],
         "test_data_path": train_config["trainset_config"]["test_data_path"],
         "segment_length": window_size,
         "sampling_rate": fs
