@@ -8,6 +8,7 @@ import wfdb
 import pandas as pd
 from fastdtw import fastdtw
 import neurokit2 as nk
+from tqdm import tqdm
 
 
 def plot_tensor(input_tensor, smoothed_tensor):
@@ -38,9 +39,12 @@ def smooth_batch(input_tensor, kernel_size=3, sigma=1):
     kernel_range = torch.arange(-(kernel_size // 2), kernel_size // 2 + 1, dtype=torch.float32)
     kernel = torch.exp(-0.5 * (kernel_range / sigma)**2)
     kernel /= kernel.sum()
+    
 
     padded_tensor = F.pad(input_tensor, (kernel_size // 2, kernel_size // 2), mode='constant', value=0)
 
+    padded_tensor = padded_tensor.double()
+    kernel = kernel.double()
     smoothed_tensor = F.conv2d(padded_tensor.unsqueeze(0).unsqueeze(0), kernel.view(1, -1).unsqueeze(0).unsqueeze(0), padding=(0, kernel_size // 2))
 
     return smoothed_tensor.squeeze(0).squeeze(0)
@@ -63,34 +67,35 @@ def smooth_tensor(input_tensor, kernel_size=3, sigma=1):
     
     return smoothed_tensor
 
-def prune_to_same_length(a, b, min_distance=100):
-    while len(a) > len(b):
-        if b[0] - a[0] > abs(b[0] - a[1]):
-            assert b[0] - a[0] > min_distance, f"{b[0] - a[0]=}"
-            a = a[1:]
-        
-        elif a[-1] - b[-1] > abs(b[-1] - a[-2]):
-            assert a[-1] - b[-1] > min_distance, f"{a[-1] - b[-1]=}"
-            a = a[:-1]
+def prune_to_same_length(a, b, min_distance=50, max_iter = 4):
+    for i in range(len(a)):
+        if len(a) > len(b):
+            if abs(b[0] - a[0]) > abs(b[0] - a[1]):
+                assert b[0] - a[0] > min_distance, f"{b[0] - a[0]=}"
+                a = a[1:]
+            
+            elif abs(a[-1] - b[-1]) > abs(b[-1] - a[-2]):
+                assert a[-1] - b[-1] > min_distance, f"{a[-1] - b[-1]=}"
+                a = a[:-1] 
+        elif len(b) > len(a):
+            if abs(b[0] - a[0]) > abs(b[0] - a[1]):
+                assert abs(b[0] - a[0]) > min_distance, f"{b[0] - a[0]=}"
+                b = b[1:]
+            
+            elif abs(a[-1] - b[-1]) > abs(b[-1] - a[-2]):
+                assert abs(a[-1] - b[-1]) > min_distance, f"{a[-1] - b[-1]=}"
+                b = b[:-1]
+        else:
+            break
 
-    while len(b) > len(a):
-        if b[0] - a[0] > abs(b[0] - a[1]):
-            assert b[0] - a[0] > min_distance, f"{b[0] - a[0]=}"
-            b = b[1:]
-        
-        elif a[-1] - b[-1] > abs(b[-1] - a[-2]):
-            assert a[-1] - b[-1] > min_distance, f"{a[-1] - b[-1]=}"
-            b = b[:-1]
+    return [a, b]
 
-    return (a, b)
-
-def align_batch(binary_batch, binary_batch_pred, smooth_to_each_side):
+def align_batch(binary_batch, binary_batch_pred, smooth_to_each_side=50):
     # assert bateches has only 1s and 0s
     assert torch.all((binary_batch == 0) | (binary_batch == 1)).item(), "binary_batch must contain only 1s and 0s. Found other values."
     assert torch.all((binary_batch_pred == 0) | (binary_batch_pred == 1)).item(), "binary_batch_pred must contain only 1s and 0s. Found other values."
 
 
-    smooth_to_each_side = 100
     binary_batch_smoothed = smooth_batch(binary_batch, kernel_size=2*smooth_to_each_side+1, sigma=smooth_to_each_side)
 
     binary_batch_pred_modified = modify_a_pred_batch(binary_batch_smoothed, binary_batch_pred)
@@ -98,7 +103,19 @@ def align_batch(binary_batch, binary_batch_pred, smooth_to_each_side):
     binary_batch_pred_modified_indices = [torch.nonzero(row == 1).squeeze(1) for row in binary_batch_pred_modified]
     binary_batch_indices = [torch.nonzero(row == 1).squeeze(1) for row in binary_batch]
 
+    # Preallocate tensor
+    # pairs = torch.empty((len(binary_batch_indices), 2), dtype=torch.int64)
+
+    # # Fill tensor
+    # for i, (a, b) in enumerate(zip(binary_batch_indices, binary_batch_pred_modified_indices)):
+    #     pairs[i] = torch.tensor(prune_to_same_length(a, b))
+
     pairs = torch.tensor([list(prune_to_same_length(a, b)) for a, b in zip(binary_batch_indices, binary_batch_pred_modified_indices)])
+
+    # print(f"{pairs.shape=}")
+
+
+    # pairs = torch.tensor([list(prune_to_same_length(a, b)) for a, b in zip(binary_batch_indices, binary_batch_pred_modified_indices)])
 
     return pairs[:, 0], pairs[:, 1]
 
@@ -115,6 +132,7 @@ def modify_a_pred_batch(a_smoothed_batch, a_pred_batch):
         in_interval = False
         start = 0
 
+        # create intervals
         for i in range(len(a_smoothed)):
             if a_smoothed[i] > 0 and not in_interval:
                 start = i
@@ -123,6 +141,7 @@ def modify_a_pred_batch(a_smoothed_batch, a_pred_batch):
                 intervals.append((start, i))
                 in_interval = False
 
+        # if the last element is in an interval
         if in_interval:
             intervals.append((start, len(a_smoothed)))
 
@@ -143,12 +162,88 @@ def modify_a_pred_batch(a_smoothed_batch, a_pred_batch):
     return modified_a_pred_batch
 
 def indices_to_binary_tensor(indices, size_like):
-    binary_tensor = torch.zeros_like(size_like)
+    binary_tensor = np.zeros_like(size_like)
     binary_tensor[indices] = 1
 
     return binary_tensor
 
-def ecg_signal_difference(ecg_batch, ecg_batch_pred, sampling_rate):
+def get_intervals_around_ones(indices, tensor_len, smooth_to_each_side=50):
+    """
+    Get the intervals around the ones in a binary tensor.
+    """
+
+    intervals = {}
+
+    for idx in indices:
+        idx = idx.item()
+        left = max(0, idx - smooth_to_each_side)
+        right = min(tensor_len, idx + smooth_to_each_side)
+        intervals[idx] = (
+            left,
+            right
+            )
+        
+    return intervals
+
+def align_indices(longer_list_of_indices, shorter_list_of_indices, tensor_len, smooth_to_each_side=50):
+    """
+    
+    """
+
+    assert len(longer_list_of_indices) > len(shorter_list_of_indices), "The longer list of indices must have more elements than the shorter list."
+
+    def find_closest_index(ones_indices, target_idx):
+        if len(ones_indices) == 1:
+            return ones_indices[0]
+
+        closest_idx = ones_indices[0]
+        for idx in ones_indices:
+            if abs(idx - target_idx) < abs(closest_idx - target_idx):
+                closest_idx = idx
+
+        return closest_idx.item()
+    
+    new_indices = []
+
+    tensor_2 = torch.from_numpy(indices_to_binary_tensor(shorter_list_of_indices, torch.zeros(tensor_len)))
+
+    if longer_list_of_indices.shape[0] > shorter_list_of_indices.shape[0]:
+        intervals = get_intervals_around_ones(shorter_list_of_indices, tensor_len, smooth_to_each_side)
+
+        for idx, [start, end] in intervals.items():
+            tmp = torch.where(tensor_2[start:end] == 1)
+            len_tmp = len(tmp)
+            if len_tmp == 0:
+                continue
+            if len_tmp == 1:
+                tmp = [tmp[0].item() + start]
+            elif len_tmp == 2:
+                tmp = (tmp[1].item() + start).to_list()
+            else:
+                assert False, f"{len(tmp)=}, {tmp=}"
+
+            batch_2_ones_indices_in_interval = find_closest_index(tmp, idx)
+
+            new_indices.append(batch_2_ones_indices_in_interval)
+
+    
+    assert len(new_indices) == len(shorter_list_of_indices), f"{len(new_indices)=}, {len(shorter_list_of_indices)=}"
+    return torch.tensor(new_indices)
+
+        
+
+
+
+
+
+
+
+
+
+
+
+
+def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
     """
     Compute the difference between multiple ECG signals.
     I created a function to it so I can use it as a level of abstraction, if I want to change the way I calculate the difference between two signals, I can do it here.
@@ -168,41 +263,100 @@ def ecg_signal_difference(ecg_batch, ecg_batch_pred, sampling_rate):
     ecg_signals_batch = ecg_batch[:, 0, :]
     ecg_R_beats_batch = ecg_batch[:, 1, :]
 
-    assert len(ecg_signals_batch) == len(ecg_batch_pred) and len(ecg_signals_batch) > 0, "Input lists must have the same length and contain at least one element."
+    assert len(ecg_signals_batch) == len(ecg_pred_batch) and len(ecg_signals_batch) > 0, "Input lists must have the same length and contain at least one element."
 
+
+    dtw_dist = dtw_distance_batch(ecg_signals_batch.cpu().numpy(), ecg_pred_batch.cpu().numpy())
+
+    ecg_pred_batch_shape = ecg_pred_batch.shape
     
+    # Assuming ecg_batch_pred is a torch tensor with shape (batch_size, channels, sequence_length)
+    # and sampling_rate is defined elsewhere.
 
-    dtw_dist = dtw_distance_batch(ecg_signals_batch, ecg_batch_pred)
+    # Convert ecg_batch_pred to numpy array
+    ecg_pred_batch_numpy = ecg_pred_batch.cpu().numpy()
 
-    new_ecg_batch_pred = torch.zeros_like(ecg_batch_pred.unsqueeze(1))
-    # create binary batch of R beats from the ecg_batch_pred
-    for i, ecg_pred in enumerate(ecg_batch_pred):
-        new_ecg_batch_pred[i][0] = ecg_pred
-        
+    # Initialize new_ecg_batch_pred tensor
+    new_ecg_pred_batch = torch.zeros((ecg_pred_batch.shape[0], 2, ecg_pred_batch.shape[1]))
+
+    # Iterate over each prediction in the batch
+    for i, ecg_pred in enumerate(ecg_pred_batch_numpy):
+        ecg_pred = ecg_pred.squeeze()  # Remove singleton dimensions
+        new_ecg_pred_batch[i][0] = torch.from_numpy(ecg_pred)  # Store the ECG prediction in the tensor
+
+
+        # Process the ECG prediction with NeuroKit
         _, info = nk.ecg_process(ecg_pred, sampling_rate=sampling_rate)
-        ecg_pred_R_beats = info['ECG_R_Peaks']
+        ecg_pred_R_beats_indices = info['ECG_R_Peaks']
 
-        binary_ecg_pred_R_beats = indices_to_binary_tensor(ecg_pred_R_beats, ecg_pred)
+        # Convert R beat indices to binary tensor
+        binary_ecg_pred_R_beats = indices_to_binary_tensor(ecg_pred_R_beats_indices, ecg_pred)
 
-        new_ecg_batch_pred[i][1] = binary_ecg_pred_R_beats
+        # Store the binary R beats in the tensor
+        new_ecg_pred_batch[i][1] = torch.from_numpy(binary_ecg_pred_R_beats)
         
 
-    ecg_pred_R_beats_batch = new_ecg_batch_pred[:, 1, :]
+    ecg_pred_R_beats_batch = new_ecg_pred_batch[:, 1, :]
 
-    # align the pred_batch indices to the batch indices
-    ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices = align_batch(ecg_R_beats_batch, ecg_pred_R_beats_batch, smooth_to_each_side=100)
+    ecg_R_beats_batch_indices = [torch.nonzero(row == 1).squeeze(1) for row in ecg_R_beats_batch]
+    ecg_pred_R_beats_batch_indices = [torch.nonzero(row == 1).squeeze(1) for row in ecg_pred_R_beats_batch]
 
     ecg_len = ecg_signals_batch.shape[1]
 
+    mean_extra_r_beats = 0
+
+    for i, (y, y_pred) in enumerate(zip(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices)):
+        if y_pred.shape != y.shape:
+            # align the pred indices to the batch indices
+
+            a, b = prune_to_same_length(y, y_pred, min_distance=50)
+
+            mean_extra_r_beats += abs(a.shape[0] - b.shape[0])
+            if a.shape[0] > b.shape[0]:
+                a = align_indices(a, b, ecg_len, smooth_to_each_side=50)
+                # b, a = align_batch(ecg_pred_R_beats_batch[i].unsqueeze(0), ecg_R_beats_batch[i].unsqueeze(0))
+            elif b.shape[0] > a.shape[0]:
+                b = align_indices(b, a, ecg_len, smooth_to_each_side=50)
+                # a, b = align_batch(ecg_R_beats_batch[i].unsqueeze(0), ecg_pred_R_beats_batch[i].unsqueeze(0))
+                
+            assert a.shape == b.shape, f"{a.shape=}, {b.shape=}"
+            ecg_R_beats_batch_indices[i], ecg_pred_R_beats_batch_indices[i] = a , b
+
+            # print(f"{ecg_R_beats_batch_indices[i].shape}, {ecg_pred_R_beats_batch_indices[i].shape}")
+    
+    mean_extra_r_beats /= len(ecg_R_beats_batch_indices)
+
+    # if ecg_pred_R_beats_indices.shape != ecg_R_beats_batch_indices.shape:
+    #     # align the pred_batch indices to the batch indices
+    #     ecg_R_beats_batch_indices, ecg_pred_R_beats_batch = align_batch(ecg_R_beats_batch, ecg_pred_R_beats_batch, smooth_to_each_side=100)
+
+    #     print(f"{ecg_R_beats_batch_indices[0].shape}, {ecg_pred_R_beats_batch[0].shape}")
+    #     print(f"{ecg_R_beats_batch_indices[1].shape}, {ecg_pred_R_beats_batch[1].shape}")
+
+
+    #     ecg_len = ecg_signals_batch.shape[1]
+
+    #     ecg_R_beats_batch = torch.zeros_like(ecg_signals_batch)
+    #     ecg_R_beats_batch[ecg_R_beats_batch_indices] = 1
+
+    #     # take the indices from ecg_R_beats_batch_indices and put 1 in the crosspondent indices in ecg_R_beats_batch
+
+        
+    #     ecg_pred_R_beats_batch = torch.zeros_like(ecg_signals_batch)
+    #     ecg_pred_R_beats_batch[ecg_pred_R_beats_batch] = 1
+
+
     for i, (y, y_pred) in enumerate(zip(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices)):
         y, y_pred = indices_to_binary_tensor(y, torch.zeros(ecg_len)), indices_to_binary_tensor(y_pred, torch.zeros(ecg_len))
-        ecg_R_beats_batch[i] = y
-        ecg_pred_R_beats_batch[i] = binary_ecg_pred_R_beats
+        ecg_R_beats_batch[i] = torch.from_numpy(y)
+        ecg_pred_R_beats_batch[i] = torch.from_numpy(y_pred)
+
+    
 
     mse_total = mse_distance_batch(ecg_R_beats_batch, ecg_pred_R_beats_batch)
     mae_total = mae_distance_batch(ecg_R_beats_batch, ecg_pred_R_beats_batch)
 
-    diffs = {"dtw_dist": dtw_dist, "mse_total": mse_total, "mae_total": mae_total}
+    diffs = {"dtw_dist": dtw_dist, "mse_total": mse_total, "mae_total": mae_total, "mean_extra_r_beats": mean_extra_r_beats}
 
     return diffs
 
@@ -213,43 +367,52 @@ def dtw_distance_batch(y_list, y_pred_list):
     time-series signals with varying lengths or temporal distortions, which are common in ECG data due to irregular heartbeats or noise.
     """
     assert len(y_list) == len(y_pred_list) and len(y_list) > 0, "Input lists must have the same length and contain at least one element."
-    assert isinstance(y_list, np.array) and isinstance(y_pred_list, np.array), "Both inputs must be lists."
+    assert isinstance(y_list, np.ndarray) and isinstance(y_pred_list, np.ndarray), "Both inputs must be numpy arrays."
 
     total_error = 0
     for y, y_pred in zip(y_list, y_pred_list):
         #to cpu because fastdtw does not support cuda tensors
-        dtw_distance, _ = fastdtw(y.cpu(), y_pred.cpu())
+        dtw_distance, _ = fastdtw(y.flatten(), y_pred.flatten())
         # dtw_distance = dtw.distance(a.cpu().numpy(), b.cpu().numpy())  # more accurate but much slower
 
         total_error += dtw_distance / len(y)
 
     return total_error / len(y_list)
 
-def mse_distance_batch(y_list, y_pred_list):
-    assert len(y_list) == len(y_pred_list) and len(y_list) > 0, "Input lists must have the same length and contain at least one element."
-    assert isinstance(y_list, list) and isinstance(y_pred_list, list), "Both inputs must be lists."
+def mse_distance_batch(y_batch, y_pred_batch):
+    
+    total_error = F.mse_loss(y_batch.float(), y_pred_batch.float()).item()
 
-    total_error = 0
-    for y, y_pred in zip(y_list, y_pred_list):
-        assert y.shape == y_pred.shape, "Each pair of tensors must have the same shape."
-        assert isinstance(y, torch.Tensor) and isinstance(y_pred, torch.Tensor), "Both inputs in each pair must be tensors."
+    return total_error
+    # assert len(y_list) == len(y_pred_list) and len(y_list) > 0, "Input lists must have the same length and contain at least one element."
+    # # assert isinstance(y_list, list) and isinstance(y_pred_list, list), "Both inputs must be lists."
 
-        total_error += F.mse_loss(y.float(), y_pred.float()).item()
 
-    return total_error / len(y_list)
+
+    # total_error = 0
+    # for y, y_pred in zip(y_list, y_pred_list):
+    #     assert y.shape == y_pred.shape, "Each pair of tensors must have the same shape."
+    #     assert isinstance(y, torch.Tensor) and isinstance(y_pred, torch.Tensor), "Both inputs in each pair must be tensors."
+
+    #     total_error += F.mse_loss(y.float(), y_pred.float()).item()
+
+    # return total_error / len(y_list)
 
 def mae_distance_batch(y_list, y_pred_list):
-    assert len(y_list) == len(y_pred_list) and len(y_list) > 0, "Input lists must have the same length and contain at least one element."
-    assert isinstance(y_list, list) and isinstance(y_pred_list, list), "Both inputs must be lists."
 
-    total_error = 0
-    for y, y_pred in zip(y_list, y_pred_list):
-        assert y.shape == y_pred.shape, "Each pair of tensors must have the same shape."
-        assert isinstance(y, torch.Tensor) and isinstance(y_pred, torch.Tensor), "Both inputs in each pair must be tensors."
+    total_error = F.l1_loss(y_list.float(), y_pred_list.float()).item()
+    return total_error
+    # assert len(y_list) == len(y_pred_list) and len(y_list) > 0, "Input lists must have the same length and contain at least one element."
+    # # assert isinstance(y_list, list) and isinstance(y_pred_list, list), "Both inputs must be lists."
 
-        total_error += torch.mean(torch.abs(y_pred.float() - y.float())).item()
+    # total_error = 0
+    # for y, y_pred in zip(y_list, y_pred_list):
+    #     assert y.shape == y_pred.shape, "Each pair of tensors must have the same shape."
+    #     assert isinstance(y, torch.Tensor) and isinstance(y_pred, torch.Tensor), "Both inputs in each pair must be tensors."
 
-    return total_error / len(y_list)
+    #     total_error += torch.mean(torch.abs(y_pred.float() - y.float())).item()
+
+    # return total_error / len(y_list)
 
 def modify_z_and_omega(net, model_name, checkpoint, device):
     if model_name == "SSSDS4":
@@ -501,8 +664,10 @@ def sampling(net, size, diffusion_hyperparams, cond, mask, only_generate_missing
 
     x = std_normal(size)
 
+    pbar = tqdm(range(T - 1, -1, -1), desc='Sampling', total=T ,leave=False, position=0)
+
     with torch.no_grad():
-        for t in range(T - 1, -1, -1):
+        for t in pbar:
             if only_generate_missing == 1:
                 x = x * (1 - mask).float() + cond * mask.float()
             diffusion_steps = (t * torch.ones((size[0], 1))).cuda()  # use the corresponding reverse step

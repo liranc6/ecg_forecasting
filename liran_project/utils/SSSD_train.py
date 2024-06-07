@@ -12,13 +12,13 @@ import numpy as np
 import wandb
 from collections import defaultdict
 
-server = "newton"
-server_config_path = os.path.join("/home/liranc6/ecg_forecasting/liran_project/utils/server_config.json"
+server = "rambo"
+server_config_path = os.path.join("/home/liranc6/ecg/ecg_forecasting/liran_project/utils/server_config.json"
                                   )
 
 if server == "rambo":
     os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-    os.environ['CUDA_VISIBLE_DEVICES'] = '6'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '5'
 
 # set server configuration
 with open(server_config_path) as f:
@@ -241,21 +241,22 @@ def train_new(output_directory,
                 total_diffs = defaultdict(lambda: 0)
 
             for i, batch in pbar_inner:
+                
+                assert context_size == batch[0].shape[-1], f"{context_size=} != {batch[0].shape[-1]=}"
 
-                if i>5:
-                    break
-                
-                if stage == "train":
-                    ecg_signals_batch = batch
-                elif stage == "val":
-                    ecg_signals_batch = batch[:, 0, :]
-                
-                
                 # Concatenate tensors along the last dimension
-                concatenated_batch = torch.cat(ecg_signals_batch, dim=-1)
+                concatenated_batch = torch.cat(batch, dim=-1)
+
+                if stage == "train":
+                    ecg_signals_batch = concatenated_batch
+                elif stage == "val":
+                    ecg_signals_batch = concatenated_batch[:, 0, :]
+                    ecg_signals_labels = batch[1][:, 0, :]
+                    ecg_R_beats_labels = batch[1][:, 1, :]
+                    ecg_labels = torch.stack([ecg_signals_labels, ecg_R_beats_labels], dim=1)
 
                 # Reshape to the desired shape
-                ecg_signals_batch = concatenated_batch.unsqueeze(0)[:, :, :].permute(1, 0, 2).float().to(device)
+                ecg_signals_batch = ecg_signals_batch.unsqueeze(0)[:, :, :].permute(1, 0, 2).float().to(device)
 
                 """
                 copilot answer:
@@ -330,7 +331,6 @@ def train_new(output_directory,
                         #calculate validation accuracy
                         print(f"generating ecg for validation batch {i}")
                         #check devices of: net, batch, mask
-                        print(f"{net.device=}, {ecg_signals_batch.device=}, {mask.device=}")
 
                         generated_ecg = sampling(net,
                                            size=ecg_signals_batch.size(),
@@ -344,11 +344,16 @@ def train_new(output_directory,
                         
                         generated_ecg = generated_ecg[..., context_size:]
 
+                        generated_ecg = generated_ecg.squeeze(1)
+
                         print("calculating accuracy")
 
-                        curr_diffs = ecg_signal_difference(batch, generated_ecg) # return dtw_dist, mse_total, mae_total
+                        curr_diffs = ecg_signal_difference(ecg_labels, generated_ecg, sampling_rate=trainset_config["sampling_rate"]) # return dtw_dist, mse_total, mae_total
                         for diff_name, val in curr_diffs.items():
                             total_diffs[diff_name] += val
+
+                        if i > 1:
+                            break
 
 
             if stage == "train":
@@ -452,7 +457,7 @@ if __name__ == "__main__":
     
 
     # Instantiate the class
-    train_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_file, end_patiant=1)
+    train_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_file, end_patiant=9)
     val_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, val_file, start_patiant=33, end_patiant=34, return_with_RR=True)
 
     assert len(train_dataset) > 0, f"{len(train_dataset)=} should be greater than 0"
