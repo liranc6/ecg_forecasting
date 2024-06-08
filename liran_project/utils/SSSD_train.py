@@ -12,8 +12,8 @@ import numpy as np
 import wandb
 from collections import defaultdict
 
-server = "rambo"
-server_config_path = os.path.join("/home/liranc6/ecg/ecg_forecasting/liran_project/utils/server_config.json"
+server = "newton"
+server_config_path = os.path.join("/home/liranc6/ecg_forecasting/liran_project/utils/server_config.json"
                                   )
 
 if server == "rambo":
@@ -240,6 +240,7 @@ def train_new(output_directory,
                 pbar_inner = tqdm(enumerate(val_loader), total=len(val_loader), position=1, leave=True, dynamic_ncols=True)
                 total_diffs = defaultdict(lambda: 0)
 
+            val_num_batches = 6
             for i, batch in pbar_inner:
                 
                 assert context_size == batch[0].shape[-1], f"{context_size=} != {batch[0].shape[-1]=}"
@@ -306,7 +307,7 @@ def train_new(output_directory,
                     
                     train_loss = calculate_loss(net, nn.MSELoss(), X, diffusion_hyperparams,
                                         only_generate_missing=only_generate_missing)
-                    # check_gpu_memory_usage()
+                    check_gpu_memory_usage()
                     
                     train_losses.append(train_loss.item())
 
@@ -332,27 +333,30 @@ def train_new(output_directory,
                         print(f"generating ecg for validation batch {i}")
                         #check devices of: net, batch, mask
 
-                        generated_ecg = sampling(net,
-                                           size=ecg_signals_batch.size(),
-                                           diffusion_hyperparams=diffusion_hyperparams,
-                                           cond=ecg_signals_batch,
-                                           mask=mask,
-                                           only_generate_missing=only_generate_missing
-                                        )
-                        check_gpu_memory_usage()
-                        print(f"generated_ecg shape: {generated_ecg.shape}")
-                        
-                        generated_ecg = generated_ecg[..., context_size:]
+                        if i % 30 == 0 and val_num_batches > 0: # take a few samples from each patient
+                            val_num_batches -= 1
 
-                        generated_ecg = generated_ecg.squeeze(1)
+                            generated_ecg = sampling(net,
+                                            size=ecg_signals_batch.size(),
+                                            diffusion_hyperparams=diffusion_hyperparams,
+                                            cond=ecg_signals_batch,
+                                            mask=mask,
+                                            only_generate_missing=only_generate_missing
+                                            )
+                            check_gpu_memory_usage()
+                            print(f"generated_ecg shape: {generated_ecg.shape}")
+                            
+                            generated_ecg = generated_ecg[..., context_size:]
 
-                        print("calculating accuracy")
+                            generated_ecg = generated_ecg.squeeze(1)
 
-                        curr_diffs = ecg_signal_difference(ecg_labels, generated_ecg, sampling_rate=trainset_config["sampling_rate"]) # return dtw_dist, mse_total, mae_total
-                        for diff_name, val in curr_diffs.items():
-                            total_diffs[diff_name] += val
+                            print("calculating accuracy")
 
-                        if i > 1:
+                            curr_diffs = ecg_signal_difference(ecg_labels, generated_ecg, sampling_rate=trainset_config["sampling_rate"]) # return dtw_dist, mse_total, mae_total
+                            for diff_name, val in curr_diffs.items():
+                                total_diffs[diff_name] += val
+
+                        if val_num_batches <=0 :
                             break
 
 
@@ -373,7 +377,7 @@ def train_new(output_directory,
                     
         elapsed_time = time.time() - start_time
         minuts_elapsed_time = int(elapsed_time)/60
-        log = {key: val/ecg_signals_batch.shape[0] for key, val in total_diffs.items()}
+        log = {key: val/val_num_batches for key, val in total_diffs.items()}
         log.update({"training_loss": avg_train_loss,
                    "validation_loss": avg_val_loss, 
                    "elapsed_time": minuts_elapsed_time , 
@@ -457,8 +461,8 @@ if __name__ == "__main__":
     
 
     # Instantiate the class
-    train_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_file, end_patiant=9)
-    val_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, val_file, start_patiant=33, end_patiant=34, return_with_RR=True)
+    train_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_file, end_patiant=15)
+    val_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, val_file, start_patiant=34, end_patiant=39, return_with_RR=True)
 
     assert len(train_dataset) > 0, f"{len(train_dataset)=} should be greater than 0"
     assert len(val_dataset) > 0, f"{len(val_dataset)=} should be greater than 0"
