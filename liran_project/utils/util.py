@@ -10,6 +10,8 @@ from fastdtw import fastdtw
 import neurokit2 as nk
 from tqdm import tqdm
 
+SAMPLING_RATE = 250
+MIN_WINDOW_SIZE_FOR_NK_ECG_PROCESS = 10*SAMPLING_RATE
 
 def plot_tensor(input_tensor, smoothed_tensor):
     """
@@ -268,8 +270,11 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
 
     dtw_dist = dtw_distance_batch(ecg_signals_batch.cpu().numpy(), ecg_pred_batch.cpu().numpy())
 
-    ecg_pred_batch_shape = ecg_pred_batch.shape
+    diffs = {"dtw_dist": dtw_dist}
     
+    if len(ecg_signals_batch[-1]) < MIN_WINDOW_SIZE_FOR_NK_ECG_PROCESS:
+        return diffs
+        
     # Assuming ecg_batch_pred is a torch tensor with shape (batch_size, channels, sequence_length)
     # and sampling_rate is defined elsewhere.
 
@@ -327,25 +332,6 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
     
     mean_extra_r_beats /= len(ecg_R_beats_batch_indices)
 
-    # if ecg_pred_R_beats_indices.shape != ecg_R_beats_batch_indices.shape:
-    #     # align the pred_batch indices to the batch indices
-    #     ecg_R_beats_batch_indices, ecg_pred_R_beats_batch = align_batch(ecg_R_beats_batch, ecg_pred_R_beats_batch, smooth_to_each_side=100)
-
-    #     print(f"{ecg_R_beats_batch_indices[0].shape}, {ecg_pred_R_beats_batch[0].shape}")
-    #     print(f"{ecg_R_beats_batch_indices[1].shape}, {ecg_pred_R_beats_batch[1].shape}")
-
-
-    #     ecg_len = ecg_signals_batch.shape[1]
-
-    #     ecg_R_beats_batch = torch.zeros_like(ecg_signals_batch)
-    #     ecg_R_beats_batch[ecg_R_beats_batch_indices] = 1
-
-    #     # take the indices from ecg_R_beats_batch_indices and put 1 in the crosspondent indices in ecg_R_beats_batch
-
-        
-    #     ecg_pred_R_beats_batch = torch.zeros_like(ecg_signals_batch)
-    #     ecg_pred_R_beats_batch[ecg_pred_R_beats_batch] = 1
-
 
     for i, (y, y_pred) in enumerate(zip(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices)):
         y, y_pred = indices_to_binary_tensor(y, torch.zeros(ecg_len)), indices_to_binary_tensor(y_pred, torch.zeros(ecg_len))
@@ -357,7 +343,7 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
     mse_total = mse_distance_batch(ecg_R_beats_batch, ecg_pred_R_beats_batch)
     mae_total = mae_distance_batch(ecg_R_beats_batch, ecg_pred_R_beats_batch)
 
-    diffs = {"dtw_dist": dtw_dist, "mse_total": mse_total, "mae_total": mae_total, "mean_extra_r_beats": mean_extra_r_beats}
+    diffs.update({"mse_total": mse_total, "mae_total": mae_total, "mean_extra_r_beats": mean_extra_r_beats})
 
     return diffs
 
