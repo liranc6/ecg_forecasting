@@ -35,9 +35,39 @@ from SSSD_main.src.utils.util import find_epoch, print_size, calc_diffusion_hype
                                      get_mask_mnr, get_mask_bm, get_mask_rm, get_mask_pred, sampling #, training_loss
 from SSSD_main.src.imputers.SSSDSAImputer import SSSDSAImputer
 from SSSD_main.src.imputers.SSSDS4Imputer import SSSDS4Imputer
+# from SSSD_main.docs.instructions.PTB_XL.clinical_ts.timeseries_utils import NormalizeBatch
+
 
 # Import your custom dataset class here
 # from liran_project.utils.dataset_loader import SingleLeadECGDatasetCrops as CustomDataset
+
+class NormalizeBatch(object):
+    def __init__(self, input=True, channels=[]):
+        self.channels = channels
+        self.channels_keep = None
+        self.input = input
+
+    def __call__(self, sample):
+        datax, labelx, static = sample
+        data = datax if self.input else labelx
+
+        batch_mean = torch.mean(data, dim=2, keepdim=True)
+        batch_std = torch.std(data, dim=2, keepdim=True) + 1e-8
+
+        if len(self.channels) > 0:
+            if self.channels_keep is None:
+                self.channels_keep = torch.tensor(list(set(range(data.shape[-1])) - set(self.channels)))
+
+            batch_mean.index_fill_(0, self.channels_keep, 0)
+            batch_std.index_fill_(0, self.channels_keep, 1)
+
+        data = (data - batch_mean) / batch_std
+
+        if self.input:
+            return (data, labelx, static)
+        else:
+            return (datax, data, static)
+
 
 def check_gpu_memory_usage(device_id=0):
     if torch.cuda.is_available():
@@ -116,15 +146,16 @@ def train_new(output_directory,
 
     # generate experiment (local) path
     window_info = "context{}_label{}".format(context_size, label_size)
-    local_path = "T{}_beta0{}_betaT{}".format(diffusion_config["T"],
-                                              diffusion_config["beta_0"],
-                                              diffusion_config["beta_T"])
+    local_path = f"T{diffusion_config['T']}_beta0{diffusion_config['beta_0']}_betaT{diffusion_config['beta_T']}".replace('.','')
+
+    current_time = time.strftime("%H_%M_%d_%m_%y")
 
     # Get shared output_directory ready
     output_directory = os.path.join(output_directory,
                                     str(model_name),
                                     window_info,
-                                    local_path)
+                                    local_path,
+                                    current_time)
     
     if not os.path.isdir(output_directory):
         os.makedirs(output_directory, exist_ok=True)
@@ -225,6 +256,8 @@ def train_new(output_directory,
     best_val_loss = float('inf')
     best_model_path = None
 
+    normalizer = NormalizeBatch(input=True)
+
     prev_avg_diff = 0
     while n_iter < n_iters + 1:
         if n_iter % 50 == 0:
@@ -241,18 +274,25 @@ def train_new(output_directory,
                 total_diffs = defaultdict(lambda: 0)
 
             val_num_batches = 6
+            val_count_num_batches = 0
             for i, batch in pbar_inner:
                 
                 assert context_size == batch[0].shape[-1], f"{context_size=} != {batch[0].shape[-1]=}"
+
 
                 # Concatenate tensors along the last dimension
                 concatenated_batch = torch.cat(batch, dim=-1)
 
                 if stage == "train":
                     ecg_signals_batch = concatenated_batch
+                    ecg_signals_batch = normalizer((ecg_signals_batch.unsqueeze(1), None, None))[0].squeeze(1)
                 elif stage == "val":
                     ecg_signals_batch = concatenated_batch[:, 0, :]
+                    ecg_signals_batch = normalizer((ecg_signals_batch.unsqueeze(1), None, None))[0].squeeze(1)
+                    # ecg_signals_batch = concatenated_batch[:, 0, :]
+
                     ecg_signals_labels = batch[1][:, 0, :]
+                    ecg_signals_labels = normalizer((ecg_signals_labels.unsqueeze(1), None, None))[0].squeeze(1)
                     ecg_R_beats_labels = batch[1][:, 1, :]
                     ecg_labels = torch.stack([ecg_signals_labels, ecg_R_beats_labels], dim=1)
 
@@ -307,7 +347,7 @@ def train_new(output_directory,
                     
                     train_loss = calculate_loss(net, nn.MSELoss(), X, diffusion_hyperparams,
                                         only_generate_missing=only_generate_missing)
-                    check_gpu_memory_usage()
+                    # check_gpu_memory_usage()
                     
                     train_losses.append(train_loss.item())
 
@@ -321,6 +361,8 @@ def train_new(output_directory,
                     pbar_inner.update()
 
                 else: # validation
+                    if not i % 5 == 0:
+                        continue
                     with torch.no_grad():
                         val_loss = calculate_loss(net, nn.MSELoss(), X, diffusion_hyperparams,
                                         only_generate_missing=only_generate_missing)
@@ -333,8 +375,8 @@ def train_new(output_directory,
                         print(f"generating ecg for validation batch {i}")
                         #check devices of: net, batch, mask
 
-                        if i % 30 == 0 and val_num_batches > 0: # take a few samples from each patient
-                            val_num_batches -= 1
+                        if i % 10 == 0 and val_count_num_batches < val_num_batches: # take a few samples from each patient
+                            val_count_num_batches += 1
 
                             generated_ecg = sampling(net,
                                             size=ecg_signals_batch.size(),
@@ -343,7 +385,7 @@ def train_new(output_directory,
                                             mask=mask,
                                             only_generate_missing=only_generate_missing
                                             )
-                            check_gpu_memory_usage()
+                            # check_gpu_memory_usage()
                             print(f"generated_ecg shape: {generated_ecg.shape}")
                             
                             generated_ecg = generated_ecg[..., context_size:]
@@ -355,9 +397,6 @@ def train_new(output_directory,
                             curr_diffs = ecg_signal_difference(ecg_labels, generated_ecg, sampling_rate=trainset_config["sampling_rate"]) # return dtw_dist, mse_total, mae_total
                             for diff_name, val in curr_diffs.items():
                                 total_diffs[diff_name] += val
-
-                        if val_num_batches <=0 :
-                            break
 
 
             if stage == "train":
