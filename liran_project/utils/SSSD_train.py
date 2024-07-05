@@ -113,6 +113,7 @@ def train_new(output_directory,
           batch_size,
           train_dataset,
           val_dataset,
+          wandb_mode,
           **kwargs):
     """
     Train Diffusion Models
@@ -202,7 +203,7 @@ def train_new(output_directory,
         print(f"{output_directory=}")
         ckpt_iter = find_epoch(output_directory, critirion=critirion)
 
-    if ckpt_iter >= 0:
+    if ckpt_iter > 0:
         found_checkpoint = False
         last_file = -1
         last_valid_ckpt = ckpt_iter
@@ -211,7 +212,7 @@ def train_new(output_directory,
                 last_valid_ckpt = find_epoch(output_directory, num=last_file, critirion=critirion)
                 if last_valid_ckpt < 0:
                     print('No valid checkpoint model found, start training from initialization.')
-                    break
+
                 elif last_valid_ckpt <= ckpt_iter:
                     ckpt_iter = last_valid_ckpt
                     wandb_id = load_checkpoint(output_directory, ckpt_iter)
@@ -226,10 +227,10 @@ def train_new(output_directory,
         print('No valid checkpoint model found, start training from initialization.')
 
     if wandb_id:
-        wandb.init(project="ecg_SSSD", id=wandb_id, resume="must")
+        wandb.init(project="ecg_SSSD", id=wandb_id, resume="must", mode=wandb_mode, settings=wandb.Settings(code_dir="."))
         print(wandb.run.id)
     else:
-        wandb.init(project=project_name, config=wandb_config)
+        wandb.init(project=project_name, config=wandb_config, mode=wandb_mode, settings=wandb.Settings(code_dir="."))
 
     # Define the size of training and validation sets (e.g., 80% train, 20% validation)
     # train_size = int(0.8 * len(dataset))
@@ -254,12 +255,13 @@ def train_new(output_directory,
     n_iter = ckpt_iter + 1
     pbar_outer = tqdm(total=n_iters, initial=ckpt_iter, position=0, leave=True)
     best_val_loss = float('inf')
+    best_diffs = defaultdict(lambda: float("inf"))
     best_model_path = None
 
     normalizer = NormalizeBatch(input=True)
 
-    prev_avg_diff = 0
     while n_iter < n_iters + 1:
+        # torch.cuda.empty_cache()
         if n_iter % 50 == 0:
             tqdm.write(f'n_iter: {n_iter}')
         for stage in ["train", "val"]:
@@ -285,14 +287,13 @@ def train_new(output_directory,
 
                 if stage == "train":
                     ecg_signals_batch = concatenated_batch
-                    ecg_signals_batch = normalizer((ecg_signals_batch.unsqueeze(1), None, None))[0].squeeze(1)
+                    # ecg_signals_batch = normalizer((ecg_signals_batch.unsqueeze(1), None, None))[0].squeeze(1)
                 elif stage == "val":
                     ecg_signals_batch = concatenated_batch[:, 0, :]
-                    ecg_signals_batch = normalizer((ecg_signals_batch.unsqueeze(1), None, None))[0].squeeze(1)
-                    # ecg_signals_batch = concatenated_batch[:, 0, :]
+                    # ecg_signals_batch = normalizer((ecg_signals_batch.unsqueeze(1), None, None))[0].squeeze(1)
 
                     ecg_signals_labels = batch[1][:, 0, :]
-                    ecg_signals_labels = normalizer((ecg_signals_labels.unsqueeze(1), None, None))[0].squeeze(1)
+                    # ecg_signals_labels = normalizer((ecg_signals_labels.unsqueeze(1), None, None))[0].squeeze(1)
                     ecg_R_beats_labels = batch[1][:, 1, :]
                     ecg_labels = torch.stack([ecg_signals_labels, ecg_R_beats_labels], dim=1)
 
@@ -347,7 +348,7 @@ def train_new(output_directory,
                     
                     train_loss = calculate_loss(net, nn.MSELoss(), X, diffusion_hyperparams,
                                         only_generate_missing=only_generate_missing)
-                    # check_gpu_memory_usage()
+                    check_gpu_memory_usage()
                     
                     train_losses.append(train_loss.item())
 
@@ -361,21 +362,18 @@ def train_new(output_directory,
                     pbar_inner.update()
 
                 else: # validation
-                    if not i % 5 == 0:
-                        continue
                     with torch.no_grad():
-                        val_loss = calculate_loss(net, nn.MSELoss(), X, diffusion_hyperparams,
+
+                        if n_iter < 100 and i % 10 == 0 and val_count_num_batches < val_num_batches: # take a few samples from each patient
+                            val_loss = calculate_loss(net, nn.MSELoss(), X, diffusion_hyperparams,
                                         only_generate_missing=only_generate_missing)
-                        val_losses.append(val_loss.item())
-                        pbar_inner.set_postfix({"validation_loss": val_loss.item(),
-                                                "iteration": n_iter})
-                        pbar_inner.update()
+                            val_losses.append(val_loss.item())
+                            pbar_inner.set_postfix({"validation_loss": val_loss.item(),
+                                                    "iteration": n_iter})
+                            pbar_inner.update()
 
-                        #calculate validation accuracy
-                        print(f"generating ecg for validation batch {i}")
-                        #check devices of: net, batch, mask
-
-                        if i % 10 == 0 and val_count_num_batches < val_num_batches: # take a few samples from each patient
+                            #calculate validation accuracy
+                            print(f"generating ecg for validation batch {i}")
                             val_count_num_batches += 1
 
                             generated_ecg = sampling(net,
@@ -397,20 +395,30 @@ def train_new(output_directory,
                             curr_diffs = ecg_signal_difference(ecg_labels, generated_ecg, sampling_rate=trainset_config["sampling_rate"]) # return dtw_dist, mse_total, mae_total
                             for diff_name, val in curr_diffs.items():
                                 total_diffs[diff_name] += val
-
+                
 
             if stage == "train":
                 avg_train_loss = sum(train_losses) / len(train_losses)
                 
             elif stage == "val":
                 avg_val_loss = sum(val_losses) / len(val_losses)
+                save_iter = False
                 if avg_val_loss < best_val_loss:
+                    save_iter = True
+                for key, val in total_diffs.items():
+                    if val < best_diffs[key]:
+                        best_diffs[key] = val
+                        save_iter = True
+                        break
+                if save_iter:
                     best_val_loss = avg_val_loss
-                    best_model_path = os.path.join(output_directory, f'best_model:_iter:_{n_iter}_loss:_{best_val_loss}.pth')
-                    torch.save({'model_state_dict': net.state_dict(),
+                    best_model_path = os.path.join(output_directory, f'best_model:_iter:_{n_iter}.pth')
+                    save_model = {'model_state_dict': net.state_dict(),
                                     'optimizer_state_dict': optimizer.state_dict(),
-                                    'wandb_id': wandb.run.id},
-                                    best_model_path)
+                                    'wandb_id': wandb.run.id}
+                    save_model.update(total_diffs)
+                    torch.save(save_model,
+                                best_model_path)
                     tqdm.write(f'Validation loss improved at iteration {n_iter}. Model saved at {best_model_path}')
 
                     
@@ -499,9 +507,10 @@ if __name__ == "__main__":
 
     
 
+    advance = 6*60*fs
     # Instantiate the class
-    train_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_file, end_patiant=15)
-    val_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, val_file, start_patiant=34, end_patiant=39, return_with_RR=True)
+    train_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_file, end_patiant=10)
+    val_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_file, start_sample_from=advance, end_patiant=10, return_with_RR=True)
 
     assert len(train_dataset) > 0, f"{len(train_dataset)=} should be greater than 0"
     assert len(val_dataset) > 0, f"{len(val_dataset)=} should be greater than 0"
@@ -577,7 +586,8 @@ if __name__ == "__main__":
         trainset_config = trainset_config_SSSDS4,
         context_size=context_window_size,
         label_size=label_window_size,
-        batch_size=batch_size
+        batch_size=batch_size,
+        wandb_mode=train_config["train_config"]["wandb_mode"]
         )
 
     wandb.finish()
