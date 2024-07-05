@@ -252,7 +252,7 @@ def train_new(output_directory,
     start_time = time.time()
     
     # training
-    n_iter = ckpt_iter + 1
+    epoch = ckpt_iter + 1
     pbar_outer = tqdm(total=n_iters, initial=ckpt_iter, position=0, leave=True)
     best_val_loss = float('inf')
     best_diffs = defaultdict(lambda: float("inf"))
@@ -260,10 +260,10 @@ def train_new(output_directory,
 
     normalizer = NormalizeBatch(input=True)
 
-    while n_iter < n_iters + 1:
+    while epoch < n_iters + 1:
         # torch.cuda.empty_cache()
-        if n_iter % 50 == 0:
-            tqdm.write(f'n_iter: {n_iter}')
+        if epoch % 50 == 0:
+            tqdm.write(f'epoch: {epoch}')
         for stage in ["train", "val"]:
             if stage == "train":
                 net.train()
@@ -275,9 +275,9 @@ def train_new(output_directory,
                 pbar_inner = tqdm(enumerate(val_loader), total=len(val_loader), position=1, leave=True, dynamic_ncols=True)
                 total_diffs = defaultdict(lambda: 0)
 
-            val_num_batches = 6
-            val_count_num_batches = 0
-            for i, batch in pbar_inner:
+            val_num_batches = float('inf')
+            val_count_sampled_batches = 0
+            for batch_i, batch in pbar_inner:
                 
                 assert context_size == batch[0].shape[-1], f"{context_size=} != {batch[0].shape[-1]=}"
 
@@ -358,43 +358,44 @@ def train_new(output_directory,
 
                     # pbar_inner.set_description(f'Processing batch {i+1}')
                     pbar_inner.set_postfix({"training_loss": train_loss.item(),
-                                                "iteration": n_iter})
+                                                "iteration": epoch})
                     pbar_inner.update()
 
                 else: # validation
                     with torch.no_grad():
 
-                        if n_iter < 100 and i % 10 == 0 and val_count_num_batches < val_num_batches: # take a few samples from each patient
+                        if batch_i % 10 == 0: # take a few samples from each patient
                             val_loss = calculate_loss(net, nn.MSELoss(), X, diffusion_hyperparams,
                                         only_generate_missing=only_generate_missing)
                             val_losses.append(val_loss.item())
                             pbar_inner.set_postfix({"validation_loss": val_loss.item(),
-                                                    "iteration": n_iter})
+                                                    "iteration": epoch})
                             pbar_inner.update()
 
                             #calculate validation accuracy
-                            print(f"generating ecg for validation batch {i}")
-                            val_count_num_batches += 1
+                            print(f"generating ecg for validation batch {batch_i}")
 
-                            generated_ecg = sampling(net,
-                                            size=ecg_signals_batch.size(),
-                                            diffusion_hyperparams=diffusion_hyperparams,
-                                            cond=ecg_signals_batch,
-                                            mask=mask,
-                                            only_generate_missing=only_generate_missing
-                                            )
-                            # check_gpu_memory_usage()
-                            print(f"generated_ecg shape: {generated_ecg.shape}")
-                            
-                            generated_ecg = generated_ecg[..., context_size:]
+                            if batch_i == 0 or epoch > 60:
+                                val_count_sampled_batches += 1
+                                generated_ecg = sampling(net,
+                                                size=ecg_signals_batch.size(),
+                                                diffusion_hyperparams=diffusion_hyperparams,
+                                                cond=ecg_signals_batch,
+                                                mask=mask,
+                                                only_generate_missing=only_generate_missing
+                                                )
+                                # check_gpu_memory_usage()
+                                print(f"generated_ecg shape: {generated_ecg.shape}")
+                                
+                                generated_ecg = generated_ecg[..., context_size:]
 
-                            generated_ecg = generated_ecg.squeeze(1)
+                                generated_ecg = generated_ecg.squeeze(1)
 
-                            print("calculating accuracy")
+                                print("calculating accuracy")
 
-                            curr_diffs = ecg_signal_difference(ecg_labels, generated_ecg, sampling_rate=trainset_config["sampling_rate"]) # return dtw_dist, mse_total, mae_total
-                            for diff_name, val in curr_diffs.items():
-                                total_diffs[diff_name] += val
+                                curr_diffs = ecg_signal_difference(ecg_labels, generated_ecg, sampling_rate=trainset_config["sampling_rate"]) # return dtw_dist, mse_total, mae_total
+                                for diff_name, val in curr_diffs.items():
+                                    total_diffs[diff_name] += val
                 
 
             if stage == "train":
@@ -412,41 +413,41 @@ def train_new(output_directory,
                         break
                 if save_iter:
                     best_val_loss = avg_val_loss
-                    best_model_path = os.path.join(output_directory, f'best_model:_iter:_{n_iter}.pth')
+                    best_model_path = os.path.join(output_directory, f'best_model:_iter:_{epoch}.pth')
                     save_model = {'model_state_dict': net.state_dict(),
                                     'optimizer_state_dict': optimizer.state_dict(),
                                     'wandb_id': wandb.run.id}
                     save_model.update(total_diffs)
                     torch.save(save_model,
                                 best_model_path)
-                    tqdm.write(f'Validation loss improved at iteration {n_iter}. Model saved at {best_model_path}')
+                    tqdm.write(f'Validation loss improved at iteration {epoch}. Model saved at {best_model_path}')
 
                     
         elapsed_time = time.time() - start_time
         minuts_elapsed_time = int(elapsed_time)/60
-        log = {key: val/val_num_batches for key, val in total_diffs.items()}
+        log = {key: val/val_count_sampled_batches for key, val in total_diffs.items()}
         log.update({"training_loss": avg_train_loss,
                    "validation_loss": avg_val_loss, 
                    "elapsed_time": minuts_elapsed_time , 
-                   "iteration": n_iter
+                   "iteration": epoch
                     })
         wandb.log(log)
         tqdm.write(f'Time elapsed: {str(timedelta(seconds=int(elapsed_time)))}')
 
         # save checkpoint
-        if n_iter > 0 and n_iter % iters_per_ckpt == 0:
-            checkpoint_name = '{}.pkl'.format(n_iter)
+        if epoch > 0 and epoch % iters_per_ckpt == 0:
+            checkpoint_name = '{}.pkl'.format(epoch)
             torch.save({'model_state_dict': net.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
                         'wandb_id': wandb.run.id},
                     os.path.join(output_directory, checkpoint_name))
-            tqdm.write(f'model at iteration {n_iter} is saved')
+            tqdm.write(f'model at iteration {epoch} is saved')
             
 
-        if n_iter % iters_per_logging == 0:
-                tqdm.write(f'iteration: {n_iter} \tloss: {train_loss.item()}')
+        if epoch % iters_per_logging == 0:
+                tqdm.write(f'iteration: {epoch} \tloss: {train_loss.item()}')
                 wandb.save(best_model_path)
-        n_iter += 1
+        epoch += 1
         pbar_outer.update()
     pbar_outer.close()
     total_time = time.time() - start_time
