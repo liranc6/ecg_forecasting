@@ -267,7 +267,7 @@ def chamfer_distance(y, y_pred):
     
     # Chamfer Distance
     chamfer_dist = np.mean(min_dist_y_to_y_pred) + np.mean(min_dist_y_pred_to_y)
-    return chamfer_dist
+    return chamfer_dist/2
 
 def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
     """
@@ -293,7 +293,10 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
 
     dtw_dist = dtw_distance_batch(ecg_signals_batch.cpu().numpy(), ecg_pred_batch.cpu().numpy())
 
-    diffs = {"dtw_dist": dtw_dist}
+    mse_ecg_signals = mse_distance_batch(ecg_signals_batch, ecg_pred_batch)
+
+    diffs = {"dtw_dist": dtw_dist, 
+             "mse_ecg_signals": mse_ecg_signals}
     
     if len(ecg_signals_batch[-1]) < MIN_WINDOW_SIZE_FOR_NK_ECG_PROCESS:
         return diffs
@@ -307,78 +310,64 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
     # Initialize new_ecg_batch_pred tensor
     new_ecg_pred_batch = torch.zeros((ecg_pred_batch.shape[0], 2, ecg_pred_batch.shape[1]))
 
-    # Iterate over each prediction in the batch
+    ecg_pred_R_beats_batch_indices = []
+
+    # Iterate over each prediction in the batch and extract R peaks
     for i, ecg_pred in enumerate(ecg_pred_batch_numpy):
         ecg_pred = ecg_pred.squeeze()  # Remove singleton dimensions
         new_ecg_pred_batch[i][0] = torch.from_numpy(ecg_pred)  # Store the ECG prediction in the tensor
 
 
-        # Process the ECG prediction with NeuroKit
         _, info = nk.ecg_process(ecg_pred, sampling_rate=sampling_rate)
         ecg_pred_R_beats_indices = info['ECG_R_Peaks']
+        ecg_pred_R_beats_batch_indices.append(ecg_pred_R_beats_indices)
 
-        # Convert R beat indices to binary tensor
-        binary_ecg_pred_R_beats = indices_to_binary_tensor(ecg_pred_R_beats_indices, ecg_pred)
-
-        # Store the binary R beats in the tensor
-        new_ecg_pred_batch[i][1] = torch.from_numpy(binary_ecg_pred_R_beats)
-        
-
-    ecg_pred_R_beats_batch = new_ecg_pred_batch[:, 1, :]
 
     ecg_R_beats_batch_indices = [torch.nonzero(row == 1).squeeze(1) for row in ecg_R_beats_batch]
-    ecg_pred_R_beats_batch_indices = [torch.nonzero(row == 1).squeeze(1) for row in ecg_pred_R_beats_batch]
 
-    ecg_len = ecg_signals_batch.shape[1]
+    diffs_by_r_indices_dict = differences_by_R_indices(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices, ecg_len=ecg_signals_batch.shape[1])
+    diffs.update(diffs_by_r_indices_dict)
 
-    mean_extra_r_beats = 0
-    extra_r_beats_מegligible_length = 0
+    return diffs
 
+def differences_by_R_indices(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices, ecg_len):
     chamfer_dist = chamfer_distance_batch(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices)
+    diffs = {"chamfer_distance": chamfer_dist}
+
+    extra_r_beats, extra_r_beats_negligible_length = 0, 0
 
     for i, (y, y_pred) in enumerate(zip(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices)):
         if y_pred.shape != y.shape:
             # align the pred indices to the batch indices
 
-            mean_extra_r_beats += abs(y.shape[0] - y_pred.shape[0])
-            extra_r_beats_מegligible_length += mean_extra_r_beats/y.shape[0]
+            extra_r_beats += abs(y.shape[0] - y_pred.shape[0])
+            extra_r_beats_negligible_length += 2 * extra_r_beats/(y.shape[0]+y_pred.shape[0])
             
             a, b = prune_to_same_length(y, y_pred, min_distance=50)
 
             if a.shape[0] > b.shape[0]:
                 a = align_indices(a, b, ecg_len, smooth_to_each_side=50)
-                # b, a = align_batch(ecg_pred_R_beats_batch[i].unsqueeze(0), ecg_R_beats_batch[i].unsqueeze(0))
             elif b.shape[0] > a.shape[0]:
                 b = align_indices(b, a, ecg_len, smooth_to_each_side=50)
-                # a, b = align_batch(ecg_R_beats_batch[i].unsqueeze(0), ecg_pred_R_beats_batch[i].unsqueeze(0))
                 
             assert a.shape == b.shape, f"{a.shape=}, {b.shape=}"
             ecg_R_beats_batch_indices[i], ecg_pred_R_beats_batch_indices[i] = a , b
 
-            # print(f"{ecg_R_beats_batch_indices[i].shape}, {ecg_pred_R_beats_batch_indices[i].shape}")
-    
-    mean_extra_r_beats /= len(ecg_R_beats_batch_indices)
-    extra_r_beats_מegligible_length /= len(ecg_R_beats_batch_indices)
 
+    mean_extra_r_beats = extra_r_beats / len(ecg_R_beats_batch_indices)
+    mean_extra_r_beats_negligible_length = extra_r_beats_negligible_length / len(ecg_R_beats_batch_indices)
 
-    for i, (y, y_pred) in enumerate(zip(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices)):
-        y, y_pred = indices_to_binary_tensor(y, torch.zeros(ecg_len)), indices_to_binary_tensor(y_pred, torch.zeros(ecg_len))
-        ecg_R_beats_batch[i] = torch.from_numpy(y)
-        ecg_pred_R_beats_batch[i] = torch.from_numpy(y_pred)
+    # mse_r_beats_localization = mse_distance_batch(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices)
+    mae_pruned_r_beats_localization = mae_distance_batch(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices)
 
-    
-
-    mse_total = mse_distance_batch(ecg_R_beats_batch, ecg_pred_R_beats_batch)
-    mae_total = mae_distance_batch(ecg_R_beats_batch, ecg_pred_R_beats_batch)
-
-    diffs.update({"mse_total": mse_total, 
-                  "mae_total": mae_total, 
-                  "mean_extra_r_beats": mean_extra_r_beats,
-                  "extra_r_beats_מegligible_length": extra_r_beats_מegligible_length,
-                  "chamfer_distance": chamfer_dist
-                  })
-
+    diffs.update({"mean_extra_r_beats": mean_extra_r_beats,
+                "mean_extra_r_beats_negligible_length": mean_extra_r_beats_negligible_length,
+                # "mse_r_beats_localization": mse_r_beats_localization,
+                "mae_pruned_r_beats_localization": mae_pruned_r_beats_localization
+                })
     return diffs
+
+    
 
 def dtw_distance_batch(y_list, y_pred_list):
     """
