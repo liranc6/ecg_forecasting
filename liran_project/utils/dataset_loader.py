@@ -9,7 +9,7 @@ from collections import OrderedDict
 
 
 class SingleLeadECGDatasetCrops(Dataset):
-    def __init__(self, context_window_size, label_window_size, h5_filename, data_with_RR=True, cache_size=5000, return_with_RR = False, start_patiant=0, end_patiant=-1):
+    def __init__(self, context_window_size, label_window_size, h5_filename, start_sample_from=0, data_with_RR=True, cache_size=5000, return_with_RR = False, start_patiant=0, end_patiant=-1):
                
         self.context_window_size = context_window_size
         self.label_window_size = label_window_size
@@ -18,6 +18,8 @@ class SingleLeadECGDatasetCrops(Dataset):
 
         self.start_patiant = int(f'{start_patiant:05d}')
         self.end_patiant = int(f'{end_patiant:05d}')
+
+        self.start_sample_from = start_sample_from
         
         if self.end_patiant == -1:
             self.end_patiant = int(self.group_keys[-1])
@@ -67,7 +69,7 @@ class SingleLeadECGDatasetCrops(Dataset):
         dataset_idx = bisect.bisect_right(self.cumulative_sizes, idx)
 
 
-        advance = 0 #self.context_window_size + self.label_window_size
+        advance = self.start_sample_from #self.context_window_size + self.label_window_size
         # advance *= 2
 
         if dataset_idx == 0:
@@ -92,7 +94,7 @@ class SingleLeadECGDatasetCrops(Dataset):
             for i in range(len(to_cache)):
                 window = to_cache[i]
                 signal_len = len(window[0])
-                assert self.context_window_size + self.label_window_size <= signal_len, f"{self.context_window_size=} + {self.label_window_size=} > {signal_len=}"
+                assert advance + self.context_window_size + self.label_window_size <= signal_len, f"{self.context_window_size=} + {self.label_window_size=} > {signal_len=}"
                 x = window[:, advance: advance + self.context_window_size]
                 y = window[:, advance + self.context_window_size : advance + self.context_window_size + self.label_window_size]
                 self.cache[idx + i] = (x, y)
