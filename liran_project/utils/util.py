@@ -332,6 +332,7 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
     ecg_len = ecg_signals_batch.shape[1]
 
     mean_extra_r_beats = 0
+    extra_r_beats_מegligible_length = 0
 
     chamfer_dist = chamfer_distance_batch(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices)
 
@@ -339,7 +340,8 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
         if y_pred.shape != y.shape:
             # align the pred indices to the batch indices
 
-            mean_extra_r_beats += abs(y.shape[0] - y_pred.shape[0])/y.shape[0]
+            mean_extra_r_beats += abs(y.shape[0] - y_pred.shape[0])
+            extra_r_beats_מegligible_length += mean_extra_r_beats/y.shape[0]
             
             a, b = prune_to_same_length(y, y_pred, min_distance=50)
 
@@ -356,6 +358,7 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
             # print(f"{ecg_R_beats_batch_indices[i].shape}, {ecg_pred_R_beats_batch_indices[i].shape}")
     
     mean_extra_r_beats /= len(ecg_R_beats_batch_indices)
+    extra_r_beats_מegligible_length /= len(ecg_R_beats_batch_indices)
 
 
     for i, (y, y_pred) in enumerate(zip(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices)):
@@ -371,6 +374,7 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
     diffs.update({"mse_total": mse_total, 
                   "mae_total": mae_total, 
                   "mean_extra_r_beats": mean_extra_r_beats,
+                  "extra_r_beats_מegligible_length": extra_r_beats_מegligible_length,
                   "chamfer_distance": chamfer_dist
                   })
 
