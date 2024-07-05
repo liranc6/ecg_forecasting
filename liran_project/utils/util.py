@@ -339,7 +339,7 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
         if y_pred.shape != y.shape:
             # align the pred indices to the batch indices
 
-            mean_extra_r_beats += abs(y.shape[0] - y_pred.shape[0])
+            mean_extra_r_beats += abs(y.shape[0] - y_pred.shape[0])/y.shape[0]
             
             a, b = prune_to_same_length(y, y_pred, min_distance=50)
 
