@@ -9,6 +9,7 @@ import pandas as pd
 from fastdtw import fastdtw
 import neurokit2 as nk
 from tqdm import tqdm
+from scipy.spatial import distance
 
 SAMPLING_RATE = 250
 MIN_WINDOW_SIZE_FOR_NK_ECG_PROCESS = 10*SAMPLING_RATE
@@ -232,18 +233,41 @@ def align_indices(longer_list_of_indices, shorter_list_of_indices, tensor_len, s
     assert len(new_indices) == len(shorter_list_of_indices), f"{len(new_indices)=}, {len(shorter_list_of_indices)=}"
     return torch.tensor(new_indices)
 
+def chamfer_distance_batch(y_list, y_pred_list):
+    """
+    Compute the Chamfer Distance between two sets of points.
+    The Chamfer Distance is the sum of the average nearest neighbor distance from each point in set A to set B and vice versa.
+    This implimentation is good for small datasets, for large datasets, we can use KDTree.
+    """
+    assert len(y_list) == len(y_pred_list) and len(y_list) > 0, "Input lists must have the same length and contain at least one element."
+    assert isinstance(y_list, list) and isinstance(y_pred_list, list), "Both inputs must be lists."
+
+    total_error = 0
+    for y, y_pred in zip(y_list, y_pred_list):
+        total_error += chamfer_distance(y, y_pred)
+
+    return total_error / len(y_list)
         
+def chamfer_distance(y, y_pred):
+    """
+    Compute the Chamfer Distance between two sets of points.
+    The Chamfer Distance is the sum of the average nearest neighbor distance from each point in set A to set B and vice versa.
+    This implimentation is good for small datasets, for large datasets, we can use KDTree.
+    """
+    y = np.array(y).reshape(-1, 1)
+    y_pred = np.array(y_pred).reshape(-1, 1)
+    
+    # Compute pairwise distances
+    dist_matrix = distance.cdist(y, y_pred, 'euclidean')
 
-
-
-
-
-
-
-
-
-
-
+    # Find the nearest neighbor in y_pred for each point in y
+    min_dist_y_to_y_pred = np.min(dist_matrix, axis=1)
+    # Find the nearest neighbor in y for each point in y_pred
+    min_dist_y_pred_to_y = np.min(dist_matrix, axis=0)
+    
+    # Chamfer Distance
+    chamfer_dist = np.mean(min_dist_y_to_y_pred) + np.mean(min_dist_y_pred_to_y)
+    return chamfer_dist
 
 def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
     """
@@ -266,7 +290,6 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
     ecg_R_beats_batch = ecg_batch[:, 1, :]
 
     assert len(ecg_signals_batch) == len(ecg_pred_batch) and len(ecg_signals_batch) > 0, "Input lists must have the same length and contain at least one element."
-
 
     dtw_dist = dtw_distance_batch(ecg_signals_batch.cpu().numpy(), ecg_pred_batch.cpu().numpy())
 
@@ -310,6 +333,8 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
 
     mean_extra_r_beats = 0
 
+    chamfer_dist = chamfer_distance_batch(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices)
+
     for i, (y, y_pred) in enumerate(zip(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices)):
         if y_pred.shape != y.shape:
             # align the pred indices to the batch indices
@@ -343,7 +368,11 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
     mse_total = mse_distance_batch(ecg_R_beats_batch, ecg_pred_R_beats_batch)
     mae_total = mae_distance_batch(ecg_R_beats_batch, ecg_pred_R_beats_batch)
 
-    diffs.update({"mse_total": mse_total, "mae_total": mae_total, "mean_extra_r_beats": mean_extra_r_beats})
+    diffs.update({"mse_total": mse_total, 
+                  "mae_total": mae_total, 
+                  "mean_extra_r_beats": mean_extra_r_beats,
+                  "chamfer_distance": chamfer_dist
+                  })
 
     return diffs
 
