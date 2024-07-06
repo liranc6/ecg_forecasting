@@ -291,9 +291,9 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
 
     assert len(ecg_signals_batch) == len(ecg_pred_batch) and len(ecg_signals_batch) > 0, "Input lists must have the same length and contain at least one element."
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    mse_ecg_signals = mse_distance_batch(ecg_signals_batch.to(device) , ecg_pred_batch.to(device))
     dtw_dist = dtw_distance_batch(ecg_signals_batch.cpu().numpy(), ecg_pred_batch.cpu().numpy())
-
-    mse_ecg_signals = mse_distance_batch(ecg_signals_batch, ecg_pred_batch)
 
     diffs = {"dtw_dist": dtw_dist, 
              "mse_ecg_signals": mse_ecg_signals}
@@ -334,7 +334,7 @@ def differences_by_R_indices(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_i
     chamfer_dist = chamfer_distance_batch(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices)
     diffs = {"chamfer_distance": chamfer_dist}
 
-    extra_r_beats, extra_r_beats_negligible_length = 0, 0
+    extra_r_beats, extra_r_beats_negligible_length, mae_distance, mse_distance = 0, 0, 0, 0
 
     for i, (y, y_pred) in enumerate(zip(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices)):
         if y_pred.shape != y.shape:
@@ -353,12 +353,15 @@ def differences_by_R_indices(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_i
             assert a.shape == b.shape, f"{a.shape=}, {b.shape=}"
             ecg_R_beats_batch_indices[i], ecg_pred_R_beats_batch_indices[i] = a , b
 
+            mae_distance += mae_distance_batch(ecg_R_beats_batch_indices[i], ecg_pred_R_beats_batch_indices[i])
 
-    mean_extra_r_beats = extra_r_beats / len(ecg_R_beats_batch_indices)
-    mean_extra_r_beats_negligible_length = extra_r_beats_negligible_length / len(ecg_R_beats_batch_indices)
+
+    ecg_R_beats_batch_indices_len = len(ecg_R_beats_batch_indices)
+    mean_extra_r_beats = extra_r_beats / ecg_R_beats_batch_indices_len
+    mean_extra_r_beats_negligible_length = extra_r_beats_negligible_length / ecg_R_beats_batch_indices_len
+    mae_pruned_r_beats_localization = mae_distance / ecg_R_beats_batch_indices_len
 
     # mse_r_beats_localization = mse_distance_batch(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices)
-    mae_pruned_r_beats_localization = mae_distance_batch(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices)
 
     diffs.update({"mean_extra_r_beats": mean_extra_r_beats,
                 "mean_extra_r_beats_negligible_length": mean_extra_r_beats_negligible_length,
@@ -408,20 +411,16 @@ def mse_distance_batch(y_batch, y_pred_batch):
     # return total_error / len(y_list)
 
 def mae_distance_batch(y_list, y_pred_list):
-
-    total_error = F.l1_loss(y_list.float(), y_pred_list.float()).item()
-    return total_error
-    # assert len(y_list) == len(y_pred_list) and len(y_list) > 0, "Input lists must have the same length and contain at least one element."
+    assert len(y_list) == len(y_pred_list) and len(y_list) > 0, "Input lists must have the same length and contain at least one element."
     # # assert isinstance(y_list, list) and isinstance(y_pred_list, list), "Both inputs must be lists."
 
-    # total_error = 0
-    # for y, y_pred in zip(y_list, y_pred_list):
-    #     assert y.shape == y_pred.shape, "Each pair of tensors must have the same shape."
-    #     assert isinstance(y, torch.Tensor) and isinstance(y_pred, torch.Tensor), "Both inputs in each pair must be tensors."
+    total_error = 0
+    for y, y_pred in zip(y_list, y_pred_list):
+        total_error += F.l1_loss(
+                                torch.tensor(y).float(), torch.tensor(y_pred).float() \
+                                ).item()
 
-    #     total_error += torch.mean(torch.abs(y_pred.float() - y.float())).item()
-
-    # return total_error / len(y_list)
+    return total_error / len(y_list)
 
 def modify_z_and_omega(net, model_name, checkpoint, device):
     if model_name == "SSSDS4":
