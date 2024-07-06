@@ -1124,9 +1124,23 @@ class S4(nn.Module):
             k = F.pad(k0, (0, L)) \
                     + F.pad(k1.flip(-1), (L, 0)) \
 
+        """
+        The reason for performing the convolution in the frequency domain is that it can be more computationally efficient
+        than performing it in the spatial domain, especially for large inputs and kernels. 
+        This is due to the Convolution Theorem, which states that a convolution in the spatial domain is equivalent 
+        to a pointwise multiplication in the frequency domain.
+        The FFT and inverse FFT operations have a time complexity of O(n log n), 
+        while a convolution in the spatial domain has a time complexity of O(n^2), so for large n, 
+        the FFT-based convolution can be significantly faster.
+        """
+        # Perform Fourier transform on the kernel and the input
         k_f = torch.fft.rfft(k, n=2*L) # (C H L)
         u_f = torch.fft.rfft(u, n=2*L) # (B H L)
+
+        # Perform convolution in the frequency domain
         y_f = contract('bhl,chl->bchl', u_f, k_f) # k_f.unsqueeze(-4) * u_f.unsqueeze(-3) # (B C H L)
+        
+        # transform back to spatial domain
         y = torch.fft.irfft(y_f, n=2*L)[..., :L] # (B C H L)
 
 

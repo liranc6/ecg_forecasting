@@ -79,34 +79,59 @@ class Residual_block(nn.Module):
         nn.init.kaiming_normal_(self.skip_conv.weight)
 
     def forward(self, input_data):
+        # Unpack the input data
         x, cond, diffusion_step_embed = input_data
+
+        # Initialize h with the input tensor x
         h = x
+
+        # Get the shape of the input tensor
         B, C, L = x.shape
+
+        # Assert that the number of channels in the input matches the expected number
         assert C == self.res_channels
 
+        # Apply the fully connected layer to the diffusion step embedding
         part_t = self.fc_t(diffusion_step_embed)
+
+        # Reshape part_t to match the expected shape
         part_t = part_t.view([B, self.res_channels, 1])
+
+        # Add part_t to h
         h = h + part_t
 
+        # Apply the convolutional layer to h
         h = self.conv_layer(h)
+
+        # Permute the dimensions of h and apply the S41 layer
         h = self.S41(h.permute(2,0,1)).permute(1,2,0)
 
-        # print(f"{self.S41.s4_layer.kernel.kernel.z.shape=}")
-
+        # Assert that the condition tensor is not None
         assert cond is not None
+
+        # Apply the conditional convolution to the condition tensor
         cond = self.cond_conv(cond)
+
+        # Add the condition tensor to h
         h += cond
 
+        # Permute the dimensions of h and apply the S42 layer
         h = self.S42(h.permute(2,0,1)).permute(1,2,0)
 
+        # Apply the tanh and sigmoid activation functions to h
         out = torch.tanh(h[:,:self.res_channels,:]) * torch.sigmoid(h[:,self.res_channels:,:])
 
+        # Apply the residual convolution to out
         res = self.res_conv(out)
+
+        # Assert that the shapes of x and res match
         assert x.shape == res.shape
+
+        # Apply the skip convolution to out
         skip = self.skip_conv(out)
 
+        # Return the sum of x and res, scaled by sqrt(0.5), and the skip tensor
         return (x + res) * math.sqrt(0.5), skip  # normalize for training stability
-
 
 class Residual_group(nn.Module):
     def __init__(self, res_channels, skip_channels, num_res_layers,
@@ -200,15 +225,19 @@ class SSSDS4Imputer(nn.Module):
                                         ZeroConv1d(skip_channels, out_channels))
 
     def forward(self, input_data):
-        noise, conditional, mask, diffusion_steps = input_data
+        noisy_state, conditional, mask, diffusion_steps = input_data
 
         # Conditional masking focuses error computations on available data
         conditional = torch.cat([conditional * mask, mask.float()], dim=1)
 
-        x = self.init_conv(noise)
-        x = self.residual_layer((x, conditional, diffusion_steps))
-        y = self.final_conv(x)
+        # extract initial features from the noise data
+        embed_noisy_state = self.init_conv(noisy_state)
+
+        # learn and apply complex transformations to the data, taking into account the conditional data and the current diffusion step
+        learned_noisy_state = self.residual_layer((embed_noisy_state, conditional, diffusion_steps))
+        
+        # map the transformed data back to the original data space, producing the final output
+        y = self.final_conv(learned_noisy_state)
 
         return y
-   
-
+  

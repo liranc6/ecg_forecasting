@@ -179,7 +179,7 @@ def sampling(net, size, diffusion_hyperparams, cond, mask, only_generate_missing
             if only_generate_missing == 1:
                 x = x * (1 - mask).float() + cond * mask.float()
             diffusion_steps = (t * torch.ones((size[0], 1))).cuda()  # use the corresponding reverse step
-            epsilon_theta = net((x, cond, mask, diffusion_steps,))  # predict \epsilon according to \epsilon_\theta
+            epsilon_theta = net((x, cond, mask, diffusion_steps,))  # predict epsilon_theta according to epsilon_theta
             # update x_{t-1} to \mu_\theta(x_t)
             x = (x - (1 - Alpha[t]) / torch.sqrt(1 - Alpha_bar[t]) * epsilon_theta) / torch.sqrt(Alpha[t])
             if t > 0:
@@ -223,39 +223,39 @@ def calculate_loss(net, loss_fn, X, diffusion_hyperparams, only_generate_missing
     diffusion_steps = torch.randint(T, size=(B, 1, 1)).cuda()
 
     # Generate standard normal distribution with the same shape as audio
-    z = std_normal(audio.shape)
+    noise_distribution = std_normal(audio.shape)
 
     # If only_generate_missing is set to 1, modify z based on the mask
     # The result is a tensor where the values from audio are kept where mask is 1, and the values from z are kept where mask is 0.
     if only_generate_missing == 1:
-        z = audio * mask.float() + z * (1 - mask).float()
+        noise_distribution = audio * mask.float() + noise_distribution * (1 - mask).float()
 
     # Compute x_t from q(x_t|x_0) using the diffusion steps and Alpha_bar
     """
-    The transformed_X tensor represents the state of the system at a certain diffusion step.
+    The current_noisy_state tensor represents the state of the system at a certain diffusion step.
     It's a mix of the original data and some added noise, with the balance between the two controlled by the Alpha_bar parameter.
 
     torch.sqrt(Alpha_bar[diffusion_steps]) * audio: This represents the portion of the original data that is preserved in this diffusion step.
     torch.sqrt(1 - Alpha_bar[diffusion_steps]) * z: This represents the new noise that is added in this diffusion step.
 
-    transformed_X: The result is a tensor where the values are a mix of the scaled audio and z tensors.
-    transformed_X is the tensor that represents the state of the system at a certain diffusion step. It's a mix of the original data
+    current_noisy_state: The result is a tensor where the values are a mix of the scaled audio and z tensors.
+    current_noisy_state is the tensor that represents the state of the system at a certain diffusion step. It's a mix of the original data
         and some added noise, with the balance between the two controlled by the Alpha_bar parameter.
     """
-    transformed_X = torch.sqrt(Alpha_bar[diffusion_steps]) * audio + \
-                    torch.sqrt(1 - Alpha_bar[diffusion_steps]) * z
+    current_noisy_state = torch.sqrt(Alpha_bar[diffusion_steps]) * audio + \
+                    torch.sqrt(1 - Alpha_bar[diffusion_steps]) * noise_distribution
 
-    # Predict \epsilon according to \epsilon_\theta using the transformed_X, cond, mask, and diffusion_steps. i.e. calling forward
+    # Predict epsilon_theta according to epsilon_theta using the current_noisy_state, cond, mask, and diffusion_steps. i.e. calling forward
     epsilon_theta = net(
-        (transformed_X, cond, mask, diffusion_steps.view(B, 1),))
+        (current_noisy_state, cond, mask, diffusion_steps.view(B, 1),))
 
     # Compute the loss based on the value of only_generate_missing
     if only_generate_missing == 1:
         # If only_generate_missing is 1, compute the loss only for the masked elements
-        return loss_fn(epsilon_theta[loss_mask], z[loss_mask])
+        return loss_fn(epsilon_theta[loss_mask], noise_distribution[loss_mask])
     elif only_generate_missing == 0:
         # If only_generate_missing is 0, compute the loss for all elements
-        return loss_fn(epsilon_theta, z)
+        return loss_fn(epsilon_theta, noise_distribution)
 
 
 def get_mask_rm(sample, k):
