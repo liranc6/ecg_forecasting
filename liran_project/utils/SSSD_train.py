@@ -149,20 +149,6 @@ def train_new(output_directory,
     window_info = "context{}_label{}".format(context_size, label_size)
     local_path = f"T{diffusion_config['T']}_beta0{diffusion_config['beta_0']}_betaT{diffusion_config['beta_T']}".replace('.','')
 
-    current_time = time.strftime("%H_%M_%d_%m_%y")
-
-    # Get shared output_directory ready
-    output_directory = os.path.join(output_directory,
-                                    str(model_name),
-                                    window_info,
-                                    local_path,
-                                    current_time)
-    
-    if not os.path.isdir(output_directory):
-        os.makedirs(output_directory, exist_ok=True)
-        os.chmod(output_directory, 0o775)
-    print("output directory", output_directory, flush=True)
-
     # map diffusion hyperparameters to gpu
     for key in diffusion_hyperparams:
         if key != "T":
@@ -231,6 +217,21 @@ def train_new(output_directory,
         print(wandb.run.id)
     else:
         wandb.init(project=project_name, config=wandb_config, mode=wandb_mode, settings=wandb.Settings(code_dir="."))
+
+
+    current_time_and_wandID = time.strftime("%H_%M_%d_%m_%y") + "_" + wandb.run.id
+
+    # Get shared output_directory ready
+    output_directory = os.path.join(output_directory,
+                                    str(model_name),
+                                    window_info,
+                                    local_path,
+                                    current_time_and_wandID)
+    
+    if not os.path.isdir(output_directory):
+        os.makedirs(output_directory, exist_ok=True)
+        os.chmod(output_directory, 0o775)
+    print("output directory", output_directory, flush=True)
 
     # Define the size of training and validation sets (e.g., 80% train, 20% validation)
     # train_size = int(0.8 * len(dataset))
@@ -376,7 +377,6 @@ def train_new(output_directory,
                             print(f"generating ecg for validation batch {batch_i}")
 
                             if batch_i == 0 or epoch > 60:
-                                val_count_sampled_batches += 1
                                 generated_ecg = sampling(net,
                                                 size=ecg_signals_batch.size(),
                                                 diffusion_hyperparams=diffusion_hyperparams,
@@ -393,6 +393,7 @@ def train_new(output_directory,
 
                                 print("calculating accuracy")
 
+                                val_count_sampled_batches += 1
                                 curr_diffs = ecg_signal_difference(ecg_labels, generated_ecg, sampling_rate=trainset_config["sampling_rate"]) # return dtw_dist, mse_total, mae_total
                                 for diff_name, val in curr_diffs.items():
                                     total_diffs[diff_name] += val
@@ -531,7 +532,7 @@ if __name__ == "__main__":
 
     
 
-    wandb_config = {
+    wandb_config = {"window_info": train_config["window_info"],
                     "diffusion_config": train_config["diffusion_config"],
                     "train_config": train_config["train_config"],
                     "trainset_config": train_config["trainset_config"],
