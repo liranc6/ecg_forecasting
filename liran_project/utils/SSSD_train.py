@@ -1,3 +1,6 @@
+CHECK_GPU_MEMORY_USAGE = False
+SERVER = "newton"
+
 import os
 import json
 import sys
@@ -11,19 +14,19 @@ from tqdm import tqdm
 import numpy as np
 import wandb
 from collections import defaultdict
+import random
 
-server = "newton"
 server_config_path = os.path.join("/home/liranc6/ecg_forecasting/liran_project/utils/server_config.json"
                                   )
 
-if server == "rambo":
+if SERVER == "rambo":
     os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
     os.environ['CUDA_VISIBLE_DEVICES'] = '5'
 
 # set server configuration
 with open(server_config_path) as f:
     server_config = json.load(f)
-    server_config = server_config[server]
+    server_config = server_config[SERVER]
     project_path = server_config['project_path']
 
 sys.path.append(project_path)
@@ -114,6 +117,7 @@ def train_new(output_directory,
           train_dataset,
           val_dataset,
           wandb_mode,
+          start_sampling_from,
           **kwargs):
     """
     Train Diffusion Models
@@ -213,25 +217,33 @@ def train_new(output_directory,
         print('No valid checkpoint model found, start training from initialization.')
 
     if wandb_id:
-        wandb.init(project="ecg_SSSD", id=wandb_id, resume="must", mode=wandb_mode, settings=wandb.Settings(code_dir="."))
+        run = wandb.init(project="ecg_SSSD", id=wandb_id, resume="must", mode=wandb_mode, settings=wandb.Settings(code_dir="."))
         print(wandb.run.id)
     else:
-        wandb.init(project=project_name, config=wandb_config, mode=wandb_mode, settings=wandb.Settings(code_dir="."))
+        run = wandb.init(project=project_name, config=wandb_config, mode=wandb_mode, settings=wandb.Settings(code_dir="."))
 
 
-    current_time_and_wandID = time.strftime("%H_%M_%d_%m_%y") + "_" + wandb.run.id
+    if run.config.get("output_directory", None) is None:
+        current_time_and_wandID = time.strftime("%H_%M_%d_%m_%y") + "_" + str(run.id)
 
-    # Get shared output_directory ready
-    output_directory = os.path.join(output_directory,
-                                    str(model_name),
-                                    window_info,
-                                    local_path,
-                                    current_time_and_wandID)
-    
-    if not os.path.isdir(output_directory):
-        os.makedirs(output_directory, exist_ok=True)
-        os.chmod(output_directory, 0o775)
-    print("output directory", output_directory, flush=True)
+        # Get shared output_directory ready
+        output_directory = os.path.join(output_directory,
+                                        str(model_name),
+                                        window_info,
+                                        local_path,
+                                        current_time_and_wandID)
+        
+        if not os.path.isdir(output_directory):
+            os.makedirs(output_directory, exist_ok=True)
+            os.chmod(output_directory, 0o775)
+        print("output directory", output_directory, flush=True)
+
+        run.config.update({"output_directory": output_directory}, allow_val_change=True)
+        run.save()
+
+    else:
+        output_directory = run.config["output_directory"]
+        print("output directory", output_directory, flush=True)
 
     # Define the size of training and validation sets (e.g., 80% train, 20% validation)
     # train_size = int(0.8 * len(dataset))
@@ -246,9 +258,23 @@ def train_new(output_directory,
     # train_sampler = SubsetRandomSampler(train_indices)
     # val_sampler = SubsetRandomSampler(val_indices)
 
+    def get_nth_batch_loader(val_dataset, batch_size, SubsetRandomSampler, n=1):
+        # Calculate indices of every nth batch
+        indices = list(range(0, len(val_dataset), n))
+
+        # Create a SubsetRandomSampler
+        sampler = SubsetRandomSampler(indices)
+
+        # Pass the sampler to the DataLoader
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, sampler=sampler)
+
+        return val_loader
+
     # Create data loaders for training and validation sets
     train_loader = DataLoader(train_dataset, batch_size=batch_size)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size)
+    
+    val_loader = get_nth_batch_loader(val_dataset, batch_size*2, SubsetRandomSampler=SubsetRandomSampler, n=10)
+    # val_loader = DataLoader(val_dataset, batch_size=batch_size)
     
     start_time = time.time()
     
@@ -349,7 +375,8 @@ def train_new(output_directory,
                     
                     train_loss = calculate_loss(net, nn.MSELoss(), X, diffusion_hyperparams,
                                         only_generate_missing=only_generate_missing)
-                    check_gpu_memory_usage()
+                    if CHECK_GPU_MEMORY_USAGE:
+                                check_gpu_memory_usage()
                     
                     train_losses.append(train_loss.item())
 
@@ -364,40 +391,39 @@ def train_new(output_directory,
 
                 else: # validation
                     with torch.no_grad():
+                        val_loss = calculate_loss(net, nn.MSELoss(), X, diffusion_hyperparams,
+                                    only_generate_missing=only_generate_missing)
+                        val_losses.append(val_loss.item())
+                        pbar_inner.set_postfix({"validation_loss": val_loss.item(),
+                                                "iteration": epoch})
+                        pbar_inner.update()
 
-                        if batch_i % 10 == 0: # take a few samples from each patient
-                            val_loss = calculate_loss(net, nn.MSELoss(), X, diffusion_hyperparams,
-                                        only_generate_missing=only_generate_missing)
-                            val_losses.append(val_loss.item())
-                            pbar_inner.set_postfix({"validation_loss": val_loss.item(),
-                                                    "iteration": epoch})
-                            pbar_inner.update()
+                        #calculate validation accuracy
+                        print(f"generating ecg for validation batch {batch_i}")
 
-                            #calculate validation accuracy
-                            print(f"generating ecg for validation batch {batch_i}")
+                        if batch_i == 0 or (epoch >= start_sampling_from and batch_i % 3 == 0):
+                            generated_ecg = sampling(net,
+                                            size=ecg_signals_batch.size(),
+                                            diffusion_hyperparams=diffusion_hyperparams,
+                                            cond=ecg_signals_batch,
+                                            mask=mask,
+                                            only_generate_missing=only_generate_missing
+                                            )
+                            if CHECK_GPU_MEMORY_USAGE:
+                                check_gpu_memory_usage()
+                            print(f"generated_ecg shape: {generated_ecg.shape}")
+                            
+                            generated_ecg = generated_ecg[..., context_size:]
 
-                            if batch_i == 0 or epoch > 60:
-                                generated_ecg = sampling(net,
-                                                size=ecg_signals_batch.size(),
-                                                diffusion_hyperparams=diffusion_hyperparams,
-                                                cond=ecg_signals_batch,
-                                                mask=mask,
-                                                only_generate_missing=only_generate_missing
-                                                )
-                                # check_gpu_memory_usage()
-                                print(f"generated_ecg shape: {generated_ecg.shape}")
-                                
-                                generated_ecg = generated_ecg[..., context_size:]
+                            generated_ecg = generated_ecg.squeeze(1)
 
-                                generated_ecg = generated_ecg.squeeze(1)
+                            print("calculating accuracy")
 
-                                print("calculating accuracy")
-
-                                val_count_sampled_batches += 1
-                                curr_diffs = ecg_signal_difference(ecg_labels, generated_ecg, sampling_rate=trainset_config["sampling_rate"]) # return dtw_dist, mse_total, mae_total
-                                for diff_name, val in curr_diffs.items():
-                                    total_diffs[diff_name] += val
-                
+                            val_count_sampled_batches += 1
+                            curr_diffs = ecg_signal_difference(ecg_labels, generated_ecg, sampling_rate=trainset_config["sampling_rate"]) # return dtw_dist, mse_total, mae_total
+                            for diff_name, val in curr_diffs.items():
+                                total_diffs[diff_name] += val
+            
 
             if stage == "train":
                 avg_train_loss = sum(train_losses) / len(train_losses)
@@ -414,7 +440,7 @@ def train_new(output_directory,
                         break
                 if save_iter:
                     best_val_loss = avg_val_loss
-                    best_model_path = os.path.join(output_directory, f'best_model:_iter:_{epoch}.pth')
+                    best_model_path = os.path.join(output_directory, f'{run.id}_best_model:_iter:_{epoch}.pth')
                     save_model = {'model_state_dict': net.state_dict(),
                                     'optimizer_state_dict': optimizer.state_dict(),
                                     'wandb_id': wandb.run.id}
@@ -437,7 +463,7 @@ def train_new(output_directory,
 
         # save checkpoint
         if epoch > 0 and epoch % iters_per_ckpt == 0:
-            checkpoint_name = '{}.pkl'.format(epoch)
+            checkpoint_name = f'{run.id}_{epoch}.pkl'
             torch.save({'model_state_dict': net.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
                         'wandb_id': wandb.run.id},
@@ -466,9 +492,9 @@ if __name__ == "__main__":
         train_config = json.load(f)
 
     model_name = train_config["train_config"]["model_name"]
-    train_config[f"output_directory_{server}"] = os.path.join(train_config["train_config"][f"output_directory_{server}"], model_name)
+    train_config[f"output_directory_{SERVER}"] = os.path.join(train_config["train_config"][f"output_directory_{SERVER}"], model_name)
 
-    model_config_path = os.path.join(train_config["train_config"][f"model_config_path_{server}"], f"config_{model_name}.json")
+    model_config_path = os.path.join(train_config["train_config"][f"model_config_path_{SERVER}"], f"config_{model_name}.json")
 
     with open(model_config_path) as f:
         model_config = json.load(f)
@@ -485,11 +511,20 @@ if __name__ == "__main__":
     label_window_size -= (label_window_size%4)
 
 
-    idx_start_val = 33
-    idx_start_test = 40
-    idx_end_test = 46
+    trainset_config = train_config["trainset_config"]
 
-    data_path = train_config["trainset_config"][f"data_path_{server}"]
+    idx_start_val = trainset_config["_idx_start_val"]
+    idx_start_test = trainset_config["_idx_start_test"]
+    idx_end_test = trainset_config["_idx_end_test"]
+    train_start_patiant, train_end_patiant = trainset_config["train_start_patiant"], trainset_config["train_end_patiant"]
+    val_start_patiant, val_end_patiant = trainset_config["val_start_patiant"], trainset_config["val_end_patiant"]
+
+    assert train_start_patiant < train_end_patiant, f"{train_start_patiant=} should be less than {train_end_patiant=}"
+    assert train_end_patiant < idx_start_val, f"{train_end_patiant=} should be less than {idx_start_val=}"
+    assert val_start_patiant > train_end_patiant, f"{val_start_patiant=} should be greater than {train_end_patiant=}"
+    assert val_end_patiant < idx_start_test, f"{val_end_patiant=} should be less than {idx_start_test=}"
+
+    data_path = train_config["trainset_config"][f"data_path_{SERVER}"]
 
     train_file = os.path.join(data_path,
                                "train",
@@ -507,12 +542,14 @@ if __name__ == "__main__":
     assert os.path.isfile(val_file), f"{val_file=} does not exist"
     assert os.path.isfile(test_file), f"{test_file=} does not exist"
 
-    
+
 
     advance = 6*60*fs
     # Instantiate the class
-    train_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_file, end_patiant=10)
-    val_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_file, start_sample_from=advance, end_patiant=10, return_with_RR=True)
+    train_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_file, 
+                                              start_patiant=train_start_patiant, end_patiant=train_end_patiant)
+    val_dataset = SingleLeadECGDatasetCrops(context_window_size, label_window_size, train_file, start_sample_from=advance, 
+                                            start_patiant=val_start_patiant, end_patiant=val_end_patiant, return_with_RR=True)
 
     assert len(train_dataset) > 0, f"{len(train_dataset)=} should be greater than 0"
     assert len(val_dataset) > 0, f"{len(val_dataset)=} should be greater than 0"
@@ -523,7 +560,7 @@ if __name__ == "__main__":
 
     
     print(f"{batch_size * window_size=}")
-    if model_name == "SSSDS4" and server == "rambo":
+    if model_name == "SSSDS4" and SERVER == "rambo":
         max_batch_size = 31000
         assert max_batch_size >= batch_size * window_size, f"{max_batch_size=} should be greater than or equal to {batch_size * window_size=}"
     elif model_name == "SSSDSA":
@@ -536,18 +573,14 @@ if __name__ == "__main__":
                     "diffusion_config": train_config["diffusion_config"],
                     "train_config": train_config["train_config"],
                     "trainset_config": train_config["trainset_config"],
-                    "iters_per_ckpt": train_config["train_config"]["iters_per_ckpt"],
-                    "iters_per_logging": train_config["train_config"]["iters_per_logging"],
-                    "n_iters": train_config["train_config"]["n_iters"],
-                    "learning_rate": train_config["train_config"]["learning_rate"],
-                    "model_name": model_name,
+                    "model_name": model_name
                     }
     
     # Initialize wandb with your project name and the relevant configuration
     project_name = f'ecg_SSSD_{model_name}'
 
          
-    train_config[f"output_directory_{server}"] = os.path.join(train_config[f"output_directory_{server}"], train_config['train_config']['model_name'])
+    train_config[f"output_directory_{SERVER}"] = os.path.join(train_config[f"output_directory_{SERVER}"], train_config['train_config']['model_name'])
     trainset_config_SSSDS4 = {
         "test_data_path": train_config["trainset_config"]["test_data_path"],
         "segment_length": window_size,
@@ -573,7 +606,7 @@ if __name__ == "__main__":
     train_new(
         train_dataset=train_dataset,
         val_dataset=val_dataset,
-        output_directory=train_config["train_config"][f"output_directory_{server}"],
+        output_directory=train_config["train_config"][f"output_directory_{SERVER}"],
         ckpt_iter=train_config["train_config"]['ckpt_iter'],
         n_iters= train_config["train_config"]['n_iters'],
         iters_per_ckpt=train_config["train_config"]['iters_per_ckpt'],
@@ -589,7 +622,8 @@ if __name__ == "__main__":
         context_size=context_window_size,
         label_size=label_window_size,
         batch_size=batch_size,
-        wandb_mode=train_config["train_config"]["wandb_mode"]
+        wandb_mode=train_config["train_config"]["wandb_mode"],
+        start_sampling_from=train_config["train_config"]["start_sampling_from"]
         )
 
     wandb.finish()

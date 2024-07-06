@@ -1,12 +1,12 @@
 {   "_comments_servers": "rambo, newton",
-    "_window_max_size_in_seconds_on_newton": 25,
+    "_window_max_size_in_seconds_on_newton_with_batch_size_8": 25,
     
     "window_info":{
     "fs": 250, 
     "context_num_minutes": 0,
-    "context_num_secondes": 15,
+    "context_num_secondes": 20,
     "label_window_num_minutes": 0,
-    "label_window_num_secondes": 10
+    "label_window_num_secondes": 20
 },
 "diffusion_config":{
     "T": 200,
@@ -14,13 +14,15 @@
     "beta_T": 0.02
 },
 "train_config": {
-    "batch_size": 8,
+    "_wandb_mode_options": "online, disabled",
+    "wandb_mode": "online",
+    "batch_size": 9,
     "output_directory_rambo": "/home/liranc6/ecg/ecg_forecasting/liran_project/results/icentia11k",
     "output_directory_newton": "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k",
     "ckpt_iter": 0,
-    "iters_per_ckpt": 5,
-    "iters_per_logging": 10,
-    "n_iters": 50,
+    "iters_per_ckpt": 12,
+    "iters_per_logging": 25,
+    "n_iters": 400,
     "learning_rate": 2e-4,
     "only_generate_missing": 1,
     "_comments_model_name": "model options: SSSDS4, SSSDSA",
@@ -30,16 +32,25 @@
     "config_SSSDSA_path_rambo": "/home/liranc6/ecg/ecg_forecasting/SSSD_main/src/config/config_SSSDSA.json",
     "model_config_path_newton": "/home/liranc6/ecg_forecasting/SSSD_main/src/config",
     "config_SSSDSA_path_newton": "/home/liranc6/ecg_forecasting/SSSD_main/src/config/config_SSSDSA.json",
-    "missing_k": 90
+    "missing_k": 90,
+    "start_sampling_from": 10
 },
 "trainset_config":{
+    "_idx_start_val": 33,
+    "_idx_start_test": 40,
+    "_idx_end_test" :46,
     "data_path_rambo": "/mnt/qnap/liranc6/data/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes_window.h5",
     "data_path_newton": "/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes",
     "test_data_path": "./datasets/test_mujoco.npy",
     "segment_length": 0,
-    "sampling_rate": 250
+    "sampling_rate": 250,
+    "train_start_patiant": 0,
+    "train_end_patiant": -1,
+    "val_start_patiant": 0,
+    "val_end_patiant": -1
 },
 "gen_config":{
+    "model_name": "SSSDS4",
     "output_directory_rambo": "/home/liranc6/ecg/ecg_forecasting/liran_project/results/icentia11k",
     "ckpt_path_rambo": "/home/liranc6/ecg/ecg_forecasting/liran_project/results/icentia11k",
     "output_directory_newton": "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k",
