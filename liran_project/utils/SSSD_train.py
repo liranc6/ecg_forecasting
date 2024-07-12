@@ -1,5 +1,6 @@
 CHECK_GPU_MEMORY_USAGE = False
 SERVER = "newton"
+SAMPLE = True
 
 import os
 import json
@@ -15,6 +16,7 @@ import numpy as np
 import wandb
 from collections import defaultdict
 import random
+import pandas as pd
 
 server_config_path = os.path.join("/home/liranc6/ecg_forecasting/liran_project/utils/server_config.json"
                                   )
@@ -32,7 +34,7 @@ with open(server_config_path) as f:
 sys.path.append(project_path)
 
 from liran_project.utils.dataset_loader import SingleLeadECGDatasetCrops
-from liran_project.utils.util import ecg_signal_difference
+from liran_project.utils.util import ecg_signal_difference, modify_z_and_omega
 
 from SSSD_main.src.utils.util import find_epoch, print_size, calc_diffusion_hyperparams, calculate_loss, \
                                      get_mask_mnr, get_mask_bm, get_mask_rm, get_mask_pred, sampling #, training_loss
@@ -98,15 +100,7 @@ def check_gpu_memory_usage(device_id=0):
         print("CUDA is not available.")
         return None
     
-def train_new(output_directory,
-          ckpt_iter, 
-          n_iters, 
-          iters_per_ckpt,
-          iters_per_logging,
-          learning_rate,
-          only_generate_missing,
-          masking,
-          missing_k,
+def train_new(train_config,
           net,
           diffusion_config,
           diffusion_hyperparams,
@@ -116,8 +110,6 @@ def train_new(output_directory,
           batch_size,
           train_dataset,
           val_dataset,
-          wandb_mode,
-          start_sampling_from,
           **kwargs):
     """
     Train Diffusion Models
@@ -145,6 +137,20 @@ def train_new(output_directory,
                                     'rm': Random missing.
     missing_k (int):                Number of missing time steps for each feature across the sample length.
     """
+    output_directory            = train_config[f"output_directory_{SERVER}"]
+    ckpt_iter_path                   = train_config['ckpt_iter']
+    n_iters                     =  train_config['n_iters']
+    iters_per_ckpt              = train_config['iters_per_ckpt']
+    iters_per_logging           = train_config['iters_per_logging']
+    learning_rate               = train_config['learning_rate']
+    only_generate_missing       = train_config['only_generate_missing']
+    masking                     =  train_config['masking']
+    missing_k                   = train_config['missing_k']
+    wandb_mode                  = train_config["wandb_mode"]
+    start_sampling_from         = int(train_config["start_sampling_from"])
+    sampling_strategy           = train_config["sampling_strategy"]
+    wandb_id                      = train_config["run_id"]
+    
     # Set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("device =", device)
@@ -164,63 +170,91 @@ def train_new(output_directory,
     # define optimizer
     optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)
 
-    def load_checkpoint(output_directory, ckpt_iter):
-        assert ckpt_iter >= 0, "Invalid checkpoint iteration"
+    def load_checkpoint(specific_ckpt_path):
+        checkpoint = torch.load(specific_ckpt_path, map_location='cpu')
+
         try:
-            # load checkpoint file
-            model_path = os.path.join(output_directory, '{}.pkl'.format(ckpt_iter))
-            checkpoint = torch.load(model_path, map_location='cpu')
-
-            net.residual_layer.residual_blocks[35].S42.s4_layer.kernel.kernel.z = checkpoint['model_state_dict']['residual_layer.residual_blocks.35.S42.s4_layer.kernel.kernel.z']
-
-            # feed model dict and optimizer state
-            net.load_state_dict(checkpoint['model_state_dict'])
-            if 'optimizer_state_dict' in checkpoint:
-                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-            print('Successfully loaded model at iteration {}'.format(ckpt_iter))
-            return checkpoint["wandb_id"]
-            
+            model_state_dict = checkpoint["model_state_dict"]
+            modify_z_and_omega(net, model_name, model_state_dict, device)
+            net.load_state_dict(model_state_dict, strict=False)
+            print('Successfully loaded model from specific_chpt_path')
         except Exception as e:
-            print(e)
-            raise ValueError('Failed to load model at iteration {}'.format(ckpt_iter))
+            print(f"{e=}")
+            raise Exception('specific_chpt_path not valid')
 
-    print(f"{ckpt_iter=}")
+        return checkpoint["wandb_id"]
+
+        # assert ckpt_iter >= 0, "Invalid checkpoint iteration"
+        # try:
+        #     # load checkpoint file
+        #     model_path = os.path.join(output_directory, '{}.pkl'.format(ckpt_iter))
+        #     checkpoint = torch.load(model_path, map_location='cpu')
+
+        #     net.residual_layer.residual_blocks[35].S42.s4_layer.kernel.kernel.z = checkpoint['model_state_dict']['residual_layer.residual_blocks.35.S42.s4_layer.kernel.kernel.z']
+
+        #     # feed model dict and optimizer state
+        #     net.load_state_dict(checkpoint['model_state_dict'])
+        #     if 'optimizer_state_dict' in checkpoint:
+        #         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        #     print('Successfully loaded model at iteration {}'.format(ckpt_iter))
+        #     return checkpoint["wandb_id"]
+            
+        # except Exception as e:
+        #     print(e)
+        #     raise ValueError('Failed to load model at iteration {}'.format(ckpt_iter))
+
+    print(f"{ckpt_iter_path=}")
             
     # load checkpoint
-    critirion =  ckpt_iter
-    wandb_id = None
-    if critirion == 'max' or critirion == "best":
-        print(f"{output_directory=}")
-        ckpt_iter = find_epoch(output_directory, critirion=critirion)
+    # critirion =  ckpt_iter
+    # wandb_id = None
+    # if critirion == 'max' or critirion == "best":
+    #     print(f"{output_directory=}")
+    #     ckpt_iter = find_epoch(output_directory, critirion=critirion)
 
-    if ckpt_iter > 0:
-        found_checkpoint = False
-        last_file = -1
-        last_valid_ckpt = ckpt_iter
-        while not found_checkpoint:
-            try:
-                last_valid_ckpt = find_epoch(output_directory, num=last_file, critirion=critirion)
-                if last_valid_ckpt < 0:
-                    print('No valid checkpoint model found, start training from initialization.')
+    # if ckpt_iter > 0:
+    #     found_checkpoint = False
+    #     last_file = -1
+    #     last_valid_ckpt = ckpt_iter
+    #     while not found_checkpoint:
+    #         try:
+    #             last_valid_ckpt = find_epoch(output_directory, num=last_file, critirion=critirion)
+    #             if last_valid_ckpt < 0:
+    #                 print('No valid checkpoint model found, start training from initialization.')
 
-                elif last_valid_ckpt <= ckpt_iter:
-                    ckpt_iter = last_valid_ckpt
-                    wandb_id = load_checkpoint(output_directory, ckpt_iter)
-                    found_checkpoint = True
-                else:
-                    last_file -= 1
-            except Exception as e:
-                print(e)
-                last_file -= 1
-    else:
-        ckpt_iter = -1
-        print('No valid checkpoint model found, start training from initialization.')
+    #             elif last_valid_ckpt <= ckpt_iter:
+    #                 ckpt_iter = last_valid_ckpt
+    #                 wandb_id = load_checkpoint(output_directory, ckpt_iter)
+    #                 found_checkpoint = True
+    #             else:
+    #                 last_file -= 1
+    #         except Exception as e:
+    #             print(e)
+    #             last_file -= 1
+    # else:
+    #     ckpt_iter = -1
+    #     print('No valid checkpoint model found, start training from initialization.')
 
-    if wandb_id:
-        run = wandb.init(project="ecg_SSSD", id=wandb_id, resume="must", mode=wandb_mode, settings=wandb.Settings(code_dir="."))
-        print(wandb.run.id)
+    
+
+    if ckpt_iter_path != "None":
+        ckpt_wand_id = load_checkpoint(ckpt_iter_path)
+        if ckpt_wand_id is not None:
+            wandb_id = ckpt_wand_id
+        
+    if False and wandb_id != "None":
+        try: 
+            run = wandb.init(project=project_name, id=wandb_id, resume="must", mode=wandb_mode, settings=wandb.Settings(code_dir="."))
+            print(wandb.run.id)
+            output_directory = run.config["output_directory"]
+
+        except Exception as e:
+            print(e)
+            run = wandb.init(project=project_name, config=wandb_config, mode=wandb_mode, settings=wandb.Settings(code_dir="."))
+            wandb_id = run.id
     else:
         run = wandb.init(project=project_name, config=wandb_config, mode=wandb_mode, settings=wandb.Settings(code_dir="."))
+        wandb_id = run.id
 
 
     if run.config.get("output_directory", None) is None:
@@ -240,10 +274,12 @@ def train_new(output_directory,
 
         run.config.update({"output_directory": output_directory}, allow_val_change=True)
         run.save()
-
     else:
         output_directory = run.config["output_directory"]
         print("output directory", output_directory, flush=True)
+
+    # Initialize the table
+    track_t_data_table = {"stage": [], "table_idx": [], "Iteration": [], "batch_num": [], "loss_per_t": [], "diffusion_steps_t": []}
 
     # Define the size of training and validation sets (e.g., 80% train, 20% validation)
     # train_size = int(0.8 * len(dataset))
@@ -279,15 +315,15 @@ def train_new(output_directory,
     start_time = time.time()
     
     # training
-    epoch = ckpt_iter + 1
-    pbar_outer = tqdm(total=n_iters, initial=ckpt_iter, position=0, leave=True)
+    epoch = 95 #int(run.summary["iteration"] + 1) if run.summary["iteration"] is not None else 0
+    pbar_outer = tqdm(total=n_iters, initial=epoch, position=0, leave=True)
     best_val_loss = float('inf')
     best_diffs = defaultdict(lambda: float("inf"))
     best_model_path = None
 
     normalizer = NormalizeBatch(input=True)
 
-    while epoch < n_iters + 1:
+    while epoch < n_iters:
         # torch.cuda.empty_cache()
         if epoch % 50 == 0:
             tqdm.write(f'epoch: {epoch}')
@@ -373,11 +409,18 @@ def train_new(output_directory,
                     # back-propagation
                     optimizer.zero_grad()
                     
-                    train_loss = calculate_loss(net, nn.MSELoss(), X, diffusion_hyperparams,
-                                        only_generate_missing=only_generate_missing)
+                    train_loss, diffusion_steps_t = calculate_loss(net, 
+                                                                   nn.MSELoss(), 
+                                                                   X, 
+                                                                   diffusion_hyperparams,
+                                                                   only_generate_missing=only_generate_missing, 
+                                                                   sampling_strategy=sampling_strategy) #,
+                                                                #    track_t_data_table=track_t_data_table)
+                    print(f"{train_loss.item()=} \n {diffusion_steps_t=}")
+                    
                     if CHECK_GPU_MEMORY_USAGE:
                                 check_gpu_memory_usage()
-                    
+
                     train_losses.append(train_loss.item())
 
                     train_loss.backward()
@@ -387,12 +430,40 @@ def train_new(output_directory,
                     # pbar_inner.set_description(f'Processing batch {i+1}')
                     pbar_inner.set_postfix({"training_loss": train_loss.item(),
                                                 "iteration": epoch})
+
+                    rounded_train_loss = round(train_loss.item(), 5)
+                    for i in range(len(diffusion_steps_t)):
+                        # Round train_loss.item() to 5 decimal places
+                        wandb.log({"train_loss_per_t": rounded_train_loss, "diffusion_steps_t": diffusion_steps_t[i]})
+                        if epoch is not None and train_loss is not None and diffusion_steps_t[i] is not None:
+                            track_t_data_table["stage"].append("train")
+                            track_t_data_table["Iteration"].append(epoch)
+                            track_t_data_table["loss_per_t"].append(rounded_train_loss)
+                            track_t_data_table["diffusion_steps_t"].append(diffusion_steps_t[i])
+                        else:
+                            print(f"epoch: {epoch}, train_loss_per_t: {rounded_train_loss}, diffusion_steps_t: {diffusion_steps_t[i]}")
+
+
                     pbar_inner.update()
 
                 else: # validation
                     with torch.no_grad():
-                        val_loss = calculate_loss(net, nn.MSELoss(), X, diffusion_hyperparams,
-                                    only_generate_missing=only_generate_missing)
+                        val_loss, diffusion_steps_t = calculate_loss(net, nn.MSELoss(), X, diffusion_hyperparams,
+                                    only_generate_missing=only_generate_missing, sampling_strategy=sampling_strategy)
+
+                        rounded_val_loss = round(train_loss.item(), 5)
+                        for i in range(len(diffusion_steps_t)):
+                            # Round train_loss.item() to 5 decimal places
+
+                            wandb.log({"validation_loss_per_t": rounded_val_loss, "diffusion_steps_t": diffusion_steps_t[i]})
+                            if epoch is not None and train_loss is not None and diffusion_steps_t[i] is not None:
+                                track_t_data_table["stage"].append("val")
+                                track_t_data_table["Iteration"].append(epoch)
+                                track_t_data_table["loss_per_t"].append(rounded_val_loss)
+                                track_t_data_table["diffusion_steps_t"].append(diffusion_steps_t[i])
+                            else:
+                                print(f"epoch: {epoch}, validation_loss_per_t: {rounded_val_loss}, diffusion_steps_t: {diffusion_steps_t[i]}")
+                            
                         val_losses.append(val_loss.item())
                         pbar_inner.set_postfix({"validation_loss": val_loss.item(),
                                                 "iteration": epoch})
@@ -400,8 +471,8 @@ def train_new(output_directory,
 
                         #calculate validation accuracy
                         print(f"generating ecg for validation batch {batch_i}")
-
-                        if batch_i == 0 or (epoch >= start_sampling_from and batch_i % 3 == 0):
+                        total_diffs = defaultdict(lambda: 0)
+                        if SAMPLE and (batch_i == 0 or (epoch >= start_sampling_from and batch_i % 3 == 0)):
                             generated_ecg = sampling(net,
                                             size=ecg_signals_batch.size(),
                                             diffusion_hyperparams=diffusion_hyperparams,
@@ -424,7 +495,12 @@ def train_new(output_directory,
                             for diff_name, val in curr_diffs.items():
                                 total_diffs[diff_name] += val
             
-
+            #add track_t_data_table to json file
+            filename = os.path.join(output_directory, f'track_t_data_table.json')
+            print(f"{filename=}")
+            with open(filename, 'w') as f:
+                json.dump(track_t_data_table, f)
+            
             if stage == "train":
                 avg_train_loss = sum(train_losses) / len(train_losses)
                 
@@ -487,20 +563,21 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"{device=}")
 
-    train_config_path = os.path.join(project_path, 'SSSD_main', 'src','config','train_config.json')
-    with open(train_config_path) as f:
-        train_config = json.load(f)
+    config_path = os.path.join(project_path, 'SSSD_main', 'src','config','train_config.json')
+    with open(config_path) as f:
+        config = json.load(f)
 
-    model_name = train_config["train_config"]["model_name"]
-    train_config[f"output_directory_{SERVER}"] = os.path.join(train_config["train_config"][f"output_directory_{SERVER}"], model_name)
+    train_config = config["train_config"]
+    model_name = train_config["model_name"]
+    config[f"output_directory_{SERVER}"] = os.path.join(train_config[f"output_directory_{SERVER}"], model_name)
 
-    model_config_path = os.path.join(train_config["train_config"][f"model_config_path_{SERVER}"], f"config_{model_name}.json")
+    model_config_path = os.path.join(train_config[f"model_config_path_{SERVER}"], f"config_{model_name}.json")
 
     with open(model_config_path) as f:
         model_config = json.load(f)
 
     # split the windows to fixed size context and label windows
-    fs, context_num_minutes, context_num_secondes, label_window_num_minutes, label_window_num_secondes  = train_config["window_info"].values()
+    fs, context_num_minutes, context_num_secondes, label_window_num_minutes, label_window_num_secondes  = config["window_info"].values()
 
     context_window_size = (context_num_minutes*60 + context_num_secondes) * fs  # minutes * seconds * fs
     label_window_size = (label_window_num_minutes*60 + label_window_num_secondes) * fs  # minutes * seconds * fs
@@ -511,7 +588,7 @@ if __name__ == "__main__":
     label_window_size -= (label_window_size%4)
 
 
-    trainset_config = train_config["trainset_config"]
+    trainset_config = config["trainset_config"]
 
     idx_start_val = trainset_config["_idx_start_val"]
     idx_start_test = trainset_config["_idx_start_test"]
@@ -519,12 +596,12 @@ if __name__ == "__main__":
     train_start_patiant, train_end_patiant = trainset_config["train_start_patiant"], trainset_config["train_end_patiant"]
     val_start_patiant, val_end_patiant = trainset_config["val_start_patiant"], trainset_config["val_end_patiant"]
 
-    assert train_start_patiant < train_end_patiant, f"{train_start_patiant=} should be less than {train_end_patiant=}"
-    assert train_end_patiant < idx_start_val, f"{train_end_patiant=} should be less than {idx_start_val=}"
-    assert val_start_patiant > train_end_patiant, f"{val_start_patiant=} should be greater than {train_end_patiant=}"
-    assert val_end_patiant < idx_start_test, f"{val_end_patiant=} should be less than {idx_start_test=}"
+    assert train_end_patiant==-1 or (train_start_patiant <= train_end_patiant and train_start_patiant>=0) , f"{train_start_patiant=} should be less than {train_end_patiant=}"
+    # assert train_end_patiant < idx_start_val, f"{train_end_patiant=} should be less than {idx_start_val=}"
+    # assert val_start_patiant > train_end_patiant, f"{val_start_patiant=} should be greater than {train_end_patiant=}"
+    # assert val_end_patiant < idx_start_test, f"{val_end_patiant=} should be less than {idx_start_test=}"
 
-    data_path = train_config["trainset_config"][f"data_path_{SERVER}"]
+    data_path = config["trainset_config"][f"data_path_{SERVER}"]
 
     train_file = os.path.join(data_path,
                                "train",
@@ -555,7 +632,7 @@ if __name__ == "__main__":
     assert len(val_dataset) > 0, f"{len(val_dataset)=} should be greater than 0"
 
 
-    batch_size = train_config["train_config"]["batch_size"]
+    batch_size = train_config["batch_size"]
     print(f"{batch_size=}")
 
     
@@ -569,10 +646,10 @@ if __name__ == "__main__":
 
     
 
-    wandb_config = {"window_info": train_config["window_info"],
-                    "diffusion_config": train_config["diffusion_config"],
-                    "train_config": train_config["train_config"],
-                    "trainset_config": train_config["trainset_config"],
+    wandb_config = {"window_info": config["window_info"],
+                    "diffusion_config": config["diffusion_config"],
+                    "train_config": train_config,
+                    "trainset_config": config["trainset_config"],
                     "model_name": model_name
                     }
     
@@ -580,9 +657,9 @@ if __name__ == "__main__":
     project_name = f'ecg_SSSD_{model_name}'
 
          
-    train_config[f"output_directory_{SERVER}"] = os.path.join(train_config[f"output_directory_{SERVER}"], train_config['train_config']['model_name'])
+    config[f"output_directory_{SERVER}"] = os.path.join(config[f"output_directory_{SERVER}"], config['train_config']['model_name'])
     trainset_config_SSSDS4 = {
-        "test_data_path": train_config["trainset_config"]["test_data_path"],
+        "test_data_path": config["trainset_config"]["test_data_path"],
         "segment_length": window_size,
         "sampling_rate": fs
     }
@@ -593,7 +670,7 @@ if __name__ == "__main__":
         # Initialize your models and optimizers based on the chosen 'use_model'
         inner_model_config = config_SSSDS4['wavenet_config']
         net = SSSDS4Imputer(**inner_model_config).cuda()
-    elif train_config['train_config']['model_name'] == "SSSDSA":
+    elif config['train_config']['model_name'] == "SSSDSA":
         with open(model_config_path) as f:
             config_SSSDSA = json.load(f)
         inner_model_config = config_SSSDSA['sashimi_config']
@@ -601,29 +678,19 @@ if __name__ == "__main__":
 
 
     global diffusion_hyperparams
-    diffusion_hyperparams = calc_diffusion_hyperparams(**train_config['diffusion_config'])
+    diffusion_hyperparams = calc_diffusion_hyperparams(**config['diffusion_config'])
 
     train_new(
         train_dataset=train_dataset,
         val_dataset=val_dataset,
-        output_directory=train_config["train_config"][f"output_directory_{SERVER}"],
-        ckpt_iter=train_config["train_config"]['ckpt_iter'],
-        n_iters= train_config["train_config"]['n_iters'],
-        iters_per_ckpt=train_config["train_config"]['iters_per_ckpt'],
-        iters_per_logging=train_config["train_config"]['iters_per_logging'],
-        learning_rate=train_config["train_config"]['learning_rate'],
-        only_generate_missing=train_config["train_config"]['only_generate_missing'],
-        masking= train_config["train_config"]['masking'],
-        missing_k=train_config["train_config"]['missing_k'],
+        train_config = train_config,
         net=net,
-        diffusion_config=train_config['diffusion_config'],
+        diffusion_config=config['diffusion_config'],
         diffusion_hyperparams = diffusion_hyperparams,
         trainset_config = trainset_config_SSSDS4,
         context_size=context_window_size,
         label_size=label_window_size,
         batch_size=batch_size,
-        wandb_mode=train_config["train_config"]["wandb_mode"],
-        start_sampling_from=train_config["train_config"]["start_sampling_from"]
         )
 
     wandb.finish()

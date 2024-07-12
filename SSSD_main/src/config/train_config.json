@@ -15,11 +15,14 @@
 },
 "train_config": {
     "_wandb_mode_options": "online, disabled",
+    "_t_sampling_startagies": "uniform, importance, curriculum, prioritized, scheduled, adaptive, gaussian, beta, half_cauchy",
     "wandb_mode": "online",
+    "sampling_strategy": "uniform",
     "batch_size": 9,
     "output_directory_rambo": "/home/liranc6/ecg/ecg_forecasting/liran_project/results/icentia11k",
     "output_directory_newton": "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k",
-    "ckpt_iter": 0,
+    "ckpt_iter": "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/SSSDS4/context5000_label5000/T200_beta000001_betaT002/17_59_06_07_24_ywwhgg9f/ywwhgg9f_best_model:_iter:_94.pth",
+    "run_id": "ywwhgg9f",
     "iters_per_ckpt": 12,
     "iters_per_logging": 25,
     "n_iters": 400,
@@ -33,7 +36,7 @@
     "model_config_path_newton": "/home/liranc6/ecg_forecasting/SSSD_main/src/config",
     "config_SSSDSA_path_newton": "/home/liranc6/ecg_forecasting/SSSD_main/src/config/config_SSSDSA.json",
     "missing_k": 90,
-    "start_sampling_from": 10
+    "start_sampling_from": 200
 },
 "trainset_config":{
     "_idx_start_val": 33,

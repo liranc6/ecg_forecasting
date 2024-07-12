@@ -71,23 +71,17 @@ def smooth_tensor(input_tensor, kernel_size=3, sigma=1):
     return smoothed_tensor
 
 def prune_to_same_length(a, b, min_distance=50, max_iter = 4):
+    min_dist_found = False
     for i in range(len(a)):
         if len(a) > len(b):
             if abs(b[0] - a[0]) > abs(b[0] - a[1]):
-                assert b[0] - a[0] > min_distance, f"{b[0] - a[0]=}"
-                a = a[1:]
+                # assert b[0] - a[0] > min_distance, f"{b[0] - a[0]=}"
+                    a = a[1:]
+                
             
             elif abs(a[-1] - b[-1]) > abs(b[-1] - a[-2]):
-                assert a[-1] - b[-1] > min_distance, f"{a[-1] - b[-1]=}"
+                # assert a[-1] - b[-1] > min_distance, f"{a[-1] - b[-1]=}"
                 a = a[:-1] 
-        elif len(b) > len(a):
-            if abs(b[0] - a[0]) > abs(b[0] - a[1]):
-                assert abs(b[0] - a[0]) > min_distance, f"{b[0] - a[0]=}"
-                b = b[1:]
-            
-            elif abs(a[-1] - b[-1]) > abs(b[-1] - a[-2]):
-                assert abs(a[-1] - b[-1]) > min_distance, f"{a[-1] - b[-1]=}"
-                b = b[:-1]
         else:
             break
 
@@ -219,9 +213,9 @@ def align_indices(longer_list_of_indices, shorter_list_of_indices, tensor_len, s
             if len_tmp == 0:
                 continue
             if len_tmp == 1:
-                tmp = [tmp[0].item() + start]
+                tmp = [tmp[0] + start]
             elif len_tmp == 2:
-                tmp = (tmp[1].item() + start).to_list()
+                tmp = (tmp[1] + start).to_list()
             else:
                 assert False, f"{len(tmp)=}, {tmp=}"
 
@@ -244,15 +238,17 @@ def chamfer_distance_batch(y_list, y_pred_list):
 
     total_error = 0
     for y, y_pred in zip(y_list, y_pred_list):
-        total_error += chamfer_distance(y, y_pred)
+        total_error += modified_chamfer_distance(y, y_pred)
 
     return total_error / len(y_list)
         
-def chamfer_distance(y, y_pred):
+def modified_chamfer_distance(y, y_pred):
     """
     Compute the Chamfer Distance between two sets of points.
     The Chamfer Distance is the sum of the average nearest neighbor distance from each point in set A to set B and vice versa.
     This implimentation is good for small datasets, for large datasets, we can use KDTree.
+
+    In this implementation, we dont use mean, because we want to punish the model for having more points in one set than the other.
     """
     y = np.array(y).reshape(-1, 1)
     y_pred = np.array(y_pred).reshape(-1, 1)
@@ -266,8 +262,8 @@ def chamfer_distance(y, y_pred):
     min_dist_y_pred_to_y = np.min(dist_matrix, axis=0)
     
     # Chamfer Distance
-    chamfer_dist = np.mean(min_dist_y_to_y_pred) + np.mean(min_dist_y_pred_to_y)
-    return chamfer_dist/2
+    chamfer_dist = ( np.sum(min_dist_y_to_y_pred) + np.sum(min_dist_y_pred_to_y) ) / (2*len(y))
+    return chamfer_dist
 
 def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
     """
@@ -331,8 +327,8 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
     return diffs
 
 def differences_by_R_indices(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices, ecg_len):
-    chamfer_dist = chamfer_distance_batch(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices)
-    diffs = {"chamfer_distance": chamfer_dist}
+    modified_chamfer_dist = chamfer_distance_batch(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices)
+    diffs = {"modified_chamfer_distance": modified_chamfer_dist}
 
     extra_r_beats, extra_r_beats_negligible_length, mae_distance, mse_distance = 0, 0, 0, 0
 
@@ -343,17 +339,21 @@ def differences_by_R_indices(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_i
             extra_r_beats += abs(y.shape[0] - y_pred.shape[0])
             extra_r_beats_negligible_length += 2 * extra_r_beats/(y.shape[0]+y_pred.shape[0])
             
-            a, b = prune_to_same_length(y, y_pred, min_distance=50)
+            if y.shape[0] > y_pred.shape[0]:
+                y, y_pred = prune_to_same_length(y, y_pred, min_distance=50)
+            elif y_pred.shape[0] > y.shape[0]:
+                y_pred, y = prune_to_same_length(y_pred, y, min_distance=50)
 
-            if a.shape[0] > b.shape[0]:
-                a = align_indices(a, b, ecg_len, smooth_to_each_side=50)
-            elif b.shape[0] > a.shape[0]:
-                b = align_indices(b, a, ecg_len, smooth_to_each_side=50)
+            if y.shape[0] > y_pred.shape[0]:
+                y = align_indices(y, y_pred, ecg_len, smooth_to_each_side=50)
+            elif y_pred.shape[0] > y.shape[0]:
+                y_pred = align_indices(y_pred, y, ecg_len, smooth_to_each_side=50)
                 
-            assert a.shape == b.shape, f"{a.shape=}, {b.shape=}"
-            ecg_R_beats_batch_indices[i], ecg_pred_R_beats_batch_indices[i] = a , b
+            assert y.shape == y_pred.shape, f"{y.shape=}, {y_pred.shape=}"
+            mae_distance += mae_distance_batch(y, y_pred)
+            
+            ecg_R_beats_batch_indices[i], ecg_pred_R_beats_batch_indices[i] = y , y_pred
 
-            mae_distance += mae_distance_batch(ecg_R_beats_batch_indices[i], ecg_pred_R_beats_batch_indices[i])
 
 
     ecg_R_beats_batch_indices_len = len(ecg_R_beats_batch_indices)
@@ -422,26 +422,65 @@ def mae_distance_batch(y_list, y_pred_list):
 
     return total_error / len(y_list)
 
-def modify_z_and_omega(net, model_name, checkpoint, device):
+def modify_z_and_omega(net, model_name, model_state_dict, device):
     if model_name == "SSSDS4":
-        net.residual_layer.residual_blocks[35].S42.s4_layer.kernel.kernel.z = checkpoint['model_state_dict']['residual_layer.residual_blocks.35.S42.s4_layer.kernel.kernel.z']
+        # net.residual_layer.residual_blocks[35].S42.s4_layer.kernel.kernel.z = model_state_dict['residual_layer.residual_blocks.35.S42.s4_layer.kernel.kernel.z']
+        kernel_parts = ['z', 'omega']
+        SSSDS4_blocks = ['S41', 'S42']
+        try:
+            for i in range(len(net.residual_layer.residual_blocks)):
+                key = f'residual_layer.residual_blocks.{i}.S41.s4_layer.kernel.kernel.z'
+                if key in model_state_dict.keys():
+                    net.residual_layer.residual_blocks[i].S41.s4_layer.kernel.kernel.z = model_state_dict[key].to(device)
+                key = f'residual_layer.residual_blocks.{i}.S41.s4_layer.kernel.kernel.omega'
+                if key in model_state_dict.keys():
+                    net.residual_layer.residual_blocks[i].S41.s4_layer.kernel.kernel.omega = model_state_dict[key].to(device)
+                key = f'residual_layer.residual_blocks.{i}.S42.s4_layer.kernel.kernel.z'
+                if key in model_state_dict.keys():
+                    net.residual_layer.residual_blocks[i].S42.s4_layer.kernel.kernel.z = model_state_dict[key].to(device)
+                key = f'residual_layer.residual_blocks.{i}.S42.s4_layer.kernel.kernel.omega'
+                if key in model_state_dict.keys():
+                    net.residual_layer.residual_blocks[i].S42.s4_layer.kernel.kernel.omega = model_state_dict[key].to(device)
+        except Exception as e:
+            print(f"Error: {e}")
+
+
+
+
+        # for i in range(len(net.residual_layer.residual_blocks)):
+        #     for s4_block in SSSDS4_blocks:
+        #         for kernel_part in kernel_parts:
+        #             if f'residual_layer.residual_blocks.{i}.{s4_block}.s4_layer.kernel.kernel.{kernel_part}' in model_state_dict \
+        #                 and 
+        #             :
+        #                 try:
+        #                     net.residual_layer.residual_blocks[i].__dict__[s4_block].s4_layer.kernel.kernel.__dict__[kernel_part] = model_state_dict[f'residual_layer.residual_blocks.{i}.{s4_block}.s4_layer.kernel.kernel.{kernel_part}'].to(device)
+        #                 except Exception as e:
+        #                     print(f"Error: {e}")
     elif model_name == "SSSDSA":
+        kernel_parts = ['z', 'omega']
+        layers = ['d_layers', 'c_layers', 'u_layers']
+        for layer in layers:
+            for i in range(len(net.__dict__[layer])):
+                for kernel_part in kernel_parts:
+                    if f'{layer}.{i}.layer.kernel.kernel.{kernel_part}' in model_state_dict:
+                        net.__dict__[layer][i].layer.kernel.kernel.__dict__[kernel_part] = model_state_dict[f'{layer}.{i}.layer.kernel.kernel.{kernel_part}'].to(device)
         for i in range(len(net.d_layers)):
-            if f'd_layers.{i}.layer.kernel.kernel.z' in checkpoint['model_state_dict']:
-                net.d_layers[i].layer.kernel.kernel.z = checkpoint['model_state_dict'][f'd_layers.{i}.layer.kernel.kernel.z'].to(device)
-                net.d_layers[i].layer.kernel.kernel.omega = checkpoint['model_state_dict'][f'd_layers.{i}.layer.kernel.kernel.omega'].to(device)
+            if f'd_layers.{i}.layer.kernel.kernel.z' in model_state_dict:
+                net.d_layers[i].layer.kernel.kernel.z = model_state_dict[f'd_layers.{i}.layer.kernel.kernel.z'].to(device)
+                net.d_layers[i].layer.kernel.kernel.omega = model_state_dict[f'd_layers.{i}.layer.kernel.kernel.omega'].to(device)
         for i in range(len(net.c_layers)):
-            if f'c_layers.{i}.layer.kernel.kernel.z' in checkpoint['model_state_dict']:
-                net.c_layers[i].layer.kernel.kernel.z = checkpoint['model_state_dict'][f'c_layers.{i}.layer.kernel.kernel.z'].to(device)
-                net.c_layers[i].layer.kernel.kernel.omega = checkpoint['model_state_dict'][f'c_layers.{i}.layer.kernel.kernel.omega'].to(device)
+            if f'c_layers.{i}.layer.kernel.kernel.z' in model_state_dict:
+                net.c_layers[i].layer.kernel.kernel.z = model_state_dict[f'c_layers.{i}.layer.kernel.kernel.z'].to(device)
+                net.c_layers[i].layer.kernel.kernel.omega = model_state_dict[f'c_layers.{i}.layer.kernel.kernel.omega'].to(device)
         for i in range(len(net.u_layers)):
-            if f'u_layers.{i}.layer.kernel.kernel.z' in checkpoint['model_state_dict']:
-                net.u_layers[i].layer.kernel.kernel.z = checkpoint['model_state_dict'][f'u_layers.{i}.layer.kernel.kernel.z'].to(device)
-                net.u_layers[i].layer.kernel.kernel.omega = checkpoint['model_state_dict'][f'u_layers.{i}.layer.kernel.kernel.omega'].to(device)
+            if f'u_layers.{i}.layer.kernel.kernel.z' in model_state_dict:
+                net.u_layers[i].layer.kernel.kernel.z = model_state_dict[f'u_layers.{i}.layer.kernel.kernel.z'].to(device)
+                net.u_layers[i].layer.kernel.kernel.omega = model_state_dict[f'u_layers.{i}.layer.kernel.kernel.omega'].to(device)
             for j in range(len(net.u_layers[i])):
-                if f'u_layers.{i}.{j}.layer.kernel.kernel.z' in checkpoint['model_state_dict']:
-                    net.u_layers[i][j].layer.kernel.kernel.z = checkpoint['model_state_dict'][f'u_layers.{i}.{j}.layer.kernel.kernel.z'].to(device)
-                    net.u_layers[i][j].layer.kernel.kernel.omega = checkpoint['model_state_dict'][f'u_layers.{i}.{j}.layer.kernel.kernel.omega'].to(device)
+                if f'u_layers.{i}.{j}.layer.kernel.kernel.z' in model_state_dict:
+                    net.u_layers[i][j].layer.kernel.kernel.z = model_state_dict[f'u_layers.{i}.{j}.layer.kernel.kernel.z'].to(device)
+                    net.u_layers[i][j].layer.kernel.kernel.omega = model_state_dict[f'u_layers.{i}.{j}.layer.kernel.kernel.omega'].to(device)
 
 def find_beat_indices(ann, beat_types):
     """

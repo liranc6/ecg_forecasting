@@ -3,6 +3,8 @@ import numpy as np
 import torch
 import random
 from tqdm.notebook import tqdm
+import re
+import pandas as pd
 
 
 def flatten(v):
@@ -35,20 +37,18 @@ def find_epoch(path, num=-1, critirion='max'):
     epoch = -1
     file_i = 1
 
-    for f in files[::-1]:
-        if not os.path.isfile(os.path.join(path, f)):
+    for filename in files[::-1]:
+        if not os.path.isfile(os.path.join(path, filename)):
             continue
-        assert len(f) > 4
-        if critirion == 'max' and f[-4:] == '.pkl':
-            epoch = int(f[:-4])
-            if num+file_i==0:
-                return epoch
-            file_i += 1
-        elif critirion == 'best' and f[:5] == 'best_':
-            epoch = f.split('_')[3]
-            if num+file_i==0:
-                return epoch
-            file_i += 1
+        assert len(filename) > 4
+        if critirion == 'max' and filename[-4:] == '.pkl' \
+            or critirion == 'best' and "best" in filename:
+                
+                parts = re.split('_|\.', filename)
+                epoch = int(parts[-2])  # Convert the string to an integer
+                if num+file_i==0:
+                    return epoch
+                file_i += 1
 
     return epoch
 
@@ -177,17 +177,96 @@ def sampling(net, size, diffusion_hyperparams, cond, mask, only_generate_missing
     with torch.no_grad():
         for t in tqdm(range(T - 1, -1, -1)):
             if only_generate_missing == 1:
+                # Blend x and cond based on mask, keeping x values where mask is 0 and cond values where mask is 1
                 x = x * (1 - mask).float() + cond * mask.float()
+            # Set the current diffusion step
             diffusion_steps = (t * torch.ones((size[0], 1))).cuda()  # use the corresponding reverse step
+            # Predict epsilon_theta according to the current state
             epsilon_theta = net((x, cond, mask, diffusion_steps,))  # predict epsilon_theta according to epsilon_theta
-            # update x_{t-1} to \mu_\theta(x_t)
+            # update x_{t-1} to mu_theta(x_t)
             x = (x - (1 - Alpha[t]) / torch.sqrt(1 - Alpha_bar[t]) * epsilon_theta) / torch.sqrt(Alpha[t])
             if t > 0:
+                # If not the last step, add a noise term to x
                 x = x + Sigma[t] * std_normal(size)  # add the variance term to x_{t-1}
 
     return x
 
-def calculate_loss(net, loss_fn, X, diffusion_hyperparams, only_generate_missing=1):
+def t_uniform_sampling(T, B):
+    return torch.randint(T, size=(B, 1, 1)).cuda()
+
+def t_importance_sampling(T, loss_per_step, B):
+    # Normalize the loss to get a probability distribution
+    probabilities = loss_per_step / loss_per_step.sum()
+    return torch.multinomial(probabilities, num_samples=B, replacement=True).view(B, 1, 1).cuda()
+
+def t_curriculum_learning(T, current_epoch, total_epochs, B):
+    # Start with easier (later) steps and introduce earlier (harder) steps as training progresses
+    start_t = int((current_epoch / total_epochs) * T)
+    return torch.randint(low=start_t, high=T, size=(B, 1, 1)).cuda()
+
+def t_prioritized_sampling(T, loss_per_step, B):
+    # Higher loss values have higher probability
+    probabilities = loss_per_step / loss_per_step.sum()
+    return torch.multinomial(probabilities, num_samples=B, replacement=True).view(B, 1, 1).cuda()
+
+def t_adaptive_sampling(T, model_performance, B):
+    # Adjust sampling based on model's performance
+    difficulties = 1 / (model_performance + 1e-6)  # Avoid division by zero
+    probabilities = difficulties / difficulties.sum()
+    return torch.multinomial(probabilities, num_samples=B, replacement=True).view(B, 1, 1).cuda()
+
+
+def t_scheduled_sampling(T, current_epoch, schedule, B):
+    # schedule is a list of (epoch_range, (start, end)) tuples
+    for epoch_range, t_range in schedule:
+        if epoch_range[0] <= current_epoch <= epoch_range[1]:
+            return torch.randint(low=t_range[0], high=t_range[1], size=(B, 1, 1)).cuda()
+    return torch.randint(T, size=(B, 1, 1)).cuda()
+
+def t_gaussian_sampling(T, mean, std, B):
+    # Sample from a Gaussian distribution and clip the values to be within [0, T)
+    samples = torch.normal(mean, std, size=(B,)).clamp(0, T-1).long().view(B, 1, 1).cuda()
+    return samples
+
+def t_beta_sampling(T, alpha, beta, B):
+    # Sample from a Beta distribution, scale to [0, T)
+    samples = torch.distributions.Beta(alpha, beta).sample((B,)) * (T-1)
+    samples = samples.clamp(0, T-1).long().view(B, 1, 1).cuda()
+    return samples
+
+def t_half_cauchy_sampling(T, scale, B):
+    # Sample from a Half-Cauchy distribution
+    samples = torch.distributions.HalfCauchy(scale).sample((B,))
+    samples = samples.clamp(0, T-1).long().view(B, 1, 1).cuda()
+    return samples
+
+def t_sampling_strategy(sampling_strategy, T, B, loss_per_step=None, current_epoch=None, total_epochs=None, schedule=None, model_performance=None, mean=None, std=None, alpha=None, beta=None, scale=None):
+        # Sample diffusion steps based on the chosen strategy
+    if sampling_strategy == "uniform":
+        diffusion_steps = t_uniform_sampling(T, B)
+    elif sampling_strategy == "importance":
+        diffusion_steps = t_importance_sampling(T, loss_per_step, B)
+    elif sampling_strategy == "curriculum":
+        diffusion_steps = t_curriculum_learning(T, current_epoch, total_epochs, B)
+    elif sampling_strategy == "prioritized":
+        diffusion_steps = t_prioritized_sampling(T, loss_per_step, B)
+    elif sampling_strategy == "scheduled":
+        diffusion_steps = t_scheduled_sampling(T, current_epoch, schedule, B)
+    elif sampling_strategy == "adaptive":
+        diffusion_steps = t_adaptive_sampling(T, model_performance, B)
+    elif sampling_strategy == "gaussian":
+        diffusion_steps = t_gaussian_sampling(T, mean, std, B)
+    elif sampling_strategy == "beta":
+        diffusion_steps = t_beta_sampling(T, alpha, beta, B)
+    elif sampling_strategy == "half_cauchy":
+        diffusion_steps = t_half_cauchy_sampling(T, scale, B)
+    else:
+        raise ValueError(f"Unknown sampling strategy: {sampling_strategy}")
+
+    return diffusion_steps
+
+
+def calculate_loss(net, loss_fn, X, diffusion_hyperparams, only_generate_missing=1, sampling_strategy="uniform", **keywords):
     """
     Compute the loss of epsilon and epsilon_theta
 
@@ -219,8 +298,11 @@ def calculate_loss(net, loss_fn, X, diffusion_hyperparams, only_generate_missing
     # Get the shape of the audio data
     B, C, L = audio.shape  # B is batchsize, C=num_channels, L is audio length
 
-    # Randomly sample diffusion steps from 1~T
-    diffusion_steps = torch.randint(T, size=(B, 1, 1)).cuda()
+    # Randomly sample diffusion steps from 1~T uniformaly
+    diffusion_steps_t = t_sampling_strategy(sampling_strategy=sampling_strategy,
+                                            T=T,
+                                            B=B,
+                                          **keywords).cuda()
 
     # Generate standard normal distribution with the same shape as audio
     noise_distribution = std_normal(audio.shape)
@@ -242,21 +324,21 @@ def calculate_loss(net, loss_fn, X, diffusion_hyperparams, only_generate_missing
     current_noisy_state is the tensor that represents the state of the system at a certain diffusion step. It's a mix of the original data
         and some added noise, with the balance between the two controlled by the Alpha_bar parameter.
     """
-    current_noisy_state = torch.sqrt(Alpha_bar[diffusion_steps]) * audio + \
-                    torch.sqrt(1 - Alpha_bar[diffusion_steps]) * noise_distribution
+    current_noisy_state = torch.sqrt(Alpha_bar[diffusion_steps_t]) * audio + \
+                    torch.sqrt(1 - Alpha_bar[diffusion_steps_t]) * noise_distribution
 
     # Predict epsilon_theta according to epsilon_theta using the current_noisy_state, cond, mask, and diffusion_steps. i.e. calling forward
     epsilon_theta = net(
-        (current_noisy_state, cond, mask, diffusion_steps.view(B, 1),))
+        (current_noisy_state, cond, mask, diffusion_steps_t.view(B, 1),))
 
     # Compute the loss based on the value of only_generate_missing
     if only_generate_missing == 1:
         # If only_generate_missing is 1, compute the loss only for the masked elements
-        return loss_fn(epsilon_theta[loss_mask], noise_distribution[loss_mask])
+        print(f"{epsilon_theta[loss_mask].shape=}")
+        return loss_fn(epsilon_theta[loss_mask], noise_distribution[loss_mask]), diffusion_steps_t.view(-1).tolist()
     elif only_generate_missing == 0:
         # If only_generate_missing is 0, compute the loss for all elements
-        return loss_fn(epsilon_theta, noise_distribution)
-
+        return loss_fn(epsilon_theta, noise_distribution), diffusion_steps_t.view(-1).tolist()
 
 def get_mask_rm(sample, k):
     """Get mask of random points (missing at random) across channels based on k,
