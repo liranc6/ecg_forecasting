@@ -213,9 +213,9 @@ def align_indices(longer_list_of_indices, shorter_list_of_indices, tensor_len, s
             if len_tmp == 0:
                 continue
             if len_tmp == 1:
-                tmp = [tmp[0] + start]
+                tmp = [tmp[0].item() + start]
             elif len_tmp == 2:
-                tmp = (tmp[1] + start).to_list()
+                tmp = (tmp[1].item() + start).to_list()
             else:
                 assert False, f"{len(tmp)=}, {tmp=}"
 

@@ -16,7 +16,6 @@ import numpy as np
 import wandb
 from collections import defaultdict
 import random
-import pandas as pd
 
 server_config_path = os.path.join("/home/liranc6/ecg_forecasting/liran_project/utils/server_config.json"
                                   )
@@ -471,7 +470,6 @@ def train_new(train_config,
 
                         #calculate validation accuracy
                         print(f"generating ecg for validation batch {batch_i}")
-                        total_diffs = defaultdict(lambda: 0)
                         if SAMPLE and (batch_i == 0 or (epoch >= start_sampling_from and batch_i % 3 == 0)):
                             generated_ecg = sampling(net,
                                             size=ecg_signals_batch.size(),
@@ -494,7 +492,7 @@ def train_new(train_config,
                             curr_diffs = ecg_signal_difference(ecg_labels, generated_ecg, sampling_rate=trainset_config["sampling_rate"]) # return dtw_dist, mse_total, mae_total
                             for diff_name, val in curr_diffs.items():
                                 total_diffs[diff_name] += val
-            
+                            
             #add track_t_data_table to json file
             filename = os.path.join(output_directory, f'track_t_data_table.json')
             print(f"{filename=}")
@@ -690,7 +688,7 @@ if __name__ == "__main__":
         trainset_config = trainset_config_SSSDS4,
         context_size=context_window_size,
         label_size=label_window_size,
-        batch_size=batch_size,
+        batch_size=batch_size
         )
 
     wandb.finish()
