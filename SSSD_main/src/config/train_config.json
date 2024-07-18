@@ -9,23 +9,24 @@
     "label_window_num_secondes": 20
 },
 "diffusion_config":{
-    "T": 200,
-    "beta_0": 0.0001,
+    "T": 150,
+    "beta_0": 0.00001,
     "beta_T": 0.02
 },
 "train_config": {
+    "_train_notes": "continue ywwhgg9f from iteration 94 in a new run",
     "_wandb_mode_options": "online, disabled",
     "_t_sampling_startagies": "uniform, importance, curriculum, prioritized, scheduled, adaptive, gaussian, beta, half_cauchy",
     "wandb_mode": "online",
-    "sampling_strategy": "uniform",
+    "sampling_strategy": "prioritized",
     "batch_size": 9,
     "output_directory_rambo": "/home/liranc6/ecg/ecg_forecasting/liran_project/results/icentia11k",
     "output_directory_newton": "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k",
-    "ckpt_iter": "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/SSSDS4/context5000_label5000/T200_beta000001_betaT002/17_59_06_07_24_ywwhgg9f/ywwhgg9f_best_model:_iter:_94.pth",
-    "run_id": "ywwhgg9f",
+    "ckpt_iter": "None",
+    "run_id": "None",
     "iters_per_ckpt": 12,
     "iters_per_logging": 25,
-    "n_iters": 400,
+    "n_iters": 150,
     "learning_rate": 2e-4,
     "only_generate_missing": 1,
     "_comments_model_name": "model options: SSSDS4, SSSDSA",
@@ -36,7 +37,7 @@
     "model_config_path_newton": "/home/liranc6/ecg_forecasting/SSSD_main/src/config",
     "config_SSSDSA_path_newton": "/home/liranc6/ecg_forecasting/SSSD_main/src/config/config_SSSDSA.json",
     "missing_k": 90,
-    "start_sampling_from": 200
+    "start_sampling_from": 95
 },
 "trainset_config":{
     "_idx_start_val": 33,
@@ -48,9 +49,9 @@
     "segment_length": 0,
     "sampling_rate": 250,
     "train_start_patiant": 0,
-    "train_end_patiant": -1,
+    "train_end_patiant": 10,
     "val_start_patiant": 0,
-    "val_end_patiant": -1
+    "val_end_patiant": 10
 },
 "gen_config":{
     "model_name": "SSSDS4",

@@ -16,6 +16,7 @@ import numpy as np
 import wandb
 from collections import defaultdict
 import random
+import pandas as pd
 
 server_config_path = os.path.join("/home/liranc6/ecg_forecasting/liran_project/utils/server_config.json"
                                   )
@@ -240,12 +241,14 @@ def train_new(train_config,
         ckpt_wand_id = load_checkpoint(ckpt_iter_path)
         if ckpt_wand_id is not None:
             wandb_id = ckpt_wand_id
-        
-    if False and wandb_id != "None":
+    
+    epoch = None
+    if wandb_id != "None":
         try: 
             run = wandb.init(project=project_name, id=wandb_id, resume="must", mode=wandb_mode, settings=wandb.Settings(code_dir="."))
             print(wandb.run.id)
             output_directory = run.config["output_directory"]
+            epoch = run.summary["iteration"]
 
         except Exception as e:
             print(e)
@@ -278,8 +281,20 @@ def train_new(train_config,
         print("output directory", output_directory, flush=True)
 
     # Initialize the table
-    track_t_data_table = {"stage": [], "table_idx": [], "Iteration": [], "batch_num": [], "loss_per_t": [], "diffusion_steps_t": []}
+    track_t_data_table_path = os.path.join(output_directory, f'track_t_data_table.json')
+    if os.path.isfile(track_t_data_table_path):
+        with open(track_t_data_table_path, 'r') as f:
+            track_t_data_table = json.load(f)
+    else:
+        keys = ["loss_per_t"]
+        default_dict = {"mean": 0, "count": 0}
 
+        track_t_data_table = {
+                                "train": defaultdict(lambda: defaultdict(lambda: default_dict.copy())),
+                                "validation": defaultdict(lambda: defaultdict (lambda: default_dict.copy()))
+                            }
+
+                              
     # Define the size of training and validation sets (e.g., 80% train, 20% validation)
     # train_size = int(0.8 * len(dataset))
     # val_size = len(dataset) - train_size
@@ -314,7 +329,7 @@ def train_new(train_config,
     start_time = time.time()
     
     # training
-    epoch = 95 #int(run.summary["iteration"] + 1) if run.summary["iteration"] is not None else 0
+    epoch = 0 if epoch is None else epoch
     pbar_outer = tqdm(total=n_iters, initial=epoch, position=0, leave=True)
     best_val_loss = float('inf')
     best_diffs = defaultdict(lambda: float("inf"))
@@ -322,11 +337,17 @@ def train_new(train_config,
 
     normalizer = NormalizeBatch(input=True)
 
+    curr_sampling_strategy = "uniform"
+    sampling_params = {}
     while epoch < n_iters:
         # torch.cuda.empty_cache()
         if epoch % 50 == 0:
             tqdm.write(f'epoch: {epoch}')
+            
+
         for stage in ["train", "val"]:
+            tmp_data_table = defaultdict(lambda: {"sum": 0, "count": 0})
+
             if stage == "train":
                 net.train()
                 train_losses = []
@@ -337,7 +358,7 @@ def train_new(train_config,
                 pbar_inner = tqdm(enumerate(val_loader), total=len(val_loader), position=1, leave=True, dynamic_ncols=True)
                 total_diffs = defaultdict(lambda: 0)
 
-            val_num_batches = float('inf')
+
             val_count_sampled_batches = 0
             for batch_i, batch in pbar_inner:
                 
@@ -350,7 +371,7 @@ def train_new(train_config,
                 if stage == "train":
                     ecg_signals_batch = concatenated_batch
                     # ecg_signals_batch = normalizer((ecg_signals_batch.unsqueeze(1), None, None))[0].squeeze(1)
-                elif stage == "val":
+                elif stage == "validation":
                     ecg_signals_batch = concatenated_batch[:, 0, :]
                     # ecg_signals_batch = normalizer((ecg_signals_batch.unsqueeze(1), None, None))[0].squeeze(1)
 
@@ -413,9 +434,10 @@ def train_new(train_config,
                                                                    X, 
                                                                    diffusion_hyperparams,
                                                                    only_generate_missing=only_generate_missing, 
-                                                                   sampling_strategy=sampling_strategy) #,
+                                                                   sampling_strategy=curr_sampling_strategy,
+                                                                   sampling_params=sampling_params) #,
                                                                 #    track_t_data_table=track_t_data_table)
-                    print(f"{train_loss.item()=} \n {diffusion_steps_t=}")
+                    # print(f"{train_loss.item()=} \n {diffusion_steps_t=}")
                     
                     if CHECK_GPU_MEMORY_USAGE:
                                 check_gpu_memory_usage()
@@ -430,44 +452,31 @@ def train_new(train_config,
                     pbar_inner.set_postfix({"training_loss": train_loss.item(),
                                                 "iteration": epoch})
 
-                    rounded_train_loss = round(train_loss.item(), 5)
-                    for i in range(len(diffusion_steps_t)):
-                        # Round train_loss.item() to 5 decimal places
-                        wandb.log({"train_loss_per_t": rounded_train_loss, "diffusion_steps_t": diffusion_steps_t[i]})
-                        if epoch is not None and train_loss is not None and diffusion_steps_t[i] is not None:
-                            track_t_data_table["stage"].append("train")
-                            track_t_data_table["Iteration"].append(epoch)
-                            track_t_data_table["loss_per_t"].append(rounded_train_loss)
-                            track_t_data_table["diffusion_steps_t"].append(diffusion_steps_t[i])
-                        else:
-                            print(f"epoch: {epoch}, train_loss_per_t: {rounded_train_loss}, diffusion_steps_t: {diffusion_steps_t[i]}")
+                    rounded_train_loss = round(train_loss.item(), 7)
+
+                    for t in diffusion_steps_t:
+                        tmp_data_table[t]["sum"] += rounded_train_loss
+                        tmp_data_table[t]["count"] += 1
 
 
                     pbar_inner.update()
 
                 else: # validation
                     with torch.no_grad():
-                        val_loss, diffusion_steps_t = calculate_loss(net, nn.MSELoss(), X, diffusion_hyperparams,
-                                    only_generate_missing=only_generate_missing, sampling_strategy=sampling_strategy)
+                        val_loss, diffusion_steps_t = calculate_loss(net, 
+                                                                     nn.MSELoss(),
+                                                                     X, 
+                                                                     diffusion_hyperparams,
+                                                                     only_generate_missing=only_generate_missing
+                                                                     )
 
-                        rounded_val_loss = round(train_loss.item(), 5)
-                        for i in range(len(diffusion_steps_t)):
-                            # Round train_loss.item() to 5 decimal places
-
-                            wandb.log({"validation_loss_per_t": rounded_val_loss, "diffusion_steps_t": diffusion_steps_t[i]})
-                            if epoch is not None and train_loss is not None and diffusion_steps_t[i] is not None:
-                                track_t_data_table["stage"].append("val")
-                                track_t_data_table["Iteration"].append(epoch)
-                                track_t_data_table["loss_per_t"].append(rounded_val_loss)
-                                track_t_data_table["diffusion_steps_t"].append(diffusion_steps_t[i])
-                            else:
-                                print(f"epoch: {epoch}, validation_loss_per_t: {rounded_val_loss}, diffusion_steps_t: {diffusion_steps_t[i]}")
-                            
                         val_losses.append(val_loss.item())
-                        pbar_inner.set_postfix({"validation_loss": val_loss.item(),
-                                                "iteration": epoch})
-                        pbar_inner.update()
 
+                        rounded_val_loss = round(train_loss.item(), 7)
+                        for t in diffusion_steps_t:
+                            tmp_data_table[t]["sum"] += rounded_train_loss
+                            tmp_data_table[t]["count"] += 1
+                            
                         #calculate validation accuracy
                         print(f"generating ecg for validation batch {batch_i}")
                         if SAMPLE and (batch_i == 0 or (epoch >= start_sampling_from and batch_i % 3 == 0)):
@@ -492,11 +501,19 @@ def train_new(train_config,
                             curr_diffs = ecg_signal_difference(ecg_labels, generated_ecg, sampling_rate=trainset_config["sampling_rate"]) # return dtw_dist, mse_total, mae_total
                             for diff_name, val in curr_diffs.items():
                                 total_diffs[diff_name] += val
-                            
-            #add track_t_data_table to json file
-            filename = os.path.join(output_directory, f'track_t_data_table.json')
-            print(f"{filename=}")
-            with open(filename, 'w') as f:
+
+                        pbar_inner.set_postfix({"validation_loss": val_loss.item(),
+                                                "iteration": epoch})
+                        pbar_inner.update() 
+
+
+            for t in tmp_data_table.keys():
+                sum_loss = track_t_data_table[stage][t]["loss_per_t"]["mean"] * track_t_data_table[stage][t]["loss_per_t"]["count"] + tmp_data_table[t]["sum"]
+                track_t_data_table[stage][t]["loss_per_t"]["count"] += tmp_data_table[t]["count"]
+                track_t_data_table[stage][t]["loss_per_t"]["mean"] = sum_loss / track_t_data_table[stage][t]["loss_per_t"]["count"]
+
+
+            with open(track_t_data_table_path, 'w') as f:
                 json.dump(track_t_data_table, f)
             
             if stage == "train":
@@ -523,7 +540,7 @@ def train_new(train_config,
                                 best_model_path)
                     tqdm.write(f'Validation loss improved at iteration {epoch}. Model saved at {best_model_path}')
 
-                    
+
         elapsed_time = time.time() - start_time
         minuts_elapsed_time = int(elapsed_time)/60
         log = {key: val/val_count_sampled_batches for key, val in total_diffs.items()}
@@ -549,6 +566,20 @@ def train_new(train_config,
                 tqdm.write(f'iteration: {epoch} \tloss: {train_loss.item()}')
                 wandb.save(best_model_path)
         epoch += 1
+
+        # the reason its in the end of the epochs loop is because we want to update the sampling strategy only after the first epoch
+        # prepare params for prioritized sampling
+        track_t_data_table = {k: v for k, v in track_t_data_table.items() if len(v) != 0}
+        df = pd.DataFrame(track_t_data_table)
+        medians = df.groupby('diffusion_steps_t')['loss_per_t'].median()
+        # Normalize the medians series and convert it to a dictionary
+        medians /= medians.sum()
+        medians_dict = medians.to_dict()
+        curr_sampling_strategy = sampling_strategy
+
+        sampling_params = {
+            "medians_loss_dict": medians_dict
+        }
         pbar_outer.update()
     pbar_outer.close()
     total_time = time.time() - start_time

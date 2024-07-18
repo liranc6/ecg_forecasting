@@ -191,78 +191,204 @@ def sampling(net, size, diffusion_hyperparams, cond, mask, only_generate_missing
 
     return x
 
-def t_uniform_sampling(T, B):
+def t_uniform_sampling(T, B, sampling_params):
+    """
+    Generate random indices for uniform sampling of time steps.
+
+    Args:
+        T (int): Total number of time steps.
+        B (int): Batch size.
+        sampling_params (dict): Additional sampling parameters.
+
+    Returns:
+        torch.Tensor: Random indices for uniform sampling.
+
+    """
     return torch.randint(T, size=(B, 1, 1)).cuda()
 
-def t_importance_sampling(T, loss_per_step, B):
-    # Normalize the loss to get a probability distribution
+def t_importance_sampling(T, B, sampling_params):
+    """
+    This method samples t with probabilities proportional to the difficulty or importance of denoising at that step. 
+    Performs importance sampling by sampling B indices based on the loss_per_step.
+
+    Args:
+        T (int): The total number of steps.
+        loss_per_step (torch.Tensor): The loss per step.
+        B (int): The number of samples to be drawn.
+
+    Returns:
+        torch.Tensor: A tensor of shape (B, 1, 1) containing the sampled indices.
+    """
+    loss_per_step = sampling_params.get('loss_per_step', None)
+    assert loss_per_step is not None, "loss_per_step is required for importance sampling"
     probabilities = loss_per_step / loss_per_step.sum()
     return torch.multinomial(probabilities, num_samples=B, replacement=True).view(B, 1, 1).cuda()
 
-def t_curriculum_learning(T, current_epoch, total_epochs, B):
-    # Start with easier (later) steps and introduce earlier (harder) steps as training progresses
+def t_curriculum_learning(T, B, sampling_params):
+    """
+    Start with easier (later) time steps and gradually introduce earlier (harder) time steps as training progresses.
+    Easier steps are the earlier time steps (smaller t), and the harder steps are the later time steps (larger t).
+
+    Args:
+        T (int): The maximum value for the random tensor.
+        current_epoch (int): The current epoch of the training.
+        total_epochs (int): The total number of epochs for the training.
+        B (int): The batch size.
+
+    Returns:
+        torch.Tensor: A random tensor of shape (B, 1, 1) with values between start_t and T.
+    """
+    current_epoch = sampling_params.get('current_epoch', None)
+    total_epochs = sampling_params.get('total_epochs', None)
+    assert current_epoch is not None, "current_epoch is required for curriculum learning"
+    assert total_epochs is not None, "total_epochs is required for curriculum learning"
     start_t = int((current_epoch / total_epochs) * T)
     return torch.randint(low=start_t, high=T, size=(B, 1, 1)).cuda()
 
-def t_prioritized_sampling(T, loss_per_step, B):
-    # Higher loss values have higher probability
-    probabilities = loss_per_step / loss_per_step.sum()
-    return torch.multinomial(probabilities, num_samples=B, replacement=True).view(B, 1, 1).cuda()
+def t_prioritized_sampling(T, B, sampling_params):
+    """
+    Perform prioritized sampling based on the loss values per step.
 
-def t_adaptive_sampling(T, model_performance, B):
-    # Adjust sampling based on model's performance
+    Args:
+        T (int): The total number of steps.
+        loss_per_step (torch.Tensor): The loss values per step.
+        B (int): The number of samples to be selected.
+
+    Returns:
+        torch.Tensor: The selected samples.
+
+    """
+    assert sampling_params is not None, "sampling_params is required for prioritized sampling"
+    medians_loss_dict = sampling_params.get('medians_loss_dict', None)
+    assert medians_loss_dict is not None, "loss_dict is required for prioritized sampling"
+    t_samples = random.choices(list(medians_loss_dict.keys()), weights=list(medians_loss_dict.values()), k=B) #can also use: torch.multinomial
+    t_samples = torch.tensor(t_samples).view(B, 1, 1).cuda()
+    return t_samples
+ 
+def t_adaptive_sampling(T, B, sampling_params):
+    """
+    Dynamically adjust the sampling strategy based on the model's current performance on different time steps..
+
+    Args:
+        T (int): The total number of samples.
+        model_performance (torch.Tensor): The performance of the model for each sample.
+        B (int): The number of samples to be selected.
+
+    Returns:
+        torch.Tensor: The selected samples.
+
+    """
+    model_performance = sampling_params.get('model_performance', None)
+    assert model_performance is not None, "model_performance is required for adaptive sampling"
     difficulties = 1 / (model_performance + 1e-6)  # Avoid division by zero
     probabilities = difficulties / difficulties.sum()
     return torch.multinomial(probabilities, num_samples=B, replacement=True).view(B, 1, 1).cuda()
 
 
-def t_scheduled_sampling(T, current_epoch, schedule, B):
-    # schedule is a list of (epoch_range, (start, end)) tuples
+def t_scheduled_sampling(T, B, sampling_params):
+    """
+    Use a predetermined schedule to sample t values,
+    potentially focusing on different ranges of t at different stages of training.
+
+    Args:
+        T (int): The upper bound for random integer generation.
+        current_epoch (int): The current epoch.
+        schedule (list): A list of (epoch_range, t_range) tuples defining the schedule.
+        B (int): The batch size.
+
+    Returns:
+        torch.Tensor: A tensor of random integers.
+
+    """
+    current_epoch = sampling_params.get('current_epoch', None)
+    schedule = sampling_params.get('schedule', None)
+    assert current_epoch is not None, "current_epoch is required for scheduled sampling"
+    assert schedule is not None, "schedule is required for scheduled sampling"
+
     for epoch_range, t_range in schedule:
         if epoch_range[0] <= current_epoch <= epoch_range[1]:
             return torch.randint(low=t_range[0], high=t_range[1], size=(B, 1, 1)).cuda()
     return torch.randint(T, size=(B, 1, 1)).cuda()
 
-def t_gaussian_sampling(T, mean, std, B):
-    # Sample from a Gaussian distribution and clip the values to be within [0, T)
+def t_gaussian_sampling(T, B, sampling_params):
+    """
+    Sample from a Gaussian distribution and clip the values to be within [0, T).
+
+    Parameters:
+    - T (int): The upper bound for the sampled values.
+    - mean (float): The mean of the Gaussian distribution (default: 0).
+    - std (float): The standard deviation of the Gaussian distribution (default: 1).
+    - B (int): The batch size (default: 1).
+
+    Returns:
+    - samples (torch.Tensor): The sampled values, clamped to be within [0, T).
+    """
+    mean = sampling_params.get('mean', 0)
+    std = sampling_params.get('std', 1)
     samples = torch.normal(mean, std, size=(B,)).clamp(0, T-1).long().view(B, 1, 1).cuda()
     return samples
 
-def t_beta_sampling(T, alpha, beta, B):
-    # Sample from a Beta distribution, scale to [0, T)
+def t_beta_sampling(T, B, sampling_params):
+    """
+    Sample from a Beta distribution and scale the samples to the range [0, T).
+
+    Parameters:
+    - T (int): The upper bound of the range.
+    - alpha (float): The alpha parameter of the Beta distribution. Default is 1.
+    - beta (float): The beta parameter of the Beta distribution. Default is 1.
+    - B (int): The number of samples to generate. Default is 1.
+
+    Returns:
+    - samples (torch.Tensor): The generated samples, scaled to the range [0, T).
+    """
+    alpha = sampling_params.get('alpha', 1)
+    beta = sampling_params.get('beta', 1)
     samples = torch.distributions.Beta(alpha, beta).sample((B,)) * (T-1)
     samples = samples.clamp(0, T-1).long().view(B, 1, 1).cuda()
     return samples
 
-def t_half_cauchy_sampling(T, scale, B):
-    # Sample from a Half-Cauchy distribution
+def t_half_cauchy_sampling(T, B, sampling_params):
+    """
+    Sample from a Half-Cauchy distribution.
+
+    Args:
+        T (int): The upper bound for the samples.
+        scale (float, optional): The scale parameter of the Half-Cauchy distribution. Defaults to 1.
+        B (int, optional): The number of samples to generate. Defaults to 1.
+
+    Returns:
+        torch.Tensor: The generated samples from the Half-Cauchy distribution.
+    """
+    scale = sampling_params.get('scale', 1)
     samples = torch.distributions.HalfCauchy(scale).sample((B,))
-    samples = samples.clamp(0, T-1).long().view(B, 1, 1).cuda()
+    samples = samples.clamp(0, T-1).long().view(B, 1, 1)
+    if torch.cuda.is_available():
+        samples = samples.cuda()
     return samples
 
-def t_sampling_strategy(sampling_strategy, T, B, loss_per_step=None, current_epoch=None, total_epochs=None, schedule=None, model_performance=None, mean=None, std=None, alpha=None, beta=None, scale=None):
-        # Sample diffusion steps based on the chosen strategy
+def t_sampling_strategy(sampling_strategy, T, B, sampling_params):
+    # Sample diffusion steps based on the chosen strategy
     if sampling_strategy == "uniform":
-        diffusion_steps = t_uniform_sampling(T, B)
+        diffusion_steps = t_uniform_sampling(T, B, sampling_params)
     elif sampling_strategy == "importance":
-        diffusion_steps = t_importance_sampling(T, loss_per_step, B)
+        diffusion_steps = t_importance_sampling(T, B, sampling_params)
     elif sampling_strategy == "curriculum":
-        diffusion_steps = t_curriculum_learning(T, current_epoch, total_epochs, B)
+        diffusion_steps = t_curriculum_learning(T, B, sampling_params)
     elif sampling_strategy == "prioritized":
-        diffusion_steps = t_prioritized_sampling(T, loss_per_step, B)
+        diffusion_steps = t_prioritized_sampling(T, B, sampling_params)
     elif sampling_strategy == "scheduled":
-        diffusion_steps = t_scheduled_sampling(T, current_epoch, schedule, B)
+        diffusion_steps = t_scheduled_sampling(T, B, sampling_params)
     elif sampling_strategy == "adaptive":
-        diffusion_steps = t_adaptive_sampling(T, model_performance, B)
+        diffusion_steps = t_adaptive_sampling(T, B, sampling_params)
     elif sampling_strategy == "gaussian":
-        diffusion_steps = t_gaussian_sampling(T, mean, std, B)
+        diffusion_steps = t_gaussian_sampling(T, B, sampling_params)
     elif sampling_strategy == "beta":
-        diffusion_steps = t_beta_sampling(T, alpha, beta, B)
+        diffusion_steps = t_beta_sampling(T, B, sampling_params)
     elif sampling_strategy == "half_cauchy":
-        diffusion_steps = t_half_cauchy_sampling(T, scale, B)
+        diffusion_steps = t_half_cauchy_sampling(T, B, sampling_params)
     else:
         raise ValueError(f"Unknown sampling strategy: {sampling_strategy}")
-
+    
     return diffusion_steps
 
 
@@ -298,11 +424,14 @@ def calculate_loss(net, loss_fn, X, diffusion_hyperparams, only_generate_missing
     # Get the shape of the audio data
     B, C, L = audio.shape  # B is batchsize, C=num_channels, L is audio length
 
-    # Randomly sample diffusion steps from 1~T uniformaly
+    # Extract sampling_params from keywords
+    sampling_params = keywords.get('sampling_params', None)
+
+    # Sample diffusion steps based on the chosen strategy
     diffusion_steps_t = t_sampling_strategy(sampling_strategy=sampling_strategy,
                                             T=T,
                                             B=B,
-                                          **keywords).cuda()
+                                            sampling_params=sampling_params).cuda()
 
     # Generate standard normal distribution with the same shape as audio
     noise_distribution = std_normal(audio.shape)
@@ -334,7 +463,7 @@ def calculate_loss(net, loss_fn, X, diffusion_hyperparams, only_generate_missing
     # Compute the loss based on the value of only_generate_missing
     if only_generate_missing == 1:
         # If only_generate_missing is 1, compute the loss only for the masked elements
-        print(f"{epsilon_theta[loss_mask].shape=}")
+        # print(f"{epsilon_theta[loss_mask].shape=}")
         return loss_fn(epsilon_theta[loss_mask], noise_distribution[loss_mask]), diffusion_steps_t.view(-1).tolist()
     elif only_generate_missing == 0:
         # If only_generate_missing is 0, compute the loss for all elements
