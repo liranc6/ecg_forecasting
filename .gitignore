@@ -6,7 +6,8 @@ __cache__
 *.sw*
 
 # Added to ignore
-data
+*/data
+*/datasets
 *.idea
 liran_project/personal_notes.txt
 wandb/*
