@@ -1,0 +1,115 @@
+general:
+  random_seed: 2023  # random seed
+  evaluate: false  # true/false
+  tag: null  # Optional
+  dataset: 'ETTm1'  # ['ETTh1', 'ETTh2', 'ETTm1', 'ETTm2', 'electricity', 'solar_AL', 'exchange_rate', 'traffic', 'PEMS03', 'PEMS04', 'PEMS07', 'PEMS08']
+  features: 'S'  # S is univariate, M is multivariate
+  training_mode: 'ONE'
+  interval: 1000  # number of diffusion steps
+
+optimization:
+  learning_rate: 0.001  # optimizer learning rate
+  batch_size: 2048  # batch size of train input data
+  test_batch_size: 32  # batch size of test input data
+  patience: 10  # early stopping patience
+  weight_decay: 0.00001  # weight_decay
+  lradj: '3'  # adjust learning rate
+  pct_start: 0.3  # Percentage of training where learning rate increases
+
+hardware:
+  num_workers: 0  # data loader num workers
+  use_gpu: true  # use gpu
+  gpu: 0  # gpu
+  use_multi_gpu: false  # use multiple gpus
+  devices: '0'  # device ids of multiple gpus
+
+paths:
+  checkpoints: './checkpoints/'  # location of model checkpoints
+  train_data: '/home/liranc6/ecg_forecasting/mrDiff/datasets/SCINet_timeseries/ETT-data/ETT'  # location of training data
+  
+data:
+  freq: 'h'  # Options: [s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly], or more detailed freq like 15min or 3h
+  embed: 'timeF'  # Options: [timeF, fixed, learned]
+  cols: []  # file list
+  target: -1  # target feature
+  inverse: false  # denorm the output data
+  individual: true  # DLinear: a linear layer for each variate(channel) individually
+  use_ar_init: false  # use autoregressive initialization
+  use_residual: true
+  uncertainty: false
+  norm_method: 'z_score'
+  normtype: 0
+
+
+training:
+
+  iterations:
+    itr: 1  # experiments times
+    pretrain_epochs: 2  # train epochs
+    train_epochs: 2  # train epochs
+    sample_times: 1
+
+  identifiers:
+    id_worst: -1
+    focus_variate: -1
+
+  sequence:
+    seq_len: 336  # input sequence length of SCINet encoder, look back window
+    label_len: 336  # start token length of Informer decoder
+    pred_len: 96  # prediction sequence length, horizon
+
+  model:
+    opt_loss_type: 'mse'
+    model: 'DDPM'  # model of the experiment
+    base_model: 'Linear'  # model of the experiment
+    u_net_type: 'v0'
+
+  analysis:
+    vis_MTS_analysis: 0  # status
+    use_window_normalization: true
+    use_future_mixup: true
+    use_X0_in_THiDi: false
+    channel_independence: false
+
+  smoothing:
+    smoothed_factors: [5, 25, 51]  # List of smoothed factors
+
+  ode:
+    ot_ode: true  # use OT-ODE model
+    beta_max: 1.0  # max diffusion for the diffusion model
+    t0: 1e-4  # sigma start time in network parametrization
+    T: 0.02  # sigma end time in network parametrization
+    nfe: 20
+
+  ablation_study:
+    ablation_study_F_type: 'Linear'  # Linear, CNN
+    beta_schedule: 'cosine'
+    beta_dist_alpha: -1
+    ablation_study_masking_type: 'none'  # none, hard, segment
+    ablation_study_masking_tau: 0.9
+    
+  diffusion:
+    beta_start: 0.0001
+    beta_end: 0.02
+    diff_steps: 100  # number of diffusion steps
+    ddpm_inp_embed: 64  # ddpm_num_channels
+    ddpm_layers_inp: 10
+    ddpm_dim_diff_steps: 256
+    ddpm_channels_conv: 128
+    ddpm_channels_fusion_I: 256
+    ddpm_layers_I: 5
+    ddpm_layers_II: 10
+    kernel_size: 25
+    dec_channel_nums: 256
+    cond_ddpm_num_layers: 5
+    cond_ddpm_channels_conv: 256
+
+  sampler:
+    type_sampler: 'dpm'  # ["none", "dpm"]
+    parameterization: 'x_start'  # ["noise", "x_start"]
+    our_ddpm_clip: 100  # 100
+
+  misc:
+    affine: 0  # RevIN-affine; True 1 False 0
+    subtract_last: 1  # 0: subtract mean; 1: subtract last
+    subtract_short_terms: 0  # 0: subtract mean; 1: subtract last
