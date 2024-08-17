@@ -37,6 +37,33 @@ class Args:
                     elif isinstance(val, dict):
                         self._update_nested_dict(val, cmd_args_dict)
                         
+        def _analyze_config(self):
+            
+            # Set use_gpu based on availability
+            self.config['use_gpu'] = torch.cuda.is_available()
+
+            # Handle multi-GPU settings
+            if self.config['use_gpu'] and self.config['hardware']['use_multi_gpu']:
+                self.config['hardware']['devices'] = self.config['hardware']['devices'].replace(' ', '')
+                device_ids = self.config['hardware']['devices'].split(',')
+                self.config['hardware']['device_ids'] = [int(id_) for id_ in device_ids]
+                self.config['hardware']['gpu'] = self.config['hardware']['device_ids'][0]
+                self.config['optimization']['patience'] = 30
+            else:
+                self.config['hardware']['device_ids'] = [0]  # Default to single GPU or CPU
+    
+            # Random seed initialization
+            if self.config['general']['random_seed'] <= 0:
+                fix_seed = random.randint(0, 10000)
+                self.config['general']['random_seed'] = fix_seed
+            fix_seed = self.config['general']['random_seed']
+            random.seed(fix_seed)
+            torch.manual_seed(fix_seed)
+            np.random.seed(fix_seed)
+    
+            if self.config['general']['features'] == "S":
+                self.config['data']['num_vars'] = 1
+                        
 def parse_args(config_filename=CONFIG_FILENAME):
     parser = argparse.ArgumentParser(description='Multivariate Time Series Forecasting')
 
