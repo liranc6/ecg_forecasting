@@ -78,6 +78,23 @@ class dotdict(dict):
 
 
 class StandardScaler():
+    """
+    A class for standardizing data by removing the mean and scaling to unit variance.
+
+    This class computes the mean and standard deviation of the data during fitting and applies the transformation to standardize the data. It also provides a method to inverse the transformation.
+
+    Methods:
+        fit(data): Computes the mean and standard deviation of the input data.
+        transform(data): Standardizes the input data using the computed mean and standard deviation.
+        inverse_transform(data): Reverts the standardized data back to its original scale.
+
+    Args:
+        data (numpy.ndarray or torch.Tensor): The input data to fit or transform.
+    
+    Returns:
+        numpy.ndarray or torch.Tensor: The standardized or inverse transformed data.
+    """
+
     def __init__(self):
         self.mean = 0.
         self.std = 1.
