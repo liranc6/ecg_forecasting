@@ -15,6 +15,8 @@ class Args:
             self.config_filename = config_filename
             self.config = self.read_config()
             self.override_with_cmd_args(cmd_args)
+            self._analyze_config()
+            self.config = Box(self.config)
 
         def read_config(self):
             with open(self.config_filename, 'r') as file:
@@ -60,10 +62,18 @@ class Args:
             random.seed(fix_seed)
             torch.manual_seed(fix_seed)
             np.random.seed(fix_seed)
+            
+            # Load the dataset
+            if self.config['general']['dataset'] == 'ETTm1':
+                self.config['paths']['datasets_dir'] = '/home/liranc6/ecg_forecasting/mrDiff/datasets/SCINet_timeseries/ETT-data/ETT'
+                self.config['data']['data'] = 'ETTm1'
+                self.config['paths']['root_path'] = self.config['paths']['datasets_dir']
+                self.config['paths']['data_path'] = 'ETTm1.csv'
+                self.config['data']['num_vars'] = 7
     
             if self.config['general']['features'] == "S":
                 self.config['data']['num_vars'] = 1
-                        
+                                        
 def parse_args(config_filename=CONFIG_FILENAME):
     parser = argparse.ArgumentParser(description='Multivariate Time Series Forecasting')
 
