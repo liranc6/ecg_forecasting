@@ -23,6 +23,10 @@ liran_project/results/
 QRS_detector/
 R-Peak-Detection-1D-SelfONN/
 
+checkpoints/
+*.gitignore*
+*gitignore*
+
 # Created by https://www.gitignore.io/api/python
 # Edit at https://www.gitignore.io/?templates=python
 
