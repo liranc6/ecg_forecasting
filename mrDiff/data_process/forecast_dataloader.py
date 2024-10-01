@@ -67,13 +67,13 @@ class ForecastDataset(Dataset):
         
         if flag == "train":
             self.data_set = sub_ForecastDataset(train_data, window_size=args.window_size, horizon=args.horizon,
-                                normalize_method=args.data.norm_method, norm_statistic=train_normalize_statistic)
+                                normalize_method=args.data.norm_method, norm_statistics=train_normalize_statistic)
         if flag == "val":
             self.data_set = sub_ForecastDataset(valid_data, window_size=args.window_size, horizon=args.horizon,
-                                    normalize_method=args.data.norm_method, norm_statistic=val_normalize_statistic)
+                                    normalize_method=args.data.norm_method, norm_statistics=val_normalize_statistic)
         if flag == "test":
             self.data_set = sub_ForecastDataset(test_data, window_size=args.window_size, horizon=args.horizon,
-                                    normalize_method=args.data.norm_method, norm_statistic=test_normalize_statistic)
+                                    normalize_method=args.data.norm_method, norm_statistics=test_normalize_statistic)
         
     def __getitem__(self, index):
 
@@ -86,7 +86,7 @@ class ForecastDataset(Dataset):
 
     def __len__(self):
 
-    	return self.data_set.__len__()
+        return self.data_set.__len__()
 
     def inverse_transform(self, data):
 
@@ -94,19 +94,19 @@ class ForecastDataset(Dataset):
 
 
 class sub_ForecastDataset(Dataset):
-    def __init__(self, df, window_size, horizon, normalize_method=None, norm_statistic=None, interval=1):
+    def __init__(self, df, window_size, horizon, normalize_method=None, norm_statistics=None, interval=1):
         self.window_size = window_size # 12
         self.interval = interval  #1
         self.horizon = horizon
         self.normalize_method = normalize_method
-        self.norm_statistic = norm_statistic
+        self.norm_statistics = norm_statistics
         df = pd.DataFrame(df)
         df = df.fillna(method='ffill', limit=len(df)).fillna(method='bfill', limit=len(df)).values
         self.data = df
         self.df_length = len(df)
         self.x_end_idx = self.get_x_end_idx()
         if normalize_method:
-            self.data, _ = normalized(self.data, normalize_method, norm_statistic)
+            self.data, _ = normalized(self.data, normalize_method, norm_statistics)
 
     def __getitem__(self, index):
         hi = self.x_end_idx[index] #12
@@ -129,7 +129,7 @@ class sub_ForecastDataset(Dataset):
 
     def inverse_transform(self, data):
 
-    	return de_normalized(data, self.normalize_method, self.norm_statistic)
+    	return de_normalized(data, self.normalize_method, self.norm_statistics)
 
 
 def normalized(data, normalize_method, norm_statistic=None):

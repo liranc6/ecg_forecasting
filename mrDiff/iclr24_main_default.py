@@ -253,7 +253,7 @@ if args.evaluate:
     ii =0
     
     d_name = args.data
-    setting = '{}_{}_ft{}_sl{}_ll{}_pl{}_lr{}_bs{}_inv{}_itr{}'.format(args.model, d_name, args.general.features, args.training.sequence.seq_len, args.training.sequence.label_len, args.training.sequence.pred_len, args.optimization.learning_rate,args.optimization.batch_size, args.data.inverse, ii)
+    setting = '{}_{}_ft{}_sl{}_ll{}_pl{}_lr{}_bs{}_inv{}_itr{}'.format(args.model, d_name, args.general.features, args.training.sequence.context_len, args.training.sequence.label_len, args.training.sequence.pred_len, args.optimization.learning_rate,args.optimization.batch_size, args.data.inverse, ii)
     if args.tag is not None:
         setting += "_{}".format(args.tag)
 
@@ -289,7 +289,7 @@ else:
             torch.backends.cudnn.enabled = True
 
             d_name = args.data
-            setting = '{}_{}_ft{}_sl{}_ll{}_pl{}_lr{}_bs{}_inv{}_itr{}'.format(args.model,d_name, args.general.features, args.training.sequence.seq_len, args.training.sequence.label_len, args.training.sequence.pred_len, args.optimization.learning_rate,args.optimization.batch_size, args.data.inverse, ii)
+            setting = '{}_{}_ft{}_sl{}_ll{}_pl{}_lr{}_bs{}_inv{}_itr{}'.format(args.model,d_name, args.general.features, args.training.sequence.context_len, args.training.sequence.label_len, args.training.sequence.pred_len, args.optimization.learning_rate,args.optimization.batch_size, args.data.inverse, ii)
             if args.tag is not None:
                 setting += "_{}".format(args.tag)
 

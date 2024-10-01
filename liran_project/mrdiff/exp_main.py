@@ -1,7 +1,7 @@
-import argparse
 import os
 import sys
 import time
+import wandb
 
 import torch
 import torch.nn as nn
@@ -56,14 +56,18 @@ from mrDiff.exp.exp_basic import Exp_Basic
 from mrDiff.models_diffusion import DDPM
 from mrDiff.utils.tools import EarlyStopping, adjust_learning_rate, visual
 from mrDiff.utils.metrics import metric
-from liran_project.mrdiff.src.parser import Args
+
+
+warnings.filterwarnings('ignore')
+
 
 class Exp_Main(Exp_Basic):
     def __init__(self, args):
         super(Exp_Main, self).__init__(args)
-        self.args = args
         self.set_models_using_meta = ["PDSB", "DDPM"]
-
+        self.datasets = {}
+        self.dataloaders = {}
+        
     def _build_model(self):
         model_dict = {
             'DDPM': DDPM,
@@ -90,6 +94,9 @@ class Exp_Main(Exp_Basic):
 
         return autol, meta_weight_ls, meta_optimizer
 
+    def read_data(self, flag):
+        self._get_data(flag)
+        
     def _get_data(self, flag):
         
         config_dict = self.args.config.to_dict()
@@ -113,8 +120,8 @@ class Exp_Main(Exp_Basic):
                                 data_path,
                                 start_patiant=start_patiant,
                                 end_patiant=end_patiant,
-                                data_with_RR=False,
-                                return_with_RR=False,
+                                data_with_RR=True,
+                                return_with_RR=True,
                                 # normalize_method = 'z_score',
                                 )
         
@@ -142,6 +149,9 @@ class Exp_Main(Exp_Basic):
             drop_last=drop_last
         )
         
+        self.datasets[flag] = dataset
+        self.dataloaders[flag] = data_loader
+        
         
         return dataset, data_loader
     
@@ -150,6 +160,8 @@ class Exp_Main(Exp_Basic):
         total_loss = []
         self.model.eval()
         results = Metrics("val")
+        
+        # vali_loader_pbar = tqdm(enumerate(vali_loader), total=len(vali_loader), desc='vali_loader_pbar', position=-1, leave=False)
 
         with torch.no_grad():
             for i, DATA in enumerate(vali_loader):
@@ -159,34 +171,32 @@ class Exp_Main(Exp_Basic):
                 else:
                     batch_x, batch_y, batch_x_mark, batch_y_mark = DATA
                     
-                if batch_x.dim() == 2:
-                    batch_x = batch_x.unsqueeze(-1)
-                if batch_y.dim() == 2:
-                    batch_y = batch_y.unsqueeze(-1)
+                batch_x_without_RR = batch_x[:, 0, :].unsqueeze(-1)
+                batch_y_without_RR = batch_y[:, 0, :].unsqueeze(-1)
 
-                batch_x = batch_x.float().to(self.device)
-                batch_y = batch_y.float().to(self.device)
+                batch_x_without_RR = batch_x_without_RR.float().to(self.device)
+                batch_y_without_RR = batch_y_without_RR.float().to(self.device)
 
                 batch_x_mark = None  # batch_x_mark.float().to(self.device)
                 batch_y_mark = None  # batch_y_mark.float().to(self.device)
                 
                 if pretrain:
-                    loss = self.model.pretrain_forward(batch_x, batch_x_mark, batch_y, batch_y_mark, pretrain_val=True)
+                    loss = self.model.pretrain_forward(batch_x_without_RR, batch_x_mark, batch_y_without_RR, batch_y_mark, pretrain_val=True)
                 else:
 
                     if self.args.training.model_info.model in ["DDPM", "PDSB"]:
 
-                        outputs = self.model.test_forward(batch_x, batch_x_mark, batch_y, batch_y_mark)
+                        outputs_without_R_peaks = self.model.test_forward(batch_x_without_RR, batch_x_mark, batch_y_without_RR, batch_y_mark)
 
                         f_dim = -1 if self.args.general.features == 'MS' else 0
-                        outputs = outputs[:, -self.args.training.sequence.pred_len:, f_dim:]
+                        outputs_without_R_peaks = outputs_without_R_peaks[:, -self.args.training.sequence.pred_len:, f_dim:].permute(0, 2, 1)
                         batch_y = batch_y[:, -self.args.training.sequence.pred_len:, f_dim:].to(self.device)
-                        loss = F.mse_loss(outputs.detach().cpu(), batch_y.detach().cpu())
+                        loss = F.mse_loss(outputs_without_R_peaks.detach().cpu(), batch_y_without_RR.detach().cpu())
 
                     else:
-                        loss = self.model.train_forward(batch_x, batch_x_mark, batch_y, batch_y_mark, train_val=True)
+                        loss = self.model.train_forward(batch_x_without_RR, batch_x_mark, batch_y_without_RR, batch_y_mark, train_val=True)
 
-                results.append_ecg_signal_difference(batch_y.detach().cpu().numpy(), outputs.detach().cpu().numpy(), self.args.data.fs)
+                results.append_ecg_signal_difference(batch_y.detach().cpu(), outputs_without_R_peaks.detach().cpu(), self.args.data.fs)
                 results.append_loss(loss.detach().cpu())  # TODO check how loss looks like
 
                 if self.args.training.model_info.model in ["DDPM"]:
@@ -200,9 +210,13 @@ class Exp_Main(Exp_Basic):
     
     def train(self, setting):
 
-        train_data, train_loader = self._get_data(flag = 'train')
-        vali_data, vali_loader = self._get_data(flag='val')
-        test_data, test_loader = self._get_data(flag = 'test')
+        # train_data, train_loader = self._get_data(flag = 'train')
+        # vali_data, vali_loader = self._get_data(flag='val')
+        # test_data, test_loader = self._get_data(flag = 'test')
+        
+        _, train_loader = self.datasets['train'], self.dataloaders['train']
+        vali_data, vali_loader = self.datasets['val'], self.dataloaders['val']
+        # test_data, test_loader = self.datasets['test'], self.dataloaders['test']
 
         # Load pre-trained models if training mode is "TWO"
         if self.args.general.training_mode == "TWO":
@@ -230,29 +244,33 @@ class Exp_Main(Exp_Basic):
         
         update_stat_interval = 100  # update the statistics every 100 iterations
         
-        for epoch in range(self.args.training.iterations.train_epochs):
+        train_epochs = self.args.training.iterations.train_epochs
+        
+        epochs_pbar = tqdm(range(train_epochs), total=train_epochs ,desc='epochs_pbar', position=0, leave=True)
+        
+        for epoch in epochs_pbar:
             train_loss = []
 
             self.model.train()
             epoch_time = time.time()
             results = Metrics("train")
+            
+            train_loader_pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc='train_loader_pbar', position=1, leave=False)
 
-            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
+            start_time = time.time()
+            
+            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in train_loader_pbar:
                 
-                if batch_x.dim() == 2:
-                    batch_x = batch_x.unsqueeze(-1)
-                if batch_y.dim() == 2:
-                    batch_y = batch_y.unsqueeze(-1)
+                batch_x_without_RR = batch_x[:, 0, :].unsqueeze(-1)
+                batch_y_without_RR = batch_y[:, 0, :].unsqueeze(-1)
                     
-                batch_x = batch_x.float().to(self.device)
-                batch_y = batch_y.float().to(self.device)
+                batch_x_without_RR = batch_x_without_RR.float().to(self.device)
+                batch_y_without_RR = batch_y_without_RR.float().to(self.device)
                 # batch_x_mark = batch_x_mark.float().to(self.device)
                 # batch_y_mark = batch_y_mark.float().to(self.device)
 
-                start_time = time.time()
-
                 model_optim.zero_grad()
-                loss = self.model.train_forward(batch_x, None, batch_y, None)  # used to be (batch_x, batch_x_mark, batch_y, batch_y_mark) but I think the marks are deprecated
+                loss = self.model.train_forward(batch_x_without_RR, None, batch_y_without_RR, None)  # used to be (batch_x, batch_x_mark, batch_y, batch_y_mark) but I think the marks are deprecated
 
                 results.append_loss(loss.item())
                 
@@ -266,7 +284,6 @@ class Exp_Main(Exp_Basic):
                 loss.backward()
                 model_optim.step()
 
-                end_time = time.time()
                 # elapsed_time_ms = (end_time - start_time) * 1000 / np.shape(batch_x)[0]
 
                 if self.args.optimization.lradj == 'TST':
@@ -276,14 +293,14 @@ class Exp_Main(Exp_Basic):
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             
             if self.args.training.logging.sample:
-                outputs = self.model.test_forward(batch_x, None, batch_y, None)
-                outputs = outputs[:, -self.args.training.sequence.pred_len:, :].detach().permute(0, 2, 1).cpu()
-                batch_y = batch_y[:, -self.args.training.sequence.pred_len:, :].detach().permute(0, 2, 1).cpu()
+                outputs = self.model.test_forward(batch_x_without_RR, None, batch_y_without_RR, None)
+                outputs_without_R_peaks = outputs[:, -self.args.training.sequence.pred_len:, :].detach().permute(0, 2, 1).cpu() # permute(0, 2, 1).cpu()
+                batch_y = batch_y[:, -self.args.training.sequence.pred_len:, :].detach().cpu() # permute(0, 2, 1).cpu()
             
-                pred = outputs  # outputs.detach().cpu().numpy()  # .squeeze()
-                true = batch_y  # batch_y.detach().cpu().numpy()  # .squeeze()
+                # pred = outputs.detach()  # outputs.detach().cpu().numpy()  # .squeeze()
+                # true = batch_y[:, -self.args.training.sequence.pred_len:, :].detach()  # batch_y.detach().cpu().numpy()  # .squeeze()
                 
-                results.append_ecg_signal_difference(true, pred, self.args.data.fs)
+                results.append_ecg_signal_difference(batch_y, outputs_without_R_peaks, self.args.data.fs)
                 
                 
                 
@@ -302,10 +319,13 @@ class Exp_Main(Exp_Basic):
             wandb.log(log)
 
             elapsed_time = time.time() - start_time
-            tqdm.set_postfix(f'Time elapsed: {str(timedelta(seconds=int(elapsed_time)))}')
-            
-            print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(
-                epoch + 1, train_steps, train_loss, vali_loss))
+            epochs_pbar.set_postfix(time_elapsed=str(timedelta(seconds=int(elapsed_time))),
+                                    epoch=epoch + 1,
+                                    Steps=train_steps,
+                                    Train_Loss=train_loss,
+                                    Vali_Loss=vali_loss)
+
+            #"Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(epoch + 1, train_steps, train_loss, vali_loss)
             early_stopping(vali_loss, self.model, path)
             
             if early_stopping.early_stop:
@@ -474,7 +494,8 @@ class Exp_Main(Exp_Basic):
         wandb.log(test_loss)
 
         return test_loss
-
+    
+    
 class Metrics:
     def __init__(self, mode: str):
         self.metrics = defaultdict(lambda: 0)
@@ -530,104 +551,3 @@ class Metrics:
     
     def __repr__(self):
         return str(self.metrics)
-    
-def main():
-    args = parse_args(CONFIG_FILENAME)
-    
-    pprint(vars(args))
-    
-    # Convert Box object to dictionary
-    config_dict = args.config.to_dict()
-
-    # Access the configuration values using dictionary syntax
-    random_seed = config_dict['general']['random_seed']
-    tag = config_dict['general']['tag']
-    dataset = config_dict['general']['dataset']
-    features = config_dict['general']['features']
-
-    learning_rate = config_dict['optimization']['learning_rate']
-    batch_size = config_dict['optimization']['batch_size']
-
-    context_len = config_dict['training']['sequence']['context_len']
-    label_len = config_dict['training']['sequence']['label_len']
-    model = config_dict['training']['model_info']['model']
-    pred_len = config_dict['training']['sequence']['pred_len']
-    iterations = config_dict['training']['iterations']['itr']
-
-    inverse = config_dict['data']['inverse']
-        
-    torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.deterministic = True  # Can change it to False --> default: False
-    torch.backends.cudnn.enabled = True
-    
-    # wandb
-    wandb_init_config ={
-            "mode": args.wandb.mode,
-            "project": args.wandb.project,
-            "save_code": args.wandb.save_code,
-        }
-    
-    if args.wandb.resume != "None":
-        wandb_init_config.update({
-                                "id": args.wandb.resume,
-                                "resume": args.wandb.resume
-                                })
-        
-        if args.wandb.resume_from != "None":
-            wandb_init_config["config"] = args.wandb.resume_from
-            
-        run = wandb.init(**wandb_init_config)
-        print(f"Resuming wandb run id: {wandb.run.id}")
-        
-        def log_config_diffs(old_config, new_config, step):
-            diffs = {}
-            for key in new_config:
-                if key not in old_config or old_config[key] != new_config[key]:
-                    diffs[key] = {'old': old_config.get(key), 'new': new_config[key]}
-        
-            if diffs:
-                note = f"Config changes at step {step}:\n"
-                for key, value in diffs.items():
-                    note += f"{key}: {value['old']} -> {value['new']}\n"
-                wandb.run.notes = (wandb.run.notes or "") + note + "\n\nAdditional information added later:\n"
-        
-        old_config = wandb.config.copy()
-        wandb.config.update(args)
-        new_config = wandb.config.copy()
-        log_config_diffs(old_config, new_config, step="update_args")
-                
-    else:
-        wandb.init(**wandb_init_config, config=args)
-        print(f"New wandb run id: {wandb.run.id}")
-        
-        
-    
-    for iteration in range(iterations):
-        # setting record of experiments
-
-        # random seed
-        fix_seed = iteration if iterations > 1 else random_seed
-
-        random.seed(fix_seed)
-        torch.manual_seed(fix_seed)
-        np.random.seed(fix_seed)
-
-        setting = f"{model}_{dataset}_ft{features}_sl{context_len}_ll{label_len}_pl{pred_len}_lr{learning_rate}_bs{batch_size}_inv{inverse}_itr{iteration}"
-        
-        if tag is not None:
-            setting += f"_{tag}"
-
-        exp = Exp_Main(args)
-
-        print(f'>>>>>>>start training : {setting}>>>>>>>>>>>>>>>>>>>>>>>>>')
-        exp.train(setting)
-
-        print(f'>>>>>>>testing : {setting}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<')
-        exp.test(setting, test=1)
-        
-        torch.cuda.empty_cache()
-        
-    
-
-if __name__ == "__main__":
-    main()

@@ -222,9 +222,9 @@ class Diffusion_Worker(nn.Module):
             # loss = self.get_loss(model_out[:,:,:], target[:,:,:], mean=False).mean(dim=-1).mean(dim=0)
             # print(">>>", np.shape(loss))
 
-            if self.args.training.model.opt_loss_type == "mse":
+            if self.args.training.model_info.opt_loss_type == "mse":
                 loss = F.mse_loss(model_out[:,:,:], target[:,:,:])
-            elif self.args.training.model.opt_loss_type == "smape":
+            elif self.args.training.model_info.opt_loss_type == "smape":
                 criterion = smape_loss()
                 loss = criterion(model_out[:,:,:], target[:,:,:])
         return loss

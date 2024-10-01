@@ -12,8 +12,7 @@ import h5py
 import sys
 
 server = "newton"
-server_config_path = os.path.join("/home/liranc6/ecg_forecasting/liran_project/utils/server_config.json"
-                                  )
+server_config_path = os.path.join("/home/liranc6/ecg_forecasting/liran_project/utils/server_config.json")
 
 # set server configuration
 with open(server_config_path) as f:

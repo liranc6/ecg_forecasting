@@ -113,6 +113,26 @@ class Conv1dWithInitialization(nn.Module):
         return self.conv1d(x)
 
 class InputConvNetwork(nn.Module):
+    """A convolutional neural network designed for processing input data with multiple layers.
+
+    This class implements a sequence of convolutional layers, batch normalization, activation functions, and dropout
+    for robust feature extraction from input data.
+    It allows for flexible configuration of the number of layers and channels.
+
+    Args:
+        args (Namespace): Configuration parameters for the model.
+        inp_num_channel (int): The number of input channels.
+        out_num_channel (int): The number of output channels.
+        num_layers (int, optional): The number of convolutional layers in the network. Defaults to 3.
+        ddpm_channels_conv (int, optional): The number of channels for the convolutional layers. If None, it defaults to a value from args.
+
+    Returns:
+        Tensor: The output of the network after processing the input through the convolutional layers.
+
+    Examples:
+        >>> input_conv_net = InputConvNetwork(args, inp_num_channel=5, out_num_channel=10)
+        >>> output = input_conv_net(x)
+    """
 
     def __init__(self, args, inp_num_channel, out_num_channel, num_layers=3, ddpm_channels_conv=None):
         super(InputConvNetwork, self).__init__()
@@ -176,6 +196,24 @@ class InputConvNetwork(nn.Module):
         return out
 
 class DiffusionEmbedding(nn.Module):
+    """Generates embeddings for diffusion steps using sinusoidal functions.
+
+    This class creates a set of embeddings based on the diffusion steps, which can be projected into a specified dimensionality.
+    It utilizes sine and cosine functions to create a rich representation of the diffusion steps, allowing for effective learning in diffusion models.
+
+    Args:
+        num_steps (int): The total number of diffusion steps.
+        embedding_dim (int, optional): The dimensionality of the embedding. Defaults to 128.
+        projection_dim (int, optional): The dimensionality of the projected output. If None, it defaults to embedding_dim.
+
+    Returns:
+        Tensor: The projected embedding corresponding to the given diffusion step.
+
+    Examples:
+        >>> diffusion_embedding = DiffusionEmbedding(num_steps=1000)
+        >>> output = diffusion_embedding(diffusion_step=5)
+    """
+    
     def __init__(self, num_steps, embedding_dim=128, projection_dim=None):
         super().__init__()
         if projection_dim is None:
@@ -212,7 +250,25 @@ class DiffusionEmbedding(nn.Module):
 
 
 class My_DiffusionUnet_v0(nn.Module):
+    """A diffusion model based on a U-Net architecture for processing time series data.
 
+    This class implements a U-Net style architecture specifically designed for diffusion processes.
+
+    Args:
+        args (Namespace): Configuration parameters for the model.
+        num_vars (int): The number of variables in the input data.
+        seq_len (int): The length of the input sequences.
+        pred_len (int): The length of the prediction sequences.
+        net_id (int, optional): Identifier for the network instance. Defaults to 0.
+
+    Returns:
+        Tensor: The output of the model after processing the input through the U-Net architecture.
+
+    Examples:
+        >>> model = My_DiffusionUnet_v0(args, num_vars=5, seq_len=20, pred_len=10)
+        >>> output = model(xt, timesteps, cond)
+    """
+    
     def __init__(self, args, num_vars, seq_len, pred_len, net_id=0):
         super(My_DiffusionUnet_v0, self).__init__()
 

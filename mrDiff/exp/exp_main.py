@@ -42,7 +42,7 @@ class Exp_Main(Exp_Basic):
             'DDPM': DDPM,
         }
         self.args.device = self.device
-        model = model_dict[self.args.training.model.model].Model(self.args).float()
+        model = model_dict[self.args.training.model_info.model].Model(self.args).float()
 
         if self.args.hardware.use_multi_gpu and self.args.hardware.use_gpu:
             model = nn.DataParallel(model, device_ids=self.args.device_ids)
@@ -104,7 +104,7 @@ class Exp_Main(Exp_Basic):
             root_path=args.paths.root_path,
             data_path=args.paths.data_path,
             flag=flag,
-            size=[args.training.sequence.seq_len, args.training.sequence.label_len, args.training.sequence.pred_len],
+            size=[args.training.sequence.context_len, args.training.sequence.label_len, args.training.sequence.pred_len],
             features=args.general.features,
             target=args.data.target,
             inverse=args.data.inverse,
@@ -145,7 +145,7 @@ class Exp_Main(Exp_Basic):
                     loss = self.model.pretrain_forward(batch_x, batch_x_mark, batch_y, batch_y_mark, pretrain_val=True)
                 else:
 
-                    if self.args.training.model.model in ["DDPM", "PDSB"]:
+                    if self.args.training.model_info.model in ["DDPM", "PDSB"]:
 
                         outputs = self.model.test_forward(batch_x, batch_x_mark, batch_y, batch_y_mark)
 
@@ -159,7 +159,7 @@ class Exp_Main(Exp_Basic):
 
                 total_loss.append(loss.detach().cpu())
 
-                if self.args.training.model.model in ["DDPM"]:
+                if self.args.training.model_info.model in ["DDPM"]:
                     if self.args.general.features == "M" or (self.args.general.dataset in ["caiso", "production"]): 
                         if i > 5:
                             break
@@ -174,6 +174,7 @@ class Exp_Main(Exp_Basic):
         vali_data, vali_loader = self._get_data(flag='val')
         test_data, test_loader = self._get_data(flag = 'test')
 
+        # Load pre-trained models if training mode is "TWO"
         if self.args.general.training_mode == "TWO":
             print('loading model')
             self.model.base_models.load_state_dict(torch.load(os.path.join(self.args.paths.checkpoints + setting, 'pretrain_checkpoint.pth')))
@@ -184,26 +185,29 @@ class Exp_Main(Exp_Basic):
 
         time_now = time.time()
 
-        train_steps = len(train_loader)
+        train_steps = len(train_loader)  # num_batches
+        
         early_stopping = EarlyStopping(patience=self.args.optimization.patience, verbose=True)
         
         model_optim = self._select_optimizer()
-        scheduler = lr_scheduler.OneCycleLR(optimizer = model_optim,
-                                            steps_per_epoch = train_steps,
-                                            pct_start = self.args.optimization.pct_start,
-                                            epochs = self.args.training.iterations.train_epochs,
-                                            max_lr = self.args.optimization.learning_rate)
+        
+        # Create a learning rate scheduler
+        scheduler = lr_scheduler.OneCycleLR(optimizer=model_optim,
+                            steps_per_epoch=train_steps,
+                            pct_start=self.args.optimization.pct_start,
+                            epochs=self.args.training.iterations.train_epochs,
+                            max_lr=self.args.optimization.learning_rate)
 
         
+        update_stat_interval = 100  # update the statistics every 100 iterations
+        
         for epoch in range(self.args.training.iterations.train_epochs):
-            iter_count = 0
             train_loss = []
 
             self.model.train()
             epoch_time = time.time()
 
             for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
-                iter_count += 1
                 
                 batch_x = batch_x.float().to(self.device)
 
@@ -214,23 +218,22 @@ class Exp_Main(Exp_Basic):
                 start_time = time.time()
 
                 model_optim.zero_grad()
-                loss = self.model.train_forward(batch_x, batch_x_mark, batch_y, batch_y_mark)
+                loss = self.model.train_forward(batch_x, None, batch_y, None)  # used to be (batch_x, batch_x_mark, batch_y, batch_y_mark) but I think the marks are deprecated
 
                 train_loss.append(loss.item())
-
-                if (i + 1) % 100 == 0:
+                
+                if (i + 1) % update_stat_interval == 0: # update the statistics every 100 iterations
                     print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
-                    speed = (time.time() - time_now) / iter_count
+                    speed = (time.time() - time_now) / update_stat_interval
                     left_time = speed * ((self.args.training.iterations.train_epochs - epoch) * train_steps - i)
                     print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
-                    iter_count = 0
                     time_now = time.time()
 
                 loss.backward()
                 model_optim.step()
 
                 end_time = time.time()
-                elapsed_time_ms = (end_time - start_time) * 1000 / np.shape(batch_x)[0]
+                # elapsed_time_ms = (end_time - start_time) * 1000 / np.shape(batch_x)[0]
 
                 if self.args.optimization.lradj == 'TST':
                     adjust_learning_rate(model_optim, scheduler, epoch + 1, self.args, printout=False)

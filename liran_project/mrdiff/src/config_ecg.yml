@@ -1,17 +1,28 @@
 project_path: '/home/liranc6/ecg_forecasting'
+
+wandb:
+  entity: 'liranc6'  # wandb entity
+  mode: 'disabled'  # [online, disabled, offline]
+  project: 'mrdiff'  # wandb project name
+  resume: None  # ["allow", "must", "never", "auto", "None"]
+  run_name: None # wandb run name
+  id: None  # wandb run id
+  save_code: True  # save code to wandb
+  resume_from: "None"  # format: {run_id}?_step={step}
+
 general:
   random_seed: 2023  # random seed
   evaluate: false  # true/false
   tag: null  # Optional
-  dataset: 'ETTm1'  # ['ETTh1', 'ETTh2', 'ETTm1', 'ETTm2', 'electricity', 'solar_AL', 'exchange_rate', 'traffic', 'PEMS03', 'PEMS04', 'PEMS07', 'PEMS08']
+  dataset: 'icentia11k'  # ['ETTh1', 'ETTh2', 'ETTm1', 'ETTm2', 'electricity', 'solar_AL', 'exchange_rate', 'traffic', 'PEMS03', 'PEMS04', 'PEMS07', 'PEMS08']
   features: 'S'  # S is univariate, M is multivariate
   training_mode: 'ONE'
   interval: 1000  # number of diffusion steps
 
 optimization:
   learning_rate: 0.001  # optimizer learning rate
-  batch_size: 2048  # batch size of train input data
-  test_batch_size: 32  # batch size of test input data
+  batch_size: 8  # batch size of train input data
+  test_batch_size: 8  # batch size of test input data
   patience: 10  # early stopping patience
   weight_decay: 0.00001  # weight_decay
   lradj: '3'  # adjust learning rate
@@ -25,10 +36,15 @@ hardware:
   devices: '0'  # device ids of multiple gpus
 
 paths:
-  checkpoints: './checkpoints/'  # location of model checkpoints
-  train_data: '/home/liranc6/ecg_forecasting/mrDiff/datasets/SCINet_timeseries/ETT-data/ETT'  # location of training data
+  train_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes/train/p0_to_p32.h5'  # location of training data
+  validation_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes/val/p33_to_p39.h5'  # location of validation data
+  test_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes/test/p40_to_p46.h5'  # location of test data
+  output_dir: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff"
+  checkpoints: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff"
+
   
 data:
+  fs: 250
   freq: 'h'  # Options: [s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly], or more detailed freq like 15min or 3h
   embed: 'timeF'  # Options: [timeF, fixed, learned]
   cols: []  # file list
@@ -44,6 +60,17 @@ data:
 
 training:
 
+  logging:
+    sample: True
+    log_interval: 100  # logging interval
+    save_interval: 1  # save interval
+    save_best: true  # save best model
+    save_dir: '/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff'  # save directory
+
+  patients:
+    start_patient: 0
+    end_patient: 1
+
   iterations:
     itr: 1  # experiments times
     pretrain_epochs: 2  # train epochs
@@ -55,11 +82,13 @@ training:
     focus_variate: -1
 
   sequence:
-    seq_len: 336  # input sequence length of SCINet encoder, look back window
-    label_len: 336  # start token length of Informer decoder
-    pred_len: 96  # prediction sequence length, horizon
+    # len = minutes * seconds * fs
+    context_len: 1  # in minutes # input sequence length of SCINet encoder, look back window
+    seq_len: 3000
+    label_len: 1500  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 1500  # I think its label len # prediction sequence length, horizon
 
-  model:
+  model_info:
     opt_loss_type: 'mse'
     model: 'DDPM'  # model of the experiment
     base_model: 'Linear'  # model of the experiment  # deprecated? I didn't see it in the code
@@ -112,5 +141,10 @@ training:
 
   misc:
     affine: 0  # RevIN-affine; True 1 False 0
-    subtract_last: 1  # 0: subtract mean; 1: subtract last
+    subtract_last: 0  # 0: subtract mean; 1: subtract last
     subtract_short_terms: 0  # 0: subtract mean; 1: subtract last
+
+testing:
+  patients:
+    start_patient: 0
+    end_patient: 2

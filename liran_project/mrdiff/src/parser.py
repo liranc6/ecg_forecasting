@@ -1,22 +1,20 @@
 import argparse
 import os
 import torch
-from exp.exp_main import Exp_Main
 import random
 import numpy as np
 import yaml
 from box import Box
 
-CONFIG_FILENAME = '/home/liranc6/ecg_forecasting/mrDiff/configs/config.yml'
 
 class Args:
         def __init__(self, config_filename, cmd_args=None):
             assert config_filename.endswith('.yml')
             self.config_filename = config_filename
             self.config = self.read_config()
-            self.override_with_cmd_args(cmd_args)
+            # if cmd_args is not None:
+            #     self.override_with_cmd_args(cmd_args)
             self._analyze_config()
-            self.config = Box(self.config)
 
         def read_config(self):
             with open(self.config_filename, 'r') as file:
@@ -24,9 +22,9 @@ class Args:
             return Box(config)
 
         def override_with_cmd_args(self, cmd_args):
-            if cmd_args is not None:
-                cmd_args_dict = vars(cmd_args)
-                self._update_nested_dict(self.config, cmd_args_dict)
+            assert cmd_args is not None
+            cmd_args_dict = vars(cmd_args)
+            self._update_nested_dict(self.config, cmd_args_dict)
 
         def __getattr__(self, name):
             return getattr(self.config, name)
@@ -74,7 +72,7 @@ class Args:
             if self.config['general']['features'] == "S":
                 self.config['data']['num_vars'] = 1
                                         
-def parse_args(config_filename=CONFIG_FILENAME):
+def parse_args(config_filename):
     parser = argparse.ArgumentParser(description='Multivariate Time Series Forecasting')
 
     parser.add_argument('--random_seed', type=int, default=2023, help='random seed')
@@ -92,9 +90,9 @@ def parse_args(config_filename=CONFIG_FILENAME):
     parser.add_argument('--dataset', type=str, required=False, default='ETTh1', help="['ETTh1', 'ETTh2', 'ETTm1', 'ETTm2', 'electricity', 'solar_AL', 'exchange_rate', 'traffic', 'PEMS03', 'PEMS04', 'PEMS07', 'PEMS08']")
     parser.add_argument('--features', type=str, default='S', choices=['S', 'M'], help='features S is univariate, M is multivariate')
 
-    parser.add_argument('--seq_len', type=int, default=336, help='input sequence length of SCINet encoder, look back window')
-    parser.add_argument('--label_len', type=int, default=336, help='start token length of Informer decoder')
-    parser.add_argument('--pred_len', type=int, default=96, help='prediction sequence length, horizon')
+    parser.add_argument('--seq_len', type=int, help='input sequence length of SCINet encoder, look back window')
+    parser.add_argument('--label_len', type=int, help='start token length of Informer decoder')
+    parser.add_argument('--pred_len', type=int, help='prediction sequence length, horizon')
 
     parser.add_argument('--opt_loss_type', type=str, default='mse') 
 
@@ -108,7 +106,7 @@ def parse_args(config_filename=CONFIG_FILENAME):
 
     parser.add_argument('--use_future_mixup', type=bool, default=True)
 
-    parser.add_argument('--use_X0_in_THiDi', type=bool, default=False)
+    parser.add_argument('--use_X0_in_THiDi', type=bool, default=False)  # Trend and Hierarchical Diffusion
     parser.add_argument('--channel_independence', type=bool, default=False)
 
     parser.add_argument('--training_mode', type=str, default='ONE')
@@ -183,7 +181,15 @@ def parse_args(config_filename=CONFIG_FILENAME):
 
     parser.add_argument('--norm_method', type=str, default='z_score')
     parser.add_argument('--normtype', type=int, default=0)
+    
+    # wandb args
+    parser.add_argument('--wandb_mode', type=str, default='disabled', help='wandb mode')
+    parser.add_argument('--wandb_project', type=str, default='mrDiff', help='wandb project')
+    parser.add_argument('--wandb_resume', type=bool, help='wandb resume')
+    parser.add_argument('--wandb_run_name', type=str, help='wandb run name')
+    parser.add_argument('--wandb_id', type=str, help='wandb id')
 
+    # cmd_args = None
     cmd_args, unknown = parser.parse_known_args()
 
     return Args(config_filename, cmd_args)

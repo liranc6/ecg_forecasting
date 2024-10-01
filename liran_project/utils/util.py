@@ -281,7 +281,6 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
             ]
 
     """
-
     ecg_signals_batch = ecg_batch[:, 0, :]
     ecg_R_beats_batch = ecg_batch[:, 1, :]
 

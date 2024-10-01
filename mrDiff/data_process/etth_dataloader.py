@@ -449,7 +449,7 @@ class Dataset_Caiso(Dataset):
         self.flag = flag
         self.args = args
 
-        self.insample_size = args.training.sequence.seq_len
+        self.insample_size = args.training.sequence.context_len
         self.label_len = args.training.sequence.label_len
         self.outsample_size = args.training.sequence.pred_len
 
@@ -603,7 +603,7 @@ class Dataset_Production(Dataset):
         self.flag = flag
         self.args = args
 
-        self.insample_size = args.training.sequence.seq_len
+        self.insample_size = args.training.sequence.context_len
         self.label_len = args.training.sequence.label_len
         self.outsample_size = args.training.sequence.pred_len
 
@@ -747,7 +747,7 @@ class Dataset_Caiso_M(Dataset):
         self.flag = flag
         self.args = args
 
-        self.insample_size = args.training.sequence.seq_len
+        self.insample_size = args.training.sequence.context_len
         self.label_len = args.training.sequence.label_len
         self.outsample_size = args.training.sequence.pred_len
 
@@ -888,7 +888,7 @@ class Dataset_Production_M(Dataset):
         self.flag = flag
         self.args = args
 
-        self.insample_size = args.training.sequence.seq_len
+        self.insample_size = args.training.sequence.context_len
         self.label_len = args.training.sequence.label_len
         self.outsample_size = args.training.sequence.pred_len
 

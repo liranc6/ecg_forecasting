@@ -17,7 +17,7 @@ class DatasetH(Dataset):
                  target='OT', scale=True, inverse=False, timeenc=0, freq='h', cols=None):
          
         self.args = args
-        self.P = args.training.sequence.seq_len
+        self.P = args.training.sequence.context_len
         self.h = args.training.sequence.pred_len
 
         assert flag in ['train', 'test', 'val']
