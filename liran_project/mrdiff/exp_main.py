@@ -255,7 +255,7 @@ class Exp_Main(Exp_Basic):
             epoch_time = time.time()
             results = Metrics("train")
             
-            train_loader_pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc='train_loader_pbar', position=1, leave=False)
+            train_loader_pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc='train_loader_pbar', position=1, leave=True)
 
             start_time = time.time()
             
@@ -326,7 +326,7 @@ class Exp_Main(Exp_Basic):
                                     Vali_Loss=vali_loss)
 
             #"Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(epoch + 1, train_steps, train_loss, vali_loss)
-            early_stopping(vali_loss, self.model, path)
+            early_stopping(vali_loss['loss'], self.model, path)
             
             if early_stopping.early_stop:
                 print("Early stopping")
@@ -349,7 +349,7 @@ class Exp_Main(Exp_Basic):
         
         if test:
             print('loading model')
-            self.model.load_state_dict(torch.load(os.path.join(self.args.paths.checkpoints + setting, 'checkpoint.pth')))
+            self.model.load_state_dict(torch.load(os.path.join(self.args.paths.checkpoints, setting, 'checkpoint.pth')))
 
         preds = []
         trues = []
@@ -362,20 +362,27 @@ class Exp_Main(Exp_Basic):
 
         # self.model.eval()
         # with torch.no_grad():
-        for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
+        for i, (batch_x, batch_y
+        , batch_x_mark, batch_y_mark) in enumerate(test_loader):
             batch_x = batch_x.float().to(self.device)
-            batch_y = batch_y.float().to(self.device)
+            batch_y
+             = batch_y
+            .float().to(self.device)
 
             batch_x_mark = batch_x_mark.float().to(self.device)
             batch_y_mark = batch_y_mark.float().to(self.device)
             
             # encoder - decoder
             start_time = time.time()
+            
+            batch_x_without_RR = batch_x[:, 0, :].unsqueeze(-1)
+            batch_y_without_RR = batch_y
+            [:, 0, :].unsqueeze(-1)
 
-            outputs = self.model.test_forward(batch_x, batch_x_mark, batch_y, batch_y_mark)
+            outputs = self.model.test_forward(batch_x_without_RR, None, batch_y_without_RR, None)
             
             end_time = time.time()
-            elapsed_time_ms = (end_time - start_time) * 1000 / np.shape(batch_x)[0]
+            elapsed_time_ms = (end_time - start_time) * 1000 / np.shape(batch_x_without_RR)[0]
 
             if i < 5:
                 print(f"Elapsed time: {elapsed_time_ms:.2f} ms")
@@ -384,16 +391,16 @@ class Exp_Main(Exp_Basic):
             #     raise Exception(">>>")
 
             outputs = outputs[:, -self.args.training.sequence.pred_len:, :]
-            batch_y = batch_y[:, -self.args.training.sequence.pred_len:, :]
+            batch_y_without_RR = batch_y_without_RR[:, -self.args.training.sequence.pred_len:, :]
             outputs = outputs.detach().cpu().numpy()
-            batch_y = batch_y.detach().cpu().numpy()
+            batch_y_without_RR = batch_y_without_RR.detach().cpu().numpy()
 
             pred = outputs  # outputs.detach().cpu().numpy()  # .squeeze()
-            true = batch_y  # batch_y.detach().cpu().numpy()  # .squeeze()
+            true = batch_y_without_RR  # batch_y.detach().cpu().numpy()  # .squeeze()
 
             # print(np.shape(pred), np.shape(true))
             # (32, 12, 1) (32, 12, 1)
-            his = batch_x.detach().cpu().numpy()
+            his = batch_x_without_RR.detach().cpu().numpy()
 
             if self.args.data.inverse:
                 B, L, D = np.shape(pred)
