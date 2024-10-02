@@ -16,7 +16,7 @@ import yaml
 from box import Box
 from pprint import pprint
 import wandb
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 from datetime import timedelta
 from collections import defaultdict
 
@@ -67,6 +67,7 @@ class Exp_Main(Exp_Basic):
         self.set_models_using_meta = ["PDSB", "DDPM"]
         self.datasets = {}
         self.dataloaders = {}
+        self.model_start_training_time = None
         
     def _build_model(self):
         model_dict = {
@@ -223,10 +224,14 @@ class Exp_Main(Exp_Basic):
             print('loading model')
             self.model.base_models.load_state_dict(torch.load(os.path.join(self.args.paths.checkpoints + setting, 'pretrain_checkpoint.pth')))
 
-        path = os.path.join(self.args.paths.checkpoints, setting)
+        time_now = time.time()
+        self.model_start_training_time = time_now
+        
+        str_time_now = time.strftime("%d_%m_%Y_%H%M", time.localtime(time_now))
+        
+        path = os.path.join(self.args.paths.checkpoints, setting, str_time_now)
         os.makedirs(path, exist_ok=True)
 
-        time_now = time.time()
 
         train_steps = len(train_loader)  # num_batches
         
@@ -343,41 +348,57 @@ class Exp_Main(Exp_Basic):
         return self.model
 
 
-    def test(self, setting, test=0):
+    def test(self, setting, time_path=None, test=0, visualize=False):
 
-        test_data, test_loader = self._get_data(flag='test')
+        if "test" not in self.dataloaders.keys():
+            test_data, test_loader = self._get_data(flag='test')
+        else:
+            test_data, test_loader = self.datasets['test'], self.dataloaders['test']
         
+        if time_path is None:
+            time_path = self.model_start_training_time
+            assert time_path is not None, "time_path is None. Please provide a time_path from when the model was trained."
         if test:
             print('loading model')
-            self.model.load_state_dict(torch.load(os.path.join(self.args.paths.checkpoints, setting, 'checkpoint.pth')))
+            model_path = os.path.join(self.args.paths.checkpoints, setting, time_path, 'checkpoint.pth')
+            self.model.load_state_dict(torch.load(model_path))
 
         preds = []
         trues = []
-        inputx = []
-        folder_path = os.path.join(self.args.paths.checkpoints, setting)
+        # inputx = []
+        
+        start_time = time.time()
+        str_start_time = time.strftime("%d_%m_%Y_%H%M", time.localtime(start_time))
+        
+        folder_path = os.path.join(self.args.paths.checkpoints, setting, str_start_time)
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
+            
+        # add the folder a note stating the path of the model used
+        note_filename = os.path.join(folder_path, 'note.txt')
+        note = f"Model used: {model_path}\n"\
+                        f"Time: {str_start_time}\n"\
+                        f"Setting: {setting}\n"\
+        
+        with open(note_filename, 'w') as f:
+            f.write(note)
+            
             
         results = Metrics("test")
 
         # self.model.eval()
         # with torch.no_grad():
-        for i, (batch_x, batch_y
-        , batch_x_mark, batch_y_mark) in enumerate(test_loader):
+        for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
             batch_x = batch_x.float().to(self.device)
-            batch_y
-             = batch_y
-            .float().to(self.device)
+            batch_y = batch_y.float().to(self.device)
 
             batch_x_mark = batch_x_mark.float().to(self.device)
             batch_y_mark = batch_y_mark.float().to(self.device)
             
-            # encoder - decoder
-            start_time = time.time()
+            # encoder - decoder           
             
             batch_x_without_RR = batch_x[:, 0, :].unsqueeze(-1)
-            batch_y_without_RR = batch_y
-            [:, 0, :].unsqueeze(-1)
+            batch_y_without_RR = batch_y[:, 0, :].unsqueeze(-1)
 
             outputs = self.model.test_forward(batch_x_without_RR, None, batch_y_without_RR, None)
             
@@ -390,10 +411,11 @@ class Exp_Main(Exp_Basic):
             # if i == 1:
             #     raise Exception(">>>")
 
-            outputs = outputs[:, -self.args.training.sequence.pred_len:, :]
-            batch_y_without_RR = batch_y_without_RR[:, -self.args.training.sequence.pred_len:, :]
-            outputs = outputs.detach().cpu().numpy()
-            batch_y_without_RR = batch_y_without_RR.detach().cpu().numpy()
+            outputs = outputs.detach()[:, -self.args.training.sequence.pred_len:, :]
+            batch_y_without_RR = batch_y_without_RR.detach()[:, -self.args.training.sequence.pred_len:, :]
+            batch_y_with_RR = batch_y.detach()[:, :, -self.args.training.sequence.pred_len:]
+            outputs = outputs.cpu().numpy()
+            batch_y_without_RR = batch_y_without_RR.cpu().numpy()
 
             pred = outputs  # outputs.detach().cpu().numpy()  # .squeeze()
             true = batch_y_without_RR  # batch_y.detach().cpu().numpy()  # .squeeze()
@@ -418,14 +440,14 @@ class Exp_Main(Exp_Basic):
                 his = rearrange(his, '(b l) d -> b l d', b=B)
 
             
-            if i == 0:
-                preds = pred
-                trues = true
-            else:
-                preds = np.concatenate((preds, pred), axis=0)
-                trues = np.concatenate((trues, true), axis=0)
+            # if i == 0:
+            #     preds = pred
+            #     trues = true
+            # else:
+            #     preds = np.concatenate((preds, pred), axis=0)
+            #     trues = np.concatenate((trues, true), axis=0)
 
-            inputx.append(his)
+            # inputx.append(his)
             if i % 1 == 0 and i < 20:
                 input = his # batch_x.detach().cpu().numpy()
 
@@ -434,16 +456,42 @@ class Exp_Main(Exp_Basic):
                 history = input[0, -336:, id_worst]
                 gt = true[0, :, id_worst]
                 pd = pred[0, :, id_worst]
-                visual(history, gt, pd, os.path.join(folder_path, str(i) + '.png'))
+                if visualize:
+                    visual(history, gt, pd, os.path.join(folder_path, str(i) + '.png'))
+                    
+            # result saves
+            metrics_keys = ['mae', 'mse', 'rmse', 'mape', 'mspe', 'rse', 'corr', 'nrmse']
+            metrics_vals = metric(pred, true)
+            metrics_dict = {}
+
+            for i in range(len(metrics_keys)):
+                metrics_dict[metrics_keys[i]] = metrics_vals[i]
+
+            results.append_metrics(metrics_dict)
+            
+            
+            if isinstance(true, np.ndarray):
+                true = torch.from_numpy(true).to(self.device).permute(0, 2, 1)
+                batch_y_second_channel = batch_y_with_RR[:, 1, :].unsqueeze(1)
+                true = torch.cat((true, batch_y_second_channel.to(self.device)), dim=1)
+            else:
+                batch_y_second_channel = batch_y_with_RR[:, 1, :].unsqueeze(1)
+                true = torch.cat((true, batch_y_second_channel), dim=1).permute(0, 2, 1)
                 
-        preds = np.array(preds)
-        trues = np.array(trues)
-        inputx = np.array(inputx)
+            if isinstance(pred, np.ndarray):
+                pred = torch.from_numpy(pred).permute(0, 2, 1)
+                
+            results.append_ecg_signal_difference(true, pred, self.args.data.fs)
+                
+        # preds = np.array(preds)
+        # trues = np.array(trues)
+        # inputx = np.array(inputx)
         
         print(">>------------------>", np.shape(preds), np.shape(trues))
 
         id_worst = None
-
+        
+        """
         if self.args.general.features == 'M' and self.args.training.analysis.vis_MTS_analysis:
 
             # print(np.shape(preds),np.shape(trues))
@@ -462,42 +510,29 @@ class Exp_Main(Exp_Basic):
             top5 = res[ind]
             print("top5", ind) # max
 
-            plt.figure(figsize=(12,5))
-            plt.bar(range(self.args.data.num_vars),res,align = "center",color = "steelblue",alpha = 0.6)
-            plt.ylabel("MSE")
-            plt.savefig(os.path.join(folder_path, 'MTS_errors.png'))
+            if visualize:
+                plt.figure(figsize=(12,5))
+                plt.bar(range(self.args.data.num_vars),res,align = "center",color = "steelblue",alpha = 0.6)
+                plt.ylabel("MSE")
+                plt.savefig(os.path.join(folder_path, 'MTS_errors.png'))
             
-            plt.figure(figsize=(10,5))
-            plt.hist(res, bins=40, facecolor="blue", edgecolor="black", alpha=0.7)
-            plt.xlabel("mse")
-            plt.ylabel("frequency")
-            plt.savefig(os.path.join(folder_path, 'MTS_errors_hist.png'))
-
+                plt.figure(figsize=(10,5))
+                plt.hist(res, bins=40, facecolor="blue", edgecolor="black", alpha=0.7)
+                plt.xlabel("mse")
+                plt.ylabel("frequency")
+                plt.savefig(os.path.join(folder_path, 'MTS_errors_hist.png'))
+        """
         # print(">>------------------>", np.shape(preds), np.shape(trues))
 
         # preds = preds.reshape(-1, preds.shape[-2], preds.shape[-1])
         # trues = trues.reshape(-1, trues.shape[-2], trues.shape[-1])
         # inputx = inputx.reshape(-1, inputx.shape[-2], inputx.shape[-1])
 
-        # result save
-        folder_path = os.path.join(self.args.paths.checkpoints, setting)
-        if not os.path.exists(folder_path):
-            os.makedirs(folder_path)
-            
-        
-        metrics_keys = ['mae', 'mse', 'rmse', 'mape', 'mspe', 'rse', 'corr', 'nrmse']
-        metrics_vals = metric(preds, trues)
-        metrics_dict = {}
-
-        for i in range(len(metrics_keys)):
-            metrics_dict[metrics_keys[i]] = metrics_vals[i]
-
-        results.append_metrics(metrics_dict)
-        results.append_ecg_signal_difference(trues, preds, self.args.data.fs)
         
             
         test_loss = results.calc_mean()
         
+        note += f"Test loss: {test_loss=}\n"
         wandb.log(test_loss)
 
         return test_loss
