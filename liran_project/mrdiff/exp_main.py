@@ -42,7 +42,7 @@ sys.path.append(ProjectPath)
 
 from liran_project.mrdiff.src.parser import parse_args
 from liran_project.utils.dataset_loader import SingleLeadECGDatasetCrops_mrDiff as DataSet
-from liran_project.utils.util import ecg_signal_difference
+from liran_project.utils.util import ecg_signal_difference, check_gpu_memory_usage
 
 # Add the directory containing the exp module to the sys.path
 exp_module_path = os.path.join(ProjectPath, 'mrDiff')
@@ -165,7 +165,8 @@ class Exp_Main(Exp_Basic):
         # vali_loader_pbar = tqdm(enumerate(vali_loader), total=len(vali_loader), desc='vali_loader_pbar', position=-1, leave=False)
 
         with torch.no_grad():
-            for i, DATA in enumerate(vali_loader):
+            vali_loader_pbar = tqdm(enumerate(vali_loader), total=len(vali_loader), desc='vali_loader_pbar', position=1, leave=False)
+            for i, DATA in vali_loader_pbar:
 
                 if self.args.general.dataset in ['monash','lorenz']:
                     batch_x, batch_y, batch_x_mark, batch_y_mark, _ = DATA
@@ -198,7 +199,7 @@ class Exp_Main(Exp_Basic):
                         loss = self.model.train_forward(batch_x_without_RR, batch_x_mark, batch_y_without_RR, batch_y_mark, train_val=True)
 
                 results.append_ecg_signal_difference(batch_y.detach().cpu(), outputs_without_R_peaks.detach().cpu(), self.args.data.fs)
-                results.append_loss(loss.detach().cpu())  # TODO check how loss looks like
+                results.append_loss(loss.detach().cpu())
 
                 if self.args.training.model_info.model in ["DDPM"]:
                     if self.args.general.features == "M" or (self.args.general.dataset in ["caiso", "production"]): 
@@ -230,6 +231,7 @@ class Exp_Main(Exp_Basic):
         str_time_now = time.strftime("%d_%m_%Y_%H%M", time.localtime(time_now))
         
         path = os.path.join(self.args.paths.checkpoints, setting, str_time_now)
+        tqdm.write(f"Saving model to {path}")
         os.makedirs(path, exist_ok=True)
 
 
@@ -264,7 +266,12 @@ class Exp_Main(Exp_Basic):
 
             start_time = time.time()
             
-            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in train_loader_pbar:
+            for batch_idx, (batch_x, batch_y, batch_x_mark, batch_y_mark) in train_loader_pbar:
+                
+                if epoch < 2 and batch_idx < 2 and self.args.hardware.print_gpu_memory_usage:
+                    tqdm.write(  f"epoch: {epoch}, i: {batch_idx}"\
+                            f"{check_gpu_memory_usage(self.device)}"
+                            )
                 
                 batch_x_without_RR = batch_x[:, 0, :].unsqueeze(-1)
                 batch_y_without_RR = batch_y[:, 0, :].unsqueeze(-1)
@@ -275,15 +282,18 @@ class Exp_Main(Exp_Basic):
                 # batch_y_mark = batch_y_mark.float().to(self.device)
 
                 model_optim.zero_grad()
-                loss = self.model.train_forward(batch_x_without_RR, None, batch_y_without_RR, None)  # used to be (batch_x, batch_x_mark, batch_y, batch_y_mark) but I think the marks are deprecated
+                if epoch < 2 and batch_idx < 2 and self.args.hardware.print_gpu_memory_usage:
+                    loss = self.model.train_forward(batch_x_without_RR, None, batch_y_without_RR, None, check_gpu_memory_usage=check_gpu_memory_usage)
+                else:
+                    loss = self.model.train_forward(batch_x_without_RR, None, batch_y_without_RR, None)  # used to be (batch_x, batch_x_mark, batch_y, batch_y_mark) but I think the marks are deprecated
 
                 results.append_loss(loss.item())
                 
-                if (i + 1) % update_stat_interval == 0: # update the statistics every 100 iterations
-                    print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
+                if (batch_idx + 1) % update_stat_interval == 0: # update the statistics every 100 iterations
+                    print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(batch_idx + 1, epoch + 1, loss.item()))
                     speed = (time.time() - time_now) / update_stat_interval
-                    left_time = speed * ((self.args.training.iterations.train_epochs - epoch) * train_steps - i)
-                    print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                    left_time = speed * ((self.args.training.iterations.train_epochs - epoch) * train_steps - batch_idx)
+                    tqdm.write('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
                     time_now = time.time()
 
                 loss.backward()
@@ -295,17 +305,17 @@ class Exp_Main(Exp_Basic):
                     adjust_learning_rate(model_optim, scheduler, epoch + 1, self.args, printout=False)
                     scheduler.step()
 
-            print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
+            tqdm.write("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             
-            if self.args.training.logging.sample:
-                outputs = self.model.test_forward(batch_x_without_RR, None, batch_y_without_RR, None)
-                outputs_without_R_peaks = outputs[:, -self.args.training.sequence.pred_len:, :].detach().permute(0, 2, 1).cpu() # permute(0, 2, 1).cpu()
-                batch_y = batch_y[:, -self.args.training.sequence.pred_len:, :].detach().cpu() # permute(0, 2, 1).cpu()
+            # if self.args.training.logging.sample:
+            #     outputs = self.model.test_forward(batch_x_without_RR, None, batch_y_without_RR, None)
+            #     outputs_without_R_peaks = outputs[:, -self.args.training.sequence.pred_len:, :].detach().permute(0, 2, 1).cpu() # permute(0, 2, 1).cpu()
+            #     batch_y = batch_y[:, -self.args.training.sequence.pred_len:, :].detach().cpu() # permute(0, 2, 1).cpu()
             
-                # pred = outputs.detach()  # outputs.detach().cpu().numpy()  # .squeeze()
-                # true = batch_y[:, -self.args.training.sequence.pred_len:, :].detach()  # batch_y.detach().cpu().numpy()  # .squeeze()
+            #     # pred = outputs.detach()  # outputs.detach().cpu().numpy()  # .squeeze()
+            #     # true = batch_y[:, -self.args.training.sequence.pred_len:, :].detach()  # batch_y.detach().cpu().numpy()  # .squeeze()
                 
-                results.append_ecg_signal_difference(batch_y, outputs_without_R_peaks, self.args.data.fs)
+            #     results.append_ecg_signal_difference(batch_y, outputs_without_R_peaks, self.args.data.fs)
                 
                 
                 
@@ -324,11 +334,12 @@ class Exp_Main(Exp_Basic):
             wandb.log(log)
 
             elapsed_time = time.time() - start_time
-            epochs_pbar.set_postfix(time_elapsed=str(timedelta(seconds=int(elapsed_time))),
-                                    epoch=epoch + 1,
-                                    Steps=train_steps,
-                                    Train_Loss=train_loss,
-                                    Vali_Loss=vali_loss)
+            epochs_pbar.set_postfix({"time_elapsed":str(timedelta(seconds=int(elapsed_time))),
+                                    epoch: epoch + 1, 
+                                    "Steps": train_steps, 
+                                    "Train_Loss": train_loss["loss"],
+                                    "Vali_Loss": vali_loss["loss"]
+                                    })
 
             #"Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(epoch + 1, train_steps, train_loss, vali_loss)
             early_stopping(vali_loss['loss'], self.model, path)

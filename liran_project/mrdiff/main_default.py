@@ -42,7 +42,7 @@ sys.path.append(ProjectPath)
 
 from liran_project.mrdiff.src.parser import parse_args
 from liran_project.utils.dataset_loader import SingleLeadECGDatasetCrops_mrDiff as DataSet
-from liran_project.utils.util import ecg_signal_difference
+from liran_project.utils.util import ecg_signal_difference, check_gpu_memory_usage
 from liran_project.mrdiff.exp_main import Exp_Main
 
 # Add the directory containing the exp module to the sys.path

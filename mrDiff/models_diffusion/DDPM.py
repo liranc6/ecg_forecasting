@@ -294,9 +294,15 @@ class Model(nn.Module):
                     
                 return linear_guess
 
-    def train_forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, return_mean=True, meta_weights=None, train_val=False):
-      
+    def train_forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, return_mean=True, meta_weights=None, train_val=False, check_gpu_memory_usage=None):
         
+        gpu_prints = 0
+        if check_gpu_memory_usage is not None:
+            print(f"{gpu_prints=}\n"\
+                  f"check_gpu_memory_usage(self.device):\n" \
+                  f"{check_gpu_memory_usage(self.device)}")
+            gpu_prints += 1
+            
         if self.args.training.analysis.use_window_normalization:
             x_enc_i = self.rev(x_enc, 'norm')
             x_dec_i = self.rev(x_dec[:,-self.pred_len:,:], 'test_norm')
@@ -320,13 +326,24 @@ class Model(nn.Module):
         # history trends
         past_trends = self.obatin_multi_trends(x_past.permute(0,2,1))
         past_trends = [trend_i.permute(0,2,1) for trend_i in past_trends]
+        
+        if check_gpu_memory_usage is not None:
+            print(f"{gpu_prints=}\n"\
+                  f"check_gpu_memory_usage(self.device):\n" \
+                  f"{check_gpu_memory_usage(self.device)}")
+            gpu_prints += 1
 
         # ==================================
         # ar-init trends
         ar_init_trends = []
         linear_guess, ar_init_trends = self._compute_trends_and_guesses(x_past, x_future, future_trends, past_trends, x_mark_enc, x_mark_dec)
         
-        
+        if check_gpu_memory_usage is not None:
+            print(f"{gpu_prints=}\n"\
+                  f"check_gpu_memory_usage(self.device):\n" \
+                  f"{check_gpu_memory_usage(self.device)}")
+            gpu_prints += 1
+            
         total_loss = self._compute_total_loss(x_past, x_future, future_trends, past_trends, linear_guess, ar_init_trends, return_mean=return_mean)
         if return_mean:
             total_loss = torch.stack(total_loss).mean()
@@ -337,6 +354,12 @@ class Model(nn.Module):
                 total_loss = sum(train_loss_tmp)
             else:
                 total_loss = torch.stack(total_loss).reshape(-1)
+                
+        if check_gpu_memory_usage is not None:
+            print(f"{gpu_prints=}\n"\
+                  f"check_gpu_memory_usage(self.device):\n" \
+                  f"{check_gpu_memory_usage(self.device)}")
+            gpu_prints += 1
 
         return total_loss
 

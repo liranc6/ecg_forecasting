@@ -303,15 +303,14 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
     ecg_pred_batch_numpy = ecg_pred_batch.cpu().numpy()
 
     # Initialize new_ecg_batch_pred tensor
-    new_ecg_pred_batch = torch.zeros((ecg_pred_batch.shape[0], 2, ecg_pred_batch.shape[1]))
+    # new_ecg_pred_batch = torch.zeros(ecg_pred_batch.shape[0], 2, ecg_pred_batch.shape[2])
 
     ecg_pred_R_beats_batch_indices = []
 
     # Iterate over each prediction in the batch and extract R peaks
     for i, ecg_pred in enumerate(ecg_pred_batch_numpy):
         ecg_pred = ecg_pred.squeeze()  # Remove singleton dimensions
-        new_ecg_pred_batch[i][0] = torch.from_numpy(ecg_pred)  # Store the ECG prediction in the tensor
-
+        # new_ecg_pred_batch[i][0] = torch.from_numpy(ecg_pred)  # Store the ECG prediction in the tensor
 
         _, info = nk.ecg_process(ecg_pred, sampling_rate=sampling_rate)
         ecg_pred_R_beats_indices = info['ECG_R_Peaks']
@@ -809,3 +808,30 @@ def get_mask_bm(sample, k):
         mask[:, channel][s_nan[0]:s_nan[-1] + 1] = 0
 
     return mask
+
+def check_gpu_memory_usage(device_id=0):
+    if torch.cuda.is_available():
+        device_properties = torch.cuda.get_device_properties(device_id)
+        gpu_name = device_properties.name
+        total_memory = device_properties.total_memory / (1024 ** 3)  # Convert from bytes to GB
+        reserved_memory = torch.cuda.memory_reserved(device_id) / (1024 ** 3)  # Convert from bytes to GB
+        allocated_memory = torch.cuda.memory_allocated(device_id) / (1024 ** 3)  # Convert from bytes to GB
+        free_memory = reserved_memory - allocated_memory  # Memory that is currently free
+
+        print(f"GPU {device_id} ({gpu_name}) Memory Usage:")
+        print(f"  Total Memory: {total_memory:.2f} GB")
+        print(f"  Reserved Memory: {reserved_memory:.2f} GB")
+        print(f"  Allocated Memory: {allocated_memory:.2f} GB")
+        print(f"  Free Memory: {free_memory:.2f} GB")
+
+        return {
+            'gpu_name': gpu_name,
+            'total_memory_gb': total_memory,
+            'reserved_memory_gb': reserved_memory,
+            'allocated_memory_gb': allocated_memory,
+            'free_memory_gb': free_memory
+        }
+    else:
+        print("CUDA is not available.")
+        return None
+    
