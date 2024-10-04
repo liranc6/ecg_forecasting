@@ -5,13 +5,13 @@ wandb:
   mode: 'disabled'  # [online, disabled, offline]
   project: 'mrdiff'  # wandb project name
   resume: None  # ["allow", "must", "never", "auto", "None"]
-  run_name: None # wandb run name
+  run_name: "first_run_ever" # wandb run name
   id: None  # wandb run id
   save_code: True  # save code to wandb
   resume_from: "None"  # format: {run_id}?_step={step}
 
 general:
-  random_seed: 2023  # random seed
+  random_seed: 42  # random seed
   evaluate: false  # true/false
   tag: null  # Optional
   dataset: 'icentia11k'  # ['ETTh1', 'ETTh2', 'ETTm1', 'ETTm2', 'electricity', 'solar_AL', 'exchange_rate', 'traffic', 'PEMS03', 'PEMS04', 'PEMS07', 'PEMS08']
@@ -29,6 +29,7 @@ optimization:
   pct_start: 0.3  # Percentage of training where learning rate increases
 
 hardware:
+  print_gpu_memory_usage: false  # print gpu memory usage
   num_workers: 0  # data loader num workers
   use_gpu: true  # use gpu
   gpu: 0  # gpu
@@ -69,12 +70,12 @@ training:
 
   patients:
     start_patient: 0
-    end_patient: 1
+    end_patient: 20
 
   iterations:
     itr: 1  # experiments times
-    pretrain_epochs: 2  # train epochs
-    train_epochs: 2  # train epochs
+    pretrain_epochs: 0  # train epochs
+    train_epochs: 300  # train epochs
     sample_times: 1
 
   identifiers:
@@ -84,9 +85,9 @@ training:
   sequence:
     # len = minutes * seconds * fs
     context_len: 1  # in minutes # input sequence length of SCINet encoder, look back window
-    seq_len: 3000
-    label_len: 1500  # I think its context len # in minutes # start token length of Informer decoder
-    pred_len: 1500  # I think its label len # prediction sequence length, horizon
+    seq_len: 75000 # input_length; window size
+    label_len: 50000  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 25000  # I think its label/forecast len # prediction sequence length, horizon
 
   model_info:
     opt_loss_type: 'mse'
@@ -147,4 +148,4 @@ training:
 testing:
   patients:
     start_patient: 0
-    end_patient: 2
+    end_patient: 5

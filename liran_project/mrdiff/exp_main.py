@@ -226,9 +226,9 @@ class Exp_Main(Exp_Basic):
             self.model.base_models.load_state_dict(torch.load(os.path.join(self.args.paths.checkpoints + setting, 'pretrain_checkpoint.pth')))
 
         time_now = time.time()
-        self.model_start_training_time = time_now
         
         str_time_now = time.strftime("%d_%m_%Y_%H%M", time.localtime(time_now))
+        self.model_start_training_time = str_time_now
         
         path = os.path.join(self.args.paths.checkpoints, setting, str_time_now)
         tqdm.write(f"Saving model to {path}")
@@ -334,8 +334,8 @@ class Exp_Main(Exp_Basic):
             wandb.log(log)
 
             elapsed_time = time.time() - start_time
-            epochs_pbar.set_postfix({"time_elapsed":str(timedelta(seconds=int(elapsed_time))),
-                                    epoch: epoch + 1, 
+            epochs_pbar.set_postfix({"time_elapsed": str(timedelta(seconds=int(elapsed_time))),
+                                    "epoch": epoch + 1, 
                                     "Steps": train_steps, 
                                     "Train_Loss": train_loss["loss"],
                                     "Vali_Loss": vali_loss["loss"]
@@ -367,6 +367,10 @@ class Exp_Main(Exp_Basic):
             test_data, test_loader = self.datasets['test'], self.dataloaders['test']
         
         if time_path is None:
+            if self.model_start_training_time is None:
+                time_now = time.time()
+                str_time_now = time.strftime("%d_%m_%Y_%H%M", time.localtime(time_now))
+                self.model_start_training_time = str_time_now
             time_path = self.model_start_training_time
             assert time_path is not None, "time_path is None. Please provide a time_path from when the model was trained."
         if test:
