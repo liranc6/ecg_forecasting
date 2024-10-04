@@ -1,33 +1,6 @@
-import os
-import sys
-import time
-import wandb
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch import optim
-from torch.optim import lr_scheduler
-from torch.utils.data import DataLoader
-
-import random
-import numpy as np
 import yaml
-from box import Box
-from pprint import pprint
-import wandb
-from tqdm.notebook import tqdm
-from datetime import timedelta
-from collections import defaultdict
-
-import warnings
-warnings.filterwarnings('ignore')
-
-import matplotlib.pyplot as plt
-import numpy as np
-
-from einops import rearrange, repeat
-from einops.layers.torch import Rearrange
+import sys
+from torch.utils.data import DataLoader, SubsetRandomSampler
 
 CONFIG_FILENAME = '/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/config_ecg.yml'
 
@@ -43,6 +16,7 @@ sys.path.append(ProjectPath)
 from liran_project.mrdiff.src.parser import parse_args
 from liran_project.utils.dataset_loader import SingleLeadECGDatasetCrops_mrDiff as DataSet
 from liran_project.utils.util import ecg_signal_difference, check_gpu_memory_usage
+from liran_project.utils.common import *
 
 # Add the directory containing the exp module to the sys.path
 exp_module_path = os.path.join(ProjectPath, 'mrDiff')
@@ -107,10 +81,14 @@ class Exp_Main(Exp_Basic):
         label_window_size = config_dict['training']['sequence']['label_len']  # minutes * seconds * fs
         window_size = context_window_size+label_window_size
         
-        if flag == 'train' or flag == 'val':
+        if flag == 'train':
             data_path = config['paths']['train_data']
             start_patiant = config['training']['patients']['start_patient']
             end_patiant = config['training']['patients']['end_patient']
+        elif flag == 'val':
+            data_path = config['paths']['val_data']
+            start_patiant = config['validation']['patients']['start_patient']
+            end_patiant = config['validation']['patients']['end_patient']
         elif flag == 'test':
             data_path = config['paths']['test_data']
             start_patiant = config['testing']['patients']['start_patient']
@@ -123,7 +101,7 @@ class Exp_Main(Exp_Basic):
                                 end_patiant=end_patiant,
                                 data_with_RR=True,
                                 return_with_RR=True,
-                                # normalize_method = 'z_score',
+                                normalize_method = self.args.data.norm_method,
                                 )
         
         if flag == 'test':
@@ -131,23 +109,36 @@ class Exp_Main(Exp_Basic):
             drop_last = False
             batch_size = self.args.optimization.test_batch_size
             freq=self.args.data.freq
+            sampler = self._get_nth_sampler(dataset, n=8)
         elif flag=='pred':
             shuffle_flag = False 
             drop_last = False 
             batch_size = 1
             freq=self.args.detail_freq
-        else: # train or val
+            sampler = None
+        elif flag == 'train':
             shuffle_flag = True
             drop_last = True
             batch_size = self.args.optimization.batch_size
             freq=self.args.data.freq
+            sampler = None
+        elif flag == 'val':
+            shuffle_flag = False
+            drop_last = False
+            batch_size = self.args.optimization.batch_size
+            freq=self
+            sampler = self._get_nth_sampler(dataset, n=8)
+        else:
+            raise ValueError("Invalid flag")
+        
 
         data_loader = DataLoader(
             dataset,
             batch_size=batch_size,
             shuffle=shuffle_flag,
             num_workers=config['hardware']['num_workers'],
-            drop_last=drop_last
+            drop_last=drop_last,
+            sampler=sampler
         )
         
         self.datasets[flag] = dataset
@@ -156,6 +147,21 @@ class Exp_Main(Exp_Basic):
         
         return dataset, data_loader
     
+    def _get_nth_sampler(self, dataset, n=1, seed=None):
+        
+        random.seed(seed)
+        
+        # Calculate indices of every nth batch
+        indices = list(range(0, len(dataset), 1))
+        random.shuffle(indices)
+        
+        # take every nth index
+        indices = indices[::n]
+        
+        random.shuffle(indices)
+        
+        return SubsetRandomSampler(indices)
+
     def vali(self, vali_data, vali_loader, pretrain=False):
         
         total_loss = []

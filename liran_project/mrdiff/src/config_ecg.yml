@@ -1,8 +1,10 @@
 project_path: '/home/liranc6/ecg_forecasting'
 
+tqdm: "terminal" # ["terminal", "notebook"]
+
 wandb:
   entity: 'liranc6'  # wandb entity
-  mode: 'disabled'  # [online, disabled, offline]
+  mode: 'online'  # [online, disabled, offline]
   project: 'mrdiff'  # wandb project name
   resume: None  # ["allow", "must", "never", "auto", "None"]
   run_name: "first_run_ever" # wandb run name
@@ -38,7 +40,7 @@ hardware:
 
 paths:
   train_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes/train/p0_to_p32.h5'  # location of training data
-  validation_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes/val/p33_to_p39.h5'  # location of validation data
+  val_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes/val/p33_to_p39.h5'  # location of validation data
   test_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes/test/p40_to_p46.h5'  # location of test data
   output_dir: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff"
   checkpoints: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff"
@@ -55,7 +57,7 @@ data:
   use_ar_init: false  # use autoregressive initialization
   use_residual: true
   uncertainty: false
-  norm_method: 'z_score'
+  norm_method: 'None'  # ['None', 'z_score', 'min_max']
   normtype: 0
 
 
@@ -70,7 +72,7 @@ training:
 
   patients:
     start_patient: 0
-    end_patient: 20
+    end_patient: 25
 
   iterations:
     itr: 1  # experiments times
@@ -85,8 +87,8 @@ training:
   sequence:
     # len = minutes * seconds * fs
     context_len: 1  # in minutes # input sequence length of SCINet encoder, look back window
-    seq_len: 75000 # input_length; window size
-    label_len: 50000  # I think its context len # in minutes # start token length of Informer decoder
+    seq_len: 50000 # input_length; window size
+    label_len: 25000  # I think its context len # in minutes # start token length of Informer decoder
     pred_len: 25000  # I think its label/forecast len # prediction sequence length, horizon
 
   model_info:
@@ -146,6 +148,11 @@ training:
     subtract_short_terms: 0  # 0: subtract mean; 1: subtract last
 
 testing:
+  patients:
+    start_patient: 0
+    end_patient: 5
+
+validation:
   patients:
     start_patient: 0
     end_patient: 5

@@ -8,7 +8,7 @@ import wfdb
 import pandas as pd
 from fastdtw import fastdtw
 import neurokit2 as nk
-from tqdm import tqdm
+# from tqdm import tqdm
 from scipy.spatial import distance
 
 SAMPLING_RATE = 250
@@ -834,4 +834,3 @@ def check_gpu_memory_usage(device_id=0):
     else:
         print("CUDA is not available.")
         return None
-    

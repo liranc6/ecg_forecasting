@@ -1,15 +1,5 @@
-from pickle import FALSE
-from torch.utils.data import Dataset
-import h5py
-import numpy as np
-import torch
-import bisect
-from collections import OrderedDict
-import os
-import sys
 import yaml
-from sklearn.preprocessing import StandardScaler
-from tqdm import tqdm
+import sys
 
 CONFIG_FILENAME = '/home/liranc6/ecg_forecasting/mrDiff/configs/config.yml'
 
@@ -21,6 +11,8 @@ with open(CONFIG_FILENAME, 'r') as file:
 # Add the parent directory to the sys.path
 ProjectPath = config['project_path']
 sys.path.append(ProjectPath)
+
+from liran_project.utils.common import *
 
 
 
@@ -257,41 +249,37 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
             
     def _get_normalization_statistics(self, filename):
         mean = 0
-        std = 0
+        welford = WelfordOnline()
         max_val = np.NINF
         min_val = np.Inf
+
         with h5py.File(filename, 'r') as h5_file:
             num_keys = len(self.keys)
-            pbar_keys = tqdm(self.keys , total=num_keys)
-            for i, key in enumerate(pbar_keys):
+            pbar_keys = tqdm(self.keys, total=num_keys)
+            
+            for key in pbar_keys:
                 pbar_keys.set_description(f"Reading {key}")
-                if self.data_with_RR:
-                    data = h5_file[key][()][:, 0, :]
-                else:
-                    data = h5_file[key][()]
-                mean += np.mean(data, axis=0)
-                std += np.std(data, axis=0)
+                data = h5_file[key][()][:, 0, :] if self.data_with_RR else h5_file[key][()]
+                    
+                curr_num_samples = data.shape[0]
+                welford.add_points(data)
+                total_num_samples += curr_num_samples
+
                 max_val = max(max_val, np.max(data))
                 min_val = min(min_val, np.min(data))
-                
-                if i >10:
-                    break
-            
-            scale = max_val - min_val + 1e-8
-            mean /= num_keys
-            std /= num_keys
-            std = np.where(std == 0, 1, std)
-            
-        return {"max": max_val, "min": min_val, "scale": scale, "mean": mean, "std": std}
-            
-    def inverse_transform(self, data):
+
+        # Assert that total_num_samples is greater than zero
+        assert total_num_samples > 0, "Total number of samples is zero. Check the data."
         
-    	return de_normalized(data, self.normalize_method, self.norm_statistic)
-    
-    
+        mean, std = welford.get_mean_and_stddev()
+
+        # Avoid zero std dev
+        std = np.where(std == 0, 1, std)  # Log a warning if std is 1
+        return mean, std, max_val, min_val     
+            
 def normalized(data, normalize_method, norm_statistics):
     if normalize_method == 'min_max':
-        scale = norm_statistics['scale']
+        scale = norm_statistics['max'] - norm_statistics['min']
         data = (data - norm_statistics['min']) / scale
     elif normalize_method == 'z_score':
         mean = norm_statistics['mean']
@@ -301,10 +289,71 @@ def normalized(data, normalize_method, norm_statistics):
 
 def de_normalized(data, normalize_method, norm_statistics):
     if normalize_method == 'min_max':
-        scale = norm_statistics['scale']
+        scale = norm_statistics['max'] - norm_statistics['min']
         data = data * scale + norm_statistics['min']
     elif normalize_method == 'z_score':
         mean = norm_statistics['mean']
         std = norm_statistics['std']
         data = data * std + mean
     return data
+
+
+class WelfordOnline:
+    def __init__(self):
+        self.n = 0
+        self.mean = None
+        self.variance = None
+
+    def add_points(self, data):
+        # Convert data to a NumPy array for easy manipulation
+        data = np.asarray(data)
+        k = data.shape[0]  # Number of new data points
+
+        if k == 0:
+            return  # No points to add
+        
+        # Initialize mean and variance if this is the first addition
+        if self.mean is None:
+            self.mean = np.zeros(data.shape[1])  # Assuming data has columns
+            self.variance = np.zeros(data.shape[1])  # Assuming data has columns
+
+        # Update the count
+        self.n += k
+        
+        # Calculate the mean increment along axis=0
+        mean_increment = np.mean(data, axis=0)
+
+        # Update the overall mean
+        old_mean = self.mean.copy()
+        self.mean += (mean_increment - self.mean) * (k / self.n)
+
+        # Update the variance for each dimension
+        for i in range(data.shape[1]):
+            self.variance[i] += np.sum((data[:, i] - old_mean[i]) * (data[:, i] - self.mean[i]))
+
+    def get_variance(self):
+        if self.n < 2:
+            return float('nan')  # Not enough data for variance
+        return self.variance / (self.n - 1)  # Sample variance
+
+    def get_population_variance(self):
+        if self.n == 0:
+            return float('nan')  # Not enough data
+        return self.variance / self.n  # Population variance
+    
+    def get_stddev(self):
+        return np.sqrt(self.get_variance())
+    
+    def get_population_stddev(self):
+        return np.sqrt(self.get_population_variance())
+    
+    def get_mean(self):
+        return self.mean
+    
+    def get_mean_and_stddev(self):
+        return self.mean, self.get_population_stddev()
+
+    def get_mean(self):
+        return self.mean  
+    
+    
