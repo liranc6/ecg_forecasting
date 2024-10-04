@@ -249,9 +249,10 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
             
     def _get_normalization_statistics(self, filename):
         mean = 0
-        welford = WelfordOnline()
+        total_num_samples = 0
         max_val = np.NINF
         min_val = np.Inf
+        welford = WelfordOnline()
 
         with h5py.File(filename, 'r') as h5_file:
             num_keys = len(self.keys)

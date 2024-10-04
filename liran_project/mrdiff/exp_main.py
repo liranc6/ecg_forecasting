@@ -171,7 +171,7 @@ class Exp_Main(Exp_Basic):
         # vali_loader_pbar = tqdm(enumerate(vali_loader), total=len(vali_loader), desc='vali_loader_pbar', position=-1, leave=False)
 
         with torch.no_grad():
-            vali_loader_pbar = tqdm(enumerate(vali_loader), total=len(vali_loader), desc='vali_loader_pbar', position=1, leave=False)
+            vali_loader_pbar = tqdm(enumerate(vali_loader), total=len(vali_loader), desc='vali_loader_pbar', position=1, leave=True)
             for i, DATA in vali_loader_pbar:
 
                 if self.args.general.dataset in ['monash','lorenz']:
@@ -332,10 +332,12 @@ class Exp_Main(Exp_Basic):
             
             log = {
                 "epoch": epoch + 1,
-                "train_loss": train_loss,
-                "vali_loss": vali_loss
                 }
-            log.update(results.get_final())
+            
+            for key, value in train_loss.items():
+                log["train_" + key] = value
+            for key, value in vali_loss.items():
+                log["vali_" + key] = value
             
             wandb.log(log)
 
