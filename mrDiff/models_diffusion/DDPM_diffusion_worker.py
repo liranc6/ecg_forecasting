@@ -198,8 +198,18 @@ class Diffusion_Worker(nn.Module):
 
         noise = torch.randn_like(x)
         x_k = self.q_sample(x_start=x, t=t, noise=noise)
+        
+        if self.args.hardware.print_gpu_memory_usage:
+            print(f"after 'x_k = self.q_sample(x_start=x, t=t, noise=noise)"\
+                    f"{check_gpu_memory_usage(self.device)}"
+                    )
+            
        
-        model_out = self.net(x_k, t, cond=condition, ar_init=ar_init, future_gt=x0, mask=None)
+        model_out = self.net(x_k, t, cond=condition, ar_init=ar_init, future_gt=x0, mask=None)  # a bit less than a quarter of the memory
+        
+        cond_ts = x_k = condition = ar_init = x0 =None
+        torch.cuda.empty_cache()
+        
         
         if self.parameterization == "noise":
             target = noise 
@@ -231,6 +241,12 @@ class Diffusion_Worker(nn.Module):
             elif self.args.training.model_info.opt_loss_type == "smape":
                 criterion = smape_loss()
                 loss = criterion(model_out[:,:,:], target[:,:,:])
+                
+        # Free memory of local variables
+        # x = x0 = x1 = mask = condition = ar_init = cond_ts = None
+        x = cond_ts = t = noise = x_k = model_out = target = loss_simple = loss_vlb = None
+
+        torch.cuda.empty_cache()
         return loss
 
 

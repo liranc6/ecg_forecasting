@@ -42,4 +42,17 @@ if TQDM_TYP == "terminal":
     from tqdm import tqdm
 else:
     from tqdm.notebook import tqdm
+    
+CONFIG_FILENAME = '/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/config_ecg.yml'
+
+assert CONFIG_FILENAME.endswith('.yml')
+
+with open(CONFIG_FILENAME, 'r') as file:
+    config = yaml.safe_load(file)
+
+# Add the parent directory to the sys.path
+ProjectPath = config['project_path']
+sys.path.append(ProjectPath)
+
+from liran_project.utils.util import check_gpu_memory_usage
 

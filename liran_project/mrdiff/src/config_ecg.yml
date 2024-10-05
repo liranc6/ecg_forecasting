@@ -6,11 +6,11 @@ wandb:
   entity: 'liranc6'  # wandb entity
   mode: 'online'  # [online, disabled, offline]
   project: 'mrdiff'  # wandb project name
-  resume: None  # ["allow", "must", "never", "auto", "None"]
-  run_name: "first_run_ever" # wandb run name
-  id: None  # wandb run id
+  resume: must  # ["allow", "must", "never", "auto", "None"]
+  run_name: "None" # wandb run name
+  id: o8p8z00y  # wandb run id
   save_code: True  # save code to wandb
-  resume_from: "None"  # format: {run_id}?_step={step}
+  resume_from: "o8p8z00y?_step=1000"  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000"
 
 general:
   random_seed: 42  # random seed
@@ -64,7 +64,7 @@ data:
 training:
 
   logging:
-    sample: True
+    sample: false
     log_interval: 100  # logging interval
     save_interval: 1  # save interval
     save_best: true  # save best model
@@ -86,10 +86,10 @@ training:
 
   sequence:
     # len = minutes * seconds * fs
-    context_len: 1  # in minutes # input sequence length of SCINet encoder, look back window
-    seq_len: 50000 # input_length; window size
-    label_len: 25000  # I think its context len # in minutes # start token length of Informer decoder
-    pred_len: 25000  # I think its label/forecast len # prediction sequence length, horizon
+    context_len: 10  # in minutes # input sequence length of SCINet encoder, look back window
+    seq_len: 135000 # input_length; window size
+    label_len: 105000  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 30000  # I think its label/forecast len # prediction sequence length, horizon
 
   model_info:
     opt_loss_type: 'mse'

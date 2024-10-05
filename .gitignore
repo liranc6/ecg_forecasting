@@ -19,6 +19,9 @@ data
 ScoreGradPred
 liran_project/wandb/
 liran_project/results/
+
+liran_project/notebooks/general.ipynb
+liran_project/mrdiff/src/config_ecg.yml
 .vscode/
 QRS_detector/
 R-Peak-Detection-1D-SelfONN/

@@ -1,5 +1,6 @@
 import yaml
 import sys
+import subprocess
 
 CONFIG_FILENAME = '/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/config_ecg.yml'
 
@@ -76,12 +77,42 @@ def main():
                                 "resume": args.wandb.resume
                                 })
         
-        if args.wandb.resume_from != "None":
-            wandb_init_config["config"] = args.wandb.resume_from
-            
-        run = wandb.init(**wandb_init_config)
+    if args.wandb.resume_from != "None":
+        wandb_init_config["config"] = args.wandb.resume_from
+
+        wandb.init(**wandb_init_config)
+
+        # Extract the expected step from args.wandb.resume_from
+        resume_from_parts = args.wandb.resume_from.split("?_step=")
+        expected_step = int(resume_from_parts[1])  # Extract the step part and convert to integer
+
+        # Assert that the run started from the specified step
+        assert wandb.run.step == expected_step, f"Expected step {expected_step}, but got {wandb.run.step}"
+                
         print(f"Resuming wandb run id: {wandb.run.id}")
         
+    else:
+        wandb.init(**wandb_init_config, config=args)
+        print(f"New wandb run id: {wandb.run.id}")
+    
+    if args.wandb.save_code:
+        wandb.save("main_default.py")
+        # Get the directory of the current file
+        current_dir = os.path.dirname(__file__)
+
+        # Construct the relative path
+        relative_path = os.path.join(current_dir, "exp_main.py")
+
+        # Save the file using the relative path
+        wandb.save(relative_path)
+    
+        # Get the current Git commit ID
+        commit_id = subprocess.check_output(["git", "rev-parse", "HEAD"]).strip().decode('utf-8')
+        
+        # Log the current Git commit ID
+        wandb.config.update({"git_commit_id": commit_id})
+        
+    if args.wandb.resume != "None":
         def log_config_diffs(old_config, new_config, step):
             diffs = {}
             for key in new_config:
@@ -98,10 +129,7 @@ def main():
         wandb.config.update(args)
         new_config = wandb.config.copy()
         log_config_diffs(old_config, new_config, step="update_args")
-                
-    else:
-        wandb.init(**wandb_init_config, config=args)
-        print(f"New wandb run id: {wandb.run.id}")
+        
         
     fix_seed = random_seed
     random.seed(fix_seed)

@@ -158,11 +158,18 @@ def modify_a_pred_batch(a_smoothed_batch, a_pred_batch):
 
     return modified_a_pred_batch
 
-def indices_to_binary_tensor(indices, size_like):
-    binary_tensor = np.zeros_like(size_like)
-    binary_tensor[indices] = 1
+import torch
 
-    return binary_tensor
+def indices_to_binary_tensor(indices, binary_tensor):
+    """
+    Convert a list of indices to a binary tensor.
+    """
+    if binary_tensor.is_cuda:
+        binary_tensor = binary_tensor.cpu()
+    
+    binary_tensor = binary_tensor.numpy()
+    binary_tensor[indices] = 1
+    return torch.from_numpy(binary_tensor)
 
 def get_intervals_around_ones(indices, tensor_len, smooth_to_each_side=50):
     """
@@ -184,7 +191,7 @@ def get_intervals_around_ones(indices, tensor_len, smooth_to_each_side=50):
 
 def align_indices(longer_list_of_indices, shorter_list_of_indices, tensor_len, smooth_to_each_side=50):
     """
-    
+    Align indices from a longer list to a shorter list.
     """
 
     assert len(longer_list_of_indices) > len(shorter_list_of_indices), "The longer list of indices must have more elements than the shorter list."
@@ -250,6 +257,11 @@ def modified_chamfer_distance(y, y_pred):
 
     In this implementation, we dont use mean, because we want to punish the model for having more points in one set than the other.
     """
+    if isinstance(y, torch.Tensor):
+        y = y.cpu().numpy()
+    if isinstance(y_pred, torch.Tensor):
+        y_pred = y_pred.cpu().numpy()
+        
     y = np.array(y).reshape(-1, 1)
     y_pred = np.array(y_pred).reshape(-1, 1)
     

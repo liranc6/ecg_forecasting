@@ -363,6 +363,9 @@ class My_DiffusionUnet_v0(nn.Module):
 
         # diffusion_emb = timestep_embedding(timesteps, self.dim_diff_step)
         # diffusion_emb = self.time_embed(diffusion_emb)
+        
+        
+        ##################this is a good place to minimize the memory usage (below)
         diffusion_emb = self.diffusion_embedding(timesteps.long())
         diffusion_emb = self.act(diffusion_emb)
         diffusion_emb = diffusion_emb.unsqueeze(-1).repeat(1,1,np.shape(xt)[-1])
@@ -372,6 +375,8 @@ class My_DiffusionUnet_v0(nn.Module):
 
         out = self.input_projection(xt)  
         out = self.enc_conv(torch.cat([diffusion_emb, out], dim=1))
+        
+        ##################this is a good place to minimize the memory usage (above)
         
         if self.args.data.individual:
             pred_out = torch.zeros([xt.size(0),self.num_vars,self.pred_len],dtype=xt.dtype).to(xt.device)
@@ -428,6 +433,12 @@ class My_DiffusionUnet_v0(nn.Module):
             out = self.combine_conv(out) + pred_out
         else:
             out = self.combine_conv(out)
+            
+        # Free memory of local variables
+        # xt = timesteps = cond = ar_init = future_gt = mask = diffusion_emb = None
+        diffusion_emb = prev_scale_out = pred_out = temp_out = y_clean = rand_for_mask = None
+
+        torch.cuda.empty_cache()
 
         # SHOULD BE  B, N, L
         return out

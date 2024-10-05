@@ -339,7 +339,7 @@ class Model(nn.Module):
         linear_guess, ar_init_trends = self._compute_trends_and_guesses(x_past, x_future, future_trends, past_trends, x_mark_enc, x_mark_dec)
         
         if check_gpu_memory_usage is not None:
-            print(f"{gpu_prints=}\n"\
+            print(f"linear_guess, ar_init_trends = self._compute_trends_and_guesses(: \n {gpu_prints=}\n"\
                   f"check_gpu_memory_usage(self.device):\n" \
                   f"{check_gpu_memory_usage(self.device)}")
             gpu_prints += 1

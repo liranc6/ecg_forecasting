@@ -191,14 +191,13 @@ class Exp_Main(Exp_Basic):
                 if pretrain:
                     loss = self.model.pretrain_forward(batch_x_without_RR, batch_x_mark, batch_y_without_RR, batch_y_mark, pretrain_val=True)
                 else:
-
                     if self.args.training.model_info.model in ["DDPM", "PDSB"]:
 
                         outputs_without_R_peaks = self.model.test_forward(batch_x_without_RR, batch_x_mark, batch_y_without_RR, batch_y_mark)
 
                         f_dim = -1 if self.args.general.features == 'MS' else 0
                         outputs_without_R_peaks = outputs_without_R_peaks[:, -self.args.training.sequence.pred_len:, f_dim:].permute(0, 2, 1)
-                        batch_y = batch_y[:, -self.args.training.sequence.pred_len:, f_dim:].to(self.device)
+                        batch_y = batch_y[:, :, -self.args.training.sequence.pred_len:].to(self.device)
                         loss = F.mse_loss(outputs_without_R_peaks.detach().cpu(), batch_y_without_RR.detach().cpu())
 
                     else:
@@ -289,7 +288,7 @@ class Exp_Main(Exp_Basic):
 
                 model_optim.zero_grad()
                 if epoch < 2 and batch_idx < 2 and self.args.hardware.print_gpu_memory_usage:
-                    loss = self.model.train_forward(batch_x_without_RR, None, batch_y_without_RR, None, check_gpu_memory_usage=check_gpu_memory_usage)
+                    loss = self.model.train_forward(batch_x_without_RR, None, batch_y_without_RR, None)
                 else:
                     loss = self.model.train_forward(batch_x_without_RR, None, batch_y_without_RR, None)  # used to be (batch_x, batch_x_mark, batch_y, batch_y_mark) but I think the marks are deprecated
 
@@ -335,9 +334,12 @@ class Exp_Main(Exp_Basic):
                 }
             
             for key, value in train_loss.items():
-                log["train_" + key] = value
+                if value != 0:
+                    log["train_" + key] = value
+
             for key, value in vali_loss.items():
-                log["vali_" + key] = value
+                if value != 0:
+                    log["vali_" + key] = value
             
             wandb.log(log)
 
@@ -554,9 +556,10 @@ class Exp_Main(Exp_Basic):
         
             
         test_loss = results.calc_mean()
+        log = {log["test_" + key]: value for key, value in test_loss.items() if value != 0}
         
-        note += f"Test loss: {test_loss=}\n"
-        wandb.log(test_loss)
+        # note += f"Test loss: {test_loss=}\n"
+        wandb.log(log)
 
         return test_loss
     
