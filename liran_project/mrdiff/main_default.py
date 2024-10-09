@@ -41,7 +41,7 @@ def main():
     pprint(vars(args))
     
     # Convert Box object to dictionary
-    config_dict = args.config.to_dict()
+    config_dict = args.configs.to_dict()
 
     # Access the configuration values using dictionary syntax
     random_seed = config_dict['general']['random_seed']
@@ -64,23 +64,37 @@ def main():
     torch.backends.cudnn.deterministic = True  # Can change it to False --> default: False
     torch.backends.cudnn.enabled = True
     
+    if args.wandb.resume in ["allow", "must", "auto"] and args.resume.resume is not True:
+        raise ValueError("The 'resume' argument must be set to True in order to resume a wandb run.")
+    
     # wandb
-    wandb_init_config ={
+    wandb_project_name = args.wandb.project
+    wandb_id = args.wandb.id if args.wandb.id != "None" else None
+    wandb_mode = args.wandb.mode if args.wandb.mode != "None" else "online"
+    wandb_resume = args.wandb.resume if args.wandb.resume != "None" else None
+    
+    # if args.wandb.resume != "None":
+    #     wandb_id = args.wandb.id
+    #     wandb_mode = args.wandb.mode
+    #     wandb_resume = args.wandb.resume
+    #     # wandb.init(project=project_name, id=wandb_id, resume="must", mode=wandb_mode)
+    #     # wandb_init_config.update({
+    #     #                         "id": args.wandb.resume,
+    #     #                         "resume": args.wandb.resume
+    #     #                         })
+        
+    if args.wandb.resume_from != "None":
+        wandb_init_config ={
             "mode": args.wandb.mode,
             "project": args.wandb.project,
             "save_code": args.wandb.save_code,
         }
-    
-    if args.wandb.resume != "None":
-        wandb_init_config.update({
-                                "id": args.wandb.resume,
-                                "resume": args.wandb.resume
-                                })
         
-    if args.wandb.resume_from != "None":
-        wandb_init_config["config"] = args.wandb.resume_from
+        wandb_init_config = {
+                                "fork_from": args.wandb.resume_from
+                            }
 
-        wandb.init(**wandb_init_config)
+        wandb.init(resume_from = args.wandb.resume_from)
 
         # Extract the expected step from args.wandb.resume_from
         resume_from_parts = args.wandb.resume_from.split("?_step=")
@@ -89,10 +103,13 @@ def main():
         # Assert that the run started from the specified step
         assert wandb.run.step == expected_step, f"Expected step {expected_step}, but got {wandb.run.step}"
                 
-        print(f"Resuming wandb run id: {wandb.run.id}")
-        
+        print(f"Resuming wandb run id: {wandb.run.id}")   
     else:
-        wandb.init(**wandb_init_config, config=args)
+        wandb.init(project=wandb_project_name,
+                   id = wandb_id,
+                   mode = wandb_mode,
+                   resume = wandb_resume,
+                   config=args)
         print(f"New wandb run id: {wandb.run.id}")
     
     if args.wandb.save_code:
@@ -112,7 +129,7 @@ def main():
         # Log the current Git commit ID
         wandb.config.update({"git_commit_id": commit_id})
         
-    if args.wandb.resume != "None":
+    if args.wandb.resume != "None" or args.wandb.resume_from != "None":
         def log_config_diffs(old_config, new_config, step):
             diffs = {}
             for key in new_config:
@@ -149,10 +166,9 @@ def main():
 
         exp = Exp_Main(args)
         
-        exp.read_data('train')
-        exp.read_data('val')
-        exp.read_data('test')
-
+        exp.read_data(flag='train')
+        exp.read_data(flag='val')
+        
         print(f'>>>>>>>start training : {setting}>>>>>>>>>>>>>>>>>>>>>>>>>')
         exp.train(setting)
 

@@ -1,5 +1,6 @@
 import yaml
 import sys
+import threading
 
 CONFIG_FILENAME = '/home/liranc6/ecg_forecasting/mrDiff/configs/config.yml'
 
@@ -14,7 +15,16 @@ sys.path.append(ProjectPath)
 
 from liran_project.utils.common import *
 
+# Function to display the stopwatch
+def stopwatch(msg="Reading data"):
+    start_time = time.time()
+    while not stop_event.is_set():
+        elapsed_time = time.time() - start_time
+        print(f"\r{msg}... {elapsed_time:.2f} seconds elapsed", end="")
+        time.sleep(0.5)
 
+# Event to signal the stopwatch to stop
+stop_event = threading.Event()
 
 class SingleLeadECGDatasetCrops_SSSD(Dataset):
     def __init__(self, context_window_size, label_window_size, h5_filename, start_sample_from=0, data_with_RR=True, cache_size=5000, return_with_RR = False, start_patiant=0, end_patiant=-1):
@@ -254,20 +264,30 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
         min_val = np.Inf
         welford = WelfordOnline()
 
-        with h5py.File(filename, 'r') as h5_file:
-            num_keys = len(self.keys)
-            pbar_keys = tqdm(self.keys, total=num_keys)
-            
-            for key in pbar_keys:
-                pbar_keys.set_description(f"Reading {key}")
-                data = h5_file[key][()][:, 0, :] if self.data_with_RR else h5_file[key][()]
-                    
-                curr_num_samples = data.shape[0]
-                welford.add_points(data)
-                total_num_samples += curr_num_samples
+        # Create and start the stopwatch thread
+        stop_event.clear()  # Clear the event before starting the thread
+        stopwatch_thread = threading.Thread(target=stopwatch, args=(f"creating_stats",))
+        stopwatch_thread.start()
+        
+        try:
+            with h5py.File(filename, 'r') as h5_file:
+                num_keys = len(self.keys)
+                pbar_keys = tqdm(self.keys, total=num_keys)
+                
+                for key in pbar_keys:
+                    pbar_keys.set_description(f"Reading {key}")
+                    data = h5_file[key][()][:, 0, :] if self.data_with_RR else h5_file[key][()]
+                        
+                    curr_num_samples = data.shape[0]
+                    welford.add_points(data)
+                    total_num_samples += curr_num_samples
 
-                max_val = max(max_val, np.max(data))
-                min_val = min(min_val, np.min(data))
+                    max_val = max(max_val, np.max(data))
+                    min_val = min(min_val, np.min(data))
+        finally:
+            # Signal the stopwatch to stop and wait for the thread to finish
+            stop_event.set()
+            stopwatch_thread.join()
 
         # Assert that total_num_samples is greater than zero
         assert total_num_samples > 0, "Total number of samples is zero. Check the data."

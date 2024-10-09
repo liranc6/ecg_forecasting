@@ -55,8 +55,8 @@ class Exp_Main(Exp_Basic):
         return model
     
     def _select_optimizer(self):
-        model_optim = optim.Adam(self.model.parameters(), lr=self.args.optimization.learning_rate, weight_decay=self.args.optimization.weight_decay)
-        return model_optim
+        self.model_optim = optim.Adam(self.model.parameters(), lr=self.args.optimization.learning_rate, weight_decay=self.args.optimization.weight_decay)
+        return self.model_optim
 
     def _select_meta_optimizer(self):
 
@@ -74,7 +74,7 @@ class Exp_Main(Exp_Basic):
         
     def _get_data(self, flag):
         
-        config_dict = self.args.config.to_dict()
+        config_dict = self.args.configs.to_dict()
         # split the windows to fixed size context and label windows
         fs = config_dict['data']['fs']
         context_window_size = config_dict['training']['sequence']['seq_len'] - config_dict['training']['sequence']['label_len']  # minutes * seconds * fs
@@ -216,51 +216,75 @@ class Exp_Main(Exp_Basic):
         return mean_results
     
     def train(self, setting):
+            
+        if self.args.resume.resume and self.args.resume.resume_configuration:
+            resume_config = self.args.resume
+            checkpoint = torch.load(self.args.resume.specific_chpt_path, map_location='cpu')
+            self.args.update_config_from_dict(checkpoint["configuration_parameters"])
+            # checkpoint["configuration_parameters"]
+            checkpoint = None
+            self.args.resume = resume_config
+            
+        if "train" not in self.dataloaders.keys():
+            self.read_data(flag='train')
+        
+        train_loader = self.dataloaders['train']
+            
+        if "val" not in self.dataloaders.keys():
+            self.read_data(flag='val')
+
+        vali_loader = self.dataloaders['val']
 
         # train_data, train_loader = self._get_data(flag = 'train')
         # vali_data, vali_loader = self._get_data(flag='val')
         # test_data, test_loader = self._get_data(flag = 'test')
         
-        _, train_loader = self.datasets['train'], self.dataloaders['train']
-        vali_data, vali_loader = self.datasets['val'], self.dataloaders['val']
         # test_data, test_loader = self.datasets['test'], self.dataloaders['test']
+        train_steps = len(train_loader)  # num_batches
 
-        # Load pre-trained models if training mode is "TWO"
-        if self.args.general.training_mode == "TWO":
-            print('loading model')
-            self.model.base_models.load_state_dict(torch.load(os.path.join(self.args.paths.checkpoints + setting, 'pretrain_checkpoint.pth')))
+        # # Load pre-trained models if training mode is "TWO"
+        # if self.args.general.training_mode == "TWO":
+        #     print('loading model')
+        #     self.model.base_models.load_state_dict(torch.load(os.path.join(self.args.paths.checkpoints + setting, 'pretrain_checkpoint.pth')))
 
         time_now = time.time()
-        
+            
         str_time_now = time.strftime("%d_%m_%Y_%H%M", time.localtime(time_now))
         self.model_start_training_time = str_time_now
         
-        path = os.path.join(self.args.paths.checkpoints, setting, str_time_now)
-        tqdm.write(f"Saving model to {path}")
-        os.makedirs(path, exist_ok=True)
+        self.args.paths.checkpoints = os.path.join(self.args.paths.checkpoints, setting, self.model_start_training_time)
+        tqdm.write(f"Saving model to {self.args.paths.checkpoints}")
+        os.makedirs(self.args.paths.checkpoints, exist_ok=True)
 
 
-        train_steps = len(train_loader)  # num_batches
-        
         early_stopping = EarlyStopping(patience=self.args.optimization.patience, verbose=True)
         
-        model_optim = self._select_optimizer()
+        self.model_optim = self._select_optimizer()
         
         # Create a learning rate scheduler
-        scheduler = lr_scheduler.OneCycleLR(optimizer=model_optim,
+        self.scheduler = lr_scheduler.OneCycleLR(optimizer=self.model_optim,
                             steps_per_epoch=train_steps,
                             pct_start=self.args.optimization.pct_start,
                             epochs=self.args.training.iterations.train_epochs,
                             max_lr=self.args.optimization.learning_rate)
+        
+        resume_epoch = 0
+        if self.args.resume.resume:
+            resume_epoch = self.load_checkpoint(self.args.resume.specific_chpt_path)
 
         
-        update_stat_interval = 100  # update the statistics every 100 iterations
-        
         train_epochs = self.args.training.iterations.train_epochs
+        
+        update_stat_interval = 100  # update the statistics every 100 iterations
         
         epochs_pbar = tqdm(range(train_epochs), total=train_epochs ,desc='epochs_pbar', position=0, leave=True)
         
         for epoch in epochs_pbar:
+            while epoch <= resume_epoch:
+                epoch += 1
+                epochs_pbar.update(1)
+                epochs_pbar.set_postfix({"epoch": epoch + 1})
+            
             train_loss = []
 
             self.model.train()
@@ -286,7 +310,7 @@ class Exp_Main(Exp_Basic):
                 # batch_x_mark = batch_x_mark.float().to(self.device)
                 # batch_y_mark = batch_y_mark.float().to(self.device)
 
-                model_optim.zero_grad()
+                self.model_optim.zero_grad()
                 if epoch < 2 and batch_idx < 2 and self.args.hardware.print_gpu_memory_usage:
                     loss = self.model.train_forward(batch_x_without_RR, None, batch_y_without_RR, None)
                 else:
@@ -302,13 +326,13 @@ class Exp_Main(Exp_Basic):
                     time_now = time.time()
 
                 loss.backward()
-                model_optim.step()
+                self.model_optim.step()
 
                 # elapsed_time_ms = (end_time - start_time) * 1000 / np.shape(batch_x)[0]
 
                 if self.args.optimization.lradj == 'TST':
-                    adjust_learning_rate(model_optim, scheduler, epoch + 1, self.args, printout=False)
-                    scheduler.step()
+                    adjust_learning_rate(self.model_optim, self.scheduler, epoch + 1, self.args, printout=False)
+                    self.scheduler.step()
 
             tqdm.write("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             
@@ -327,7 +351,7 @@ class Exp_Main(Exp_Basic):
             train_loss = results.calc_mean()
             
             
-            vali_loss = self.vali(vali_data, vali_loader)
+            vali_loss = self.vali(None, vali_loader)
             
             log = {
                 "epoch": epoch + 1,
@@ -337,7 +361,8 @@ class Exp_Main(Exp_Basic):
                 if value != 0:
                     log["train_" + key] = value
 
-            for key, value in vali_loss.items():
+            dict_vali_loss = {key: value for key, value in vali_loss.items() if value != 0}
+            for key, value in dict_vali_loss.items():
                 if value != 0:
                     log["vali_" + key] = value
             
@@ -350,21 +375,47 @@ class Exp_Main(Exp_Basic):
                                     "Train_Loss": train_loss["loss"],
                                     "Vali_Loss": vali_loss["loss"]
                                     })
-
-            #"Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(epoch + 1, train_steps, train_loss, vali_loss)
-            early_stopping(vali_loss['loss'], self.model, path)
             
+            #"Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(epoch + 1, train_steps, train_loss, vali_loss)
+            filenames_to_save = early_stopping(val_loss=vali_loss['loss'], model=self.model, epoch=epoch, dir_path=self.args.paths.checkpoints, metrics=dict_vali_loss)
+            
+            for filename_to_save in filenames_to_save:
+                self.save_checkpoint(val_loss=vali_loss['loss'], 
+                                    model=self.model,
+                                    dir_path=self.args.paths.checkpoints,
+                                    epoch=epoch,
+                                    filename=f'{filename_to_save}',
+                                    metrics=dict_vali_loss
+                                )
+                
             if early_stopping.early_stop:
                 print("Early stopping")
                 break
 
             if self.args.optimization.lradj != 'TST':
-                adjust_learning_rate(model_optim, scheduler, epoch + 1, self.args)
+                adjust_learning_rate(self.model_optim, self.scheduler, epoch + 1, self.args)
             else:
-                print('Updating learning rate to {}'.format(scheduler.get_last_lr()[0]))
-
-        best_model_path = path + '/' + 'checkpoint.pth'
-        self.model.load_state_dict(torch.load(best_model_path))
+                print('Updating learning rate to {}'.format(self.scheduler.get_last_lr()[0]))
+                
+            if epoch % self.args.training.logging.log_interval == 0:
+                
+                log_dir_path = os.path.join(self.args.paths.checkpoints, 'logs')
+                                
+                self.save_checkpoint(val_loss=vali_loss['loss'], 
+                                        model=self.model,
+                                        dir_path=log_dir_path,
+                                        epoch=epoch,
+                                        filename=f'e_{epoch}_checkpoint.pth',
+                                        metrics=dict(vali_loss)
+                                    )
+                
+                
+                
+        best_model_path = early_stopping.best_model_path
+        print("Training finished")
+        print(f"Best model path: ", best_model_path)
+        checkpoint = torch.load(best_model_path)
+        self.model.load_state_dict(checkpoint["model_state_dict"], strict=False)
 
         return self.model
 
@@ -385,8 +436,9 @@ class Exp_Main(Exp_Basic):
             assert time_path is not None, "time_path is None. Please provide a time_path from when the model was trained."
         if test:
             print('loading model')
-            model_path = os.path.join(self.args.paths.checkpoints, setting, time_path, 'checkpoint.pth')
-            self.model.load_state_dict(torch.load(model_path))
+            best_model_path = os.path.join(self.args.paths.checkpoints,'best_checkpoint.pth')
+            checkpoint = torch.load(best_model_path)
+            self.model.load_state_dict(checkpoint["model_state_dict"], strict=False)
 
         preds = []
         trues = []
@@ -401,7 +453,7 @@ class Exp_Main(Exp_Basic):
             
         # add the folder a note stating the path of the model used
         note_filename = os.path.join(folder_path, 'note.txt')
-        note = f"Model used: {model_path}\n"\
+        note = f"Model used: {best_model_path}\n"\
                         f"Time: {str_start_time}\n"\
                         f"Setting: {setting}\n"\
         
@@ -411,103 +463,109 @@ class Exp_Main(Exp_Basic):
             
         results = Metrics("test")
 
-        # self.model.eval()
-        # with torch.no_grad():
-        for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
-            batch_x = batch_x.float().to(self.device)
-            batch_y = batch_y.float().to(self.device)
+        self.model.eval()
+        with torch.no_grad():
+            test_pbar = tqdm(enumerate(test_loader), total=len(test_loader), desc='test_pbar', position=0, leave=True)
+            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in test_pbar:
+                batch_x = batch_x.float().to(self.device)
+                batch_y = batch_y.float().to(self.device)
 
-            batch_x_mark = batch_x_mark.float().to(self.device)
-            batch_y_mark = batch_y_mark.float().to(self.device)
+                batch_x_mark = batch_x_mark.float().to(self.device)
+                batch_y_mark = batch_y_mark.float().to(self.device)
+                
+                # encoder - decoder           
+                
+                batch_x_without_RR = batch_x[:, 0, :].unsqueeze(-1)
+                batch_y_without_RR = batch_y[:, 0, :].unsqueeze(-1)
+
+                outputs = self.model.test_forward(batch_x_without_RR, None, batch_y_without_RR, None)
+
+                # if i == 1:
+                #     raise Exception(">>>")
+
+                outputs = outputs.detach()[:, -self.args.training.sequence.pred_len:, :]
+                batch_y_without_RR = batch_y_without_RR.detach()[:, -self.args.training.sequence.pred_len:, :]
+                batch_y_with_RR = batch_y.detach()[:, :, -self.args.training.sequence.pred_len:]
+                outputs = outputs.cpu().numpy()
+                batch_y_without_RR = batch_y_without_RR.cpu().numpy()
+
+                pred = outputs  # outputs.detach().cpu().numpy()  # .squeeze()
+                true = batch_y_without_RR  # batch_y.detach().cpu().numpy()  # .squeeze()
+
+                # print(np.shape(pred), np.shape(true))
+                # (32, 12, 1) (32, 12, 1)
+                his = batch_x_without_RR.detach().cpu().numpy()
+
+                if self.args.data.inverse:
+                    B, L, D = np.shape(pred)
+
+                    pred = rearrange(pred, 'b l d -> (b l) d')
+                    true = rearrange(true, 'b l d -> (b l) d')
+                    his = rearrange(his, 'b l d -> (b l) d')
+
+                    pred = test_data.inverse_transform(pred)
+                    true = test_data.inverse_transform(true)
+                    his = test_data.inverse_transform(his)
             
-            # encoder - decoder           
-            
-            batch_x_without_RR = batch_x[:, 0, :].unsqueeze(-1)
-            batch_y_without_RR = batch_y[:, 0, :].unsqueeze(-1)
+                    pred = rearrange(pred, '(b l) d -> b l d', b=B, l=L)
+                    true = rearrange(true, '(b l) d -> b l d', b=B, l=L)
+                    his = rearrange(his, '(b l) d -> b l d', b=B)
 
-            outputs = self.model.test_forward(batch_x_without_RR, None, batch_y_without_RR, None)
-            
-            end_time = time.time()
-            elapsed_time_ms = (end_time - start_time) * 1000 / np.shape(batch_x_without_RR)[0]
+                
+                # if i == 0:
+                #     preds = pred
+                #     trues = true
+                # else:
+                #     preds = np.concatenate((preds, pred), axis=0)
+                #     trues = np.concatenate((trues, true), axis=0)
 
-            if i < 5:
-                print(f"Elapsed time: {elapsed_time_ms:.2f} ms")
+                # inputx.append(his)
+                if i % 1 == 0 and i < 20:
+                    input = his # batch_x.detach().cpu().numpy()
 
-            # if i == 1:
-            #     raise Exception(">>>")
+                    id_worst = self.args.training.identifiers.id_worst # -1 # -1
 
-            outputs = outputs.detach()[:, -self.args.training.sequence.pred_len:, :]
-            batch_y_without_RR = batch_y_without_RR.detach()[:, -self.args.training.sequence.pred_len:, :]
-            batch_y_with_RR = batch_y.detach()[:, :, -self.args.training.sequence.pred_len:]
-            outputs = outputs.cpu().numpy()
-            batch_y_without_RR = batch_y_without_RR.cpu().numpy()
+                    history = input[0, -336:, id_worst]
+                    gt = true[0, :, id_worst]
+                    pd = pred[0, :, id_worst]
+                    if visualize:
+                        visual(history, gt, pd, os.path.join(folder_path, str(i) + '.png'))
+                        
+                # result saves
+                metrics_keys = ['mae', 'mse', 'rmse', 'mape', 'mspe', 'rse', 'corr', 'nrmse']
+                metrics_vals = metric(pred, true)
+                metrics_dict = {}
 
-            pred = outputs  # outputs.detach().cpu().numpy()  # .squeeze()
-            true = batch_y_without_RR  # batch_y.detach().cpu().numpy()  # .squeeze()
+                for i in range(len(metrics_keys)):
+                    metrics_dict[metrics_keys[i]] = metrics_vals[i]
 
-            # print(np.shape(pred), np.shape(true))
-            # (32, 12, 1) (32, 12, 1)
-            his = batch_x_without_RR.detach().cpu().numpy()
-
-            if self.args.data.inverse:
-                B, L, D = np.shape(pred)
-
-                pred = rearrange(pred, 'b l d -> (b l) d')
-                true = rearrange(true, 'b l d -> (b l) d')
-                his = rearrange(his, 'b l d -> (b l) d')
-
-                pred = test_data.inverse_transform(pred)
-                true = test_data.inverse_transform(true)
-                his = test_data.inverse_transform(his)
-        
-                pred = rearrange(pred, '(b l) d -> b l d', b=B, l=L)
-                true = rearrange(true, '(b l) d -> b l d', b=B, l=L)
-                his = rearrange(his, '(b l) d -> b l d', b=B)
-
-            
-            # if i == 0:
-            #     preds = pred
-            #     trues = true
-            # else:
-            #     preds = np.concatenate((preds, pred), axis=0)
-            #     trues = np.concatenate((trues, true), axis=0)
-
-            # inputx.append(his)
-            if i % 1 == 0 and i < 20:
-                input = his # batch_x.detach().cpu().numpy()
-
-                id_worst = self.args.training.identifiers.id_worst # -1 # -1
-
-                history = input[0, -336:, id_worst]
-                gt = true[0, :, id_worst]
-                pd = pred[0, :, id_worst]
-                if visualize:
-                    visual(history, gt, pd, os.path.join(folder_path, str(i) + '.png'))
+                results.append_metrics(metrics_dict)
+                
+                
+                if isinstance(true, np.ndarray):
+                    true = torch.from_numpy(true).to(self.device).permute(0, 2, 1)
+                    batch_y_second_channel = batch_y_with_RR[:, 1, :].unsqueeze(1)
+                    true = torch.cat((true, batch_y_second_channel.to(self.device)), dim=1)
+                else:
+                    batch_y_second_channel = batch_y_with_RR[:, 1, :].unsqueeze(1)
+                    true = torch.cat((true, batch_y_second_channel), dim=1).permute(0, 2, 1)
                     
-            # result saves
-            metrics_keys = ['mae', 'mse', 'rmse', 'mape', 'mspe', 'rse', 'corr', 'nrmse']
-            metrics_vals = metric(pred, true)
-            metrics_dict = {}
+                if isinstance(pred, np.ndarray):
+                    pred = torch.from_numpy(pred).permute(0, 2, 1)
+                    
+                results.append_ecg_signal_difference(true, pred, self.args.data.fs)
+                
+                end_time = time.time()
+                elapsed_time_ms = (end_time - start_time) * 1000 / np.shape(batch_x_without_RR)[0]
 
-            for i in range(len(metrics_keys)):
-                metrics_dict[metrics_keys[i]] = metrics_vals[i]
-
-            results.append_metrics(metrics_dict)
-            
-            
-            if isinstance(true, np.ndarray):
-                true = torch.from_numpy(true).to(self.device).permute(0, 2, 1)
-                batch_y_second_channel = batch_y_with_RR[:, 1, :].unsqueeze(1)
-                true = torch.cat((true, batch_y_second_channel.to(self.device)), dim=1)
-            else:
-                batch_y_second_channel = batch_y_with_RR[:, 1, :].unsqueeze(1)
-                true = torch.cat((true, batch_y_second_channel), dim=1).permute(0, 2, 1)
+                if i < 5:
+                    print(f"Elapsed time: {elapsed_time_ms:.2f} ms")
                 
-            if isinstance(pred, np.ndarray):
-                pred = torch.from_numpy(pred).permute(0, 2, 1)
-                
-            results.append_ecg_signal_difference(true, pred, self.args.data.fs)
-                
+                test_pbar.set_postfix({"time_elapsed": f"{elapsed_time_ms:.2f} ms",
+                                        "batch": i + 1,
+                                        "Steps": len(test_loader)
+                                        })
+                    
         # preds = np.array(preds)
         # trues = np.array(trues)
         # inputx = np.array(inputx)
@@ -556,13 +614,78 @@ class Exp_Main(Exp_Basic):
         
             
         test_loss = results.calc_mean()
-        log = {log["test_" + key]: value for key, value in test_loss.items() if value != 0}
+        log = {f"test_{key}": value for key, value in test_loss.items() if value != 0}
         
         # note += f"Test loss: {test_loss=}\n"
         wandb.log(log)
 
         return test_loss
     
+    def load_checkpoint(self, filename):
+        checkpoint = torch.load(filename, map_location='cpu')
+        
+        # assuming at least those keys are present: model_state_dict, optimizer_state, epoch, loss_and_metrics, learning_rate_scheduler_state, configuration_parameters
+        resume_config = self.args.resume
+        
+        try:
+            model_state_dict = checkpoint["model_state_dict"]
+            self.model.load_state_dict(model_state_dict, strict=False)
+            
+            args_configs_box = self.args.configs
+            
+            if resume_config["resume_configuration"]:
+                args_configs_box = checkpoint["configuration_parameters"]
+            if resume_config["resume_optimizer"]:
+                self.model_optim.load_state_dict(checkpoint["optimizer_state"])
+                print('Successfully loaded optimizer from checkpoint')
+            if resume_config["resume_scheduler"]:
+                self.scheduler.load_state_dict(checkpoint["learning_rate_scheduler_state"])
+                print('Successfully loaded scheduler from checkpoint')
+            
+            self.args.update_config_from_dict(args_configs_box)
+            self.args.resume.was_resumed = True  
+            
+            print('Successfully loaded model from specific_chpt_path')
+            
+        except Exception as e:
+            print(f"Exception: {e=}")
+            raise Exception('specific_chpt_path not valid')
+        
+        return checkpoint["epoch"]
+        
+    
+    def print_attributes(self):
+        for attr, value in self.__dict__.items():
+            print(f"{attr}: {value}")
+        
+    def save_checkpoint(self, val_loss, model, dir_path, epoch=0, filename='checkpoint.pth', metrics={}):
+        
+        print(f"saving checkpoint to: {dir_path=}, {filename=}")
+        # check if model has save_checkpoint() method
+        if hasattr(model, 'save_checkpoint'):
+            model.save_checkpoint(dir_path=dir_path,
+                                    filename=filename,
+                                    epoch=epoch,
+                                    model=model,
+                                    val_loss=val_loss,
+                                    metrics=metrics
+                                    )
+        else:
+            
+            filename = os.path.join(dir_path, filename)
+            
+            savings = {
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state": self.model_optim.state_dict(),
+                        "epoch": epoch,
+                        "loss_and_metrics": metrics,
+                        "learning_rate_scheduler_state": self.scheduler.state_dict(),
+                        "configuration_parameters": self.args.configs.to_dict(),
+                    }
+            
+            torch.save(savings, filename)
+            
+        print("checkpoint saved")
     
 class Metrics:
     def __init__(self, mode: str):

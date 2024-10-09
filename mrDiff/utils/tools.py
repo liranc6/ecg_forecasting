@@ -2,6 +2,8 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 import time
+from collections import defaultdict as defultdict
+import os
 
 plt.switch_backend('agg')
 
@@ -47,26 +49,74 @@ class EarlyStopping:
         self.early_stop = False
         self.val_loss_min = np.Inf
         self.delta = delta
+        self.best_metrics = defultdict(lambda: np.Inf)
+        self.best_model_path = None
 
-    def __call__(self, val_loss, model, path, name='checkpoint.pth'):
-        score = -val_loss
+    def __call__(self, val_loss, model, dir_path, epoch, filename='best_checkpoint.pth', metrics={}, **kwargs):
+        self.metrics = metrics
+        score = val_loss
+        
+        filenames_to_save = []
         if self.best_score is None:
             self.best_score = score
-            self.save_checkpoint(val_loss, model, path, name)
-        elif score < self.best_score + self.delta:
+            self.save_checkpoint(val_loss = val_loss, model = model, dir_path = dir_path, epoch=epoch, filename = filename, metrics=metrics)
+            self.best_model_path = os.path.join(dir_path, filename)
+            filenames_to_save.append(f'{filename}')
+        elif score >= self.best_score - self.delta:
             self.counter += 1
             print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
             if self.counter >= self.patience:
-                self.early_stop = True
+                self.early_stop = filename
         else:
             self.best_score = score
-            self.save_checkpoint(val_loss, model, path, name)
+            self.save_checkpoint(val_loss = val_loss, model = model, dir_path = dir_path, epoch=epoch, filename = filename, metrics=metrics)
+            self.best_model_path = os.path.join(dir_path, filename)
+            filenames_to_save.append(f'{filename}')
             self.counter = 0
+        
+        # assumption: we want to minimize the metrics
+        for key, value in metrics.items():
+            if value < self.best_metrics[key] - self.delta: 
+                self.best_metrics[key] = value
+                
+                filename = filename.split('.')[0]
+                filename = f'{filename[:-4]}_{key}_{value}_.pth'
+                self.save_checkpoint(val_loss = val_loss, model = model, dir_path = dir_path, epoch=epoch, filename = filename, metrics=metrics)
+                filenames_to_save.append(f'{filename}')
+                
+        return filenames_to_save
 
-    def save_checkpoint(self, val_loss, model, path, name='checkpoint.pth'):
+    def save_checkpoint(self, val_loss, model, dir_path, epoch=0, filename='checkpoint.pth', metrics={}):
+        
+        # print(f"saving checkpoint to: {dir_path=}, {filename=}")
+        
         if self.verbose:
             print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
-        torch.save(model.state_dict(), path + '/' + name)
+        
+        return
+    
+        # check if model has save_checkpoint() method
+        if hasattr(model, 'save_checkpoint'):
+            model.save_checkpoint(dir_path=dir_path,
+                                    filename=filename,
+                                    epoch=epoch,
+                                    model=model,
+                                    val_loss=val_loss,
+                                    metrics=metrics
+                                    )
+        else:
+            filename = os.path.join(dir_path, filename)
+            
+            savings = {
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state": model.optimizer.state_dict(),
+                        "epoch": epoch,
+                        "loss_and_metrics": metrics,
+                        "learning_rate_scheduler_state": model.scheduler.state_dict(),
+                        "configuration_parameters": model.args,
+                    }
+            
+            torch.save(savings, filename)
         self.val_loss_min = val_loss
 
 

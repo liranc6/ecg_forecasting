@@ -10,68 +10,82 @@ from box import Box
 class Args:
         def __init__(self, config_filename, cmd_args=None):
             assert config_filename.endswith('.yml')
-            self.config_filename = config_filename
-            self.config = self.read_config()
+            self.configs_filename = config_filename
+            self.configs = self.read_config()
             # if cmd_args is not None:
             #     self.override_with_cmd_args(cmd_args)
             self._analyze_config()
 
         def read_config(self):
-            with open(self.config_filename, 'r') as file:
+            with open(self.configs_filename, 'r') as file:
                 config = yaml.safe_load(file)
             return Box(config)
 
         def override_with_cmd_args(self, cmd_args):
             assert cmd_args is not None
             cmd_args_dict = vars(cmd_args)
-            self._update_nested_dict(self.config, cmd_args_dict)
+            self.update_config_from_dict(cmd_args_dict)
 
-        def __getattr__(self, name):
-            return getattr(self.config, name)
-
-        def _update_nested_dict(self, config, cmd_args_dict):
-            for k, v in cmd_args_dict.items():
-                for key, val in config.items():
-                    if key == k:
-                        config[key] = v
-                    elif isinstance(val, dict):
-                        self._update_nested_dict(val, cmd_args_dict)
+        def __getattr__(self, name, strict=False):
+            if hasattr(self.configs, name):
+                return getattr(self.configs, name)
+            if strict:
+                raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
                         
         def _analyze_config(self):
             
             # Set use_gpu based on availability
-            self.config['use_gpu'] = torch.cuda.is_available()
+            self.configs['use_gpu'] = torch.cuda.is_available()
 
             # Handle multi-GPU settings
-            if self.config['use_gpu'] and self.config['hardware']['use_multi_gpu']:
-                self.config['hardware']['devices'] = self.config['hardware']['devices'].replace(' ', '')
-                device_ids = self.config['hardware']['devices'].split(',')
-                self.config['hardware']['device_ids'] = [int(id_) for id_ in device_ids]
-                self.config['hardware']['gpu'] = self.config['hardware']['device_ids'][0]
-                self.config['optimization']['patience'] = 30
+            if self.configs['use_gpu'] and self.configs['hardware']['use_multi_gpu']:
+                self.configs['hardware']['devices'] = self.configs['hardware']['devices'].replace(' ', '')
+                device_ids = self.configs['hardware']['devices'].split(',')
+                self.configs['hardware']['device_ids'] = [int(id_) for id_ in device_ids]
+                self.configs['hardware']['gpu'] = self.configs['hardware']['device_ids'][0]
+                self.configs['optimization']['patience'] = 30
             else:
-                self.config['hardware']['device_ids'] = [0]  # Default to single GPU or CPU
+                self.configs['hardware']['device_ids'] = [0]  # Default to single GPU or CPU
     
             # Random seed initialization
-            if self.config['general']['random_seed'] <= 0:
+            if self.configs['general']['random_seed'] <= 0:
                 fix_seed = random.randint(0, 10000)
-                self.config['general']['random_seed'] = fix_seed
-            fix_seed = self.config['general']['random_seed']
+                self.configs['general']['random_seed'] = fix_seed
+            fix_seed = self.configs['general']['random_seed']
             random.seed(fix_seed)
             torch.manual_seed(fix_seed)
             np.random.seed(fix_seed)
             
             # Load the dataset
-            if self.config['general']['dataset'] == 'ETTm1':
-                self.config['paths']['datasets_dir'] = '/home/liranc6/ecg_forecasting/mrDiff/datasets/SCINet_timeseries/ETT-data/ETT'
-                self.config['data']['data'] = 'ETTm1'
-                self.config['paths']['root_path'] = self.config['paths']['datasets_dir']
-                self.config['paths']['data_path'] = 'ETTm1.csv'
-                self.config['data']['num_vars'] = 7
+            if self.configs['general']['dataset'] == 'ETTm1':
+                self.configs['paths']['datasets_dir'] = '/home/liranc6/ecg_forecasting/mrDiff/datasets/SCINet_timeseries/ETT-data/ETT'
+                self.configs['data']['data'] = 'ETTm1'
+                self.configs['paths']['root_path'] = self.configs['paths']['datasets_dir']
+                self.configs['paths']['data_path'] = 'ETTm1.csv'
+                self.configs['data']['num_vars'] = 7
     
-            if self.config['general']['features'] == "S":
-                self.config['data']['num_vars'] = 1
-                                        
+            if self.configs['general']['features'] == "S":
+                self.configs['data']['num_vars'] = 1
+
+        def update_config_from_dict(self, new_dict):
+            """update self.config with new_dict
+
+                type(self.config) == box.Box
+
+            Args:
+                new_dict (dict): new dictionary to update self.config, can be nested, can be partial
+            """
+            if isinstance(new_dict, dict):
+                new_dict = Box(new_dict)
+            
+            if not isinstance(new_dict, Box):
+                raise ValueError(f"new_dict must be a dictionary or a Box object, got {type(new_dict)}")
+            
+            assert isinstance(self.configs, Box), f"self.config must be a Box object, got {type(self.configs)}"
+            
+            self.configs.update(new_dict)
+        
+                                                
 def parse_args(config_filename):
     parser = argparse.ArgumentParser(description='Multivariate Time Series Forecasting')
 

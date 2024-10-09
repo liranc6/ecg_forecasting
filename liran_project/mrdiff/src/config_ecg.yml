@@ -2,15 +2,26 @@ project_path: '/home/liranc6/ecg_forecasting'
 
 tqdm: "terminal" # ["terminal", "notebook"]
 
+resume:
+  resume: False  # resume training
+  resume_from: false  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
+  resume_optimizer: True
+  resume_epoch: "None"
+  loss_and_metrics: True
+  resume_scheduler: True
+  resume_configuration: True
+  specific_chpt_path: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl10_ll105_pl30_lr0.001_bs8_invFalse_itr0/09_10_2024_1410/best_checkpoint.pth"
+  was_resumed: false
+
 wandb:
   entity: 'liranc6'  # wandb entity
-  mode: 'online'  # [online, disabled, offline]
+  mode: 'disabled'  # [online, disabled, offline]
   project: 'mrdiff'  # wandb project name
-  resume: must  # ["allow", "must", "never", "auto", "None"]
+  resume: 'None'  # ["allow", "must", "never", "auto", "None"]
   run_name: "None" # wandb run name
-  id: o8p8z00y  # wandb run id
+  id: 'None'  # wandb run id
   save_code: True  # save code to wandb
-  resume_from: "o8p8z00y?_step=1000"  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000"
+  resume_from: "None"  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
 
 general:
   random_seed: 42  # random seed
@@ -44,6 +55,7 @@ paths:
   test_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes/test/p40_to_p46.h5'  # location of test data
   output_dir: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff"
   checkpoints: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff"
+  model_path: "None" # "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl10_ll105000_pl30000_lr0.001_bs8_invFalse_itr0/05_10_2024_1202/checkpoint.pth"
 
   
 data:
@@ -65,7 +77,7 @@ training:
 
   logging:
     sample: false
-    log_interval: 100  # logging interval
+    log_interval: 5  # logging interval
     save_interval: 1  # save interval
     save_best: true  # save best model
     save_dir: '/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff'  # save directory
@@ -147,12 +159,12 @@ training:
     subtract_last: 0  # 0: subtract mean; 1: subtract last
     subtract_short_terms: 0  # 0: subtract mean; 1: subtract last
 
-testing:
+validation:
   patients:
     start_patient: 0
     end_patient: 5
 
-validation:
+testing:
   patients:
     start_patient: 0
     end_patient: 5
