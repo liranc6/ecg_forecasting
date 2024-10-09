@@ -217,13 +217,13 @@ class Exp_Main(Exp_Basic):
     
     def train(self, setting):
             
-        if self.args.resume.resume and self.args.resume.resume_configuration:
-            resume_config = self.args.resume
-            checkpoint = torch.load(self.args.resume.specific_chpt_path, map_location='cpu')
+        if self.args.resume_exp.resume and self.args.resume_exp.resume_configuration:
+            resume_config = self.args.resume_exp
+            checkpoint = torch.load(self.args.resume_exp.specific_chpt_path, map_location='cpu')
             self.args.update_config_from_dict(checkpoint["configuration_parameters"])
             # checkpoint["configuration_parameters"]
             checkpoint = None
-            self.args.resume = resume_config
+            self.args.resume_exp = resume_config
             
         if "train" not in self.dataloaders.keys():
             self.read_data(flag='train')
@@ -269,8 +269,8 @@ class Exp_Main(Exp_Basic):
                             max_lr=self.args.optimization.learning_rate)
         
         resume_epoch = 0
-        if self.args.resume.resume:
-            resume_epoch = self.load_checkpoint(self.args.resume.specific_chpt_path)
+        if self.args.resume_exp.resume:
+            resume_epoch = self.load_checkpoint(self.args.resume_exp.specific_chpt_path)
 
         
         train_epochs = self.args.training.iterations.train_epochs
@@ -380,6 +380,7 @@ class Exp_Main(Exp_Basic):
             filenames_to_save = early_stopping(val_loss=vali_loss['loss'], model=self.model, epoch=epoch, dir_path=self.args.paths.checkpoints, metrics=dict_vali_loss)
             
             for filename_to_save in filenames_to_save:
+                
                 self.save_checkpoint(val_loss=vali_loss['loss'], 
                                     model=self.model,
                                     dir_path=self.args.paths.checkpoints,
@@ -625,7 +626,7 @@ class Exp_Main(Exp_Basic):
         checkpoint = torch.load(filename, map_location='cpu')
         
         # assuming at least those keys are present: model_state_dict, optimizer_state, epoch, loss_and_metrics, learning_rate_scheduler_state, configuration_parameters
-        resume_config = self.args.resume
+        resume_config = self.args.resume_exp
         
         try:
             model_state_dict = checkpoint["model_state_dict"]
@@ -635,6 +636,10 @@ class Exp_Main(Exp_Basic):
             
             if resume_config["resume_configuration"]:
                 args_configs_box = checkpoint["configuration_parameters"]
+                if 'resume' in args_configs_box.keys():  # for backward compatibility from previous versions
+                    args_configs_box['resume_exp'] = args_configs_box['resume']
+                    del args_configs_box['resume']
+                
             if resume_config["resume_optimizer"]:
                 self.model_optim.load_state_dict(checkpoint["optimizer_state"])
                 print('Successfully loaded optimizer from checkpoint')
@@ -643,7 +648,7 @@ class Exp_Main(Exp_Basic):
                 print('Successfully loaded scheduler from checkpoint')
             
             self.args.update_config_from_dict(args_configs_box)
-            self.args.resume.was_resumed = True  
+            self.args.resume_exp.was_resumed = True  
             
             print('Successfully loaded model from specific_chpt_path')
             
@@ -672,6 +677,7 @@ class Exp_Main(Exp_Basic):
                                     )
         else:
             
+            os.makedirs(dir_path, exist_ok=True)
             filename = os.path.join(dir_path, filename)
             
             savings = {

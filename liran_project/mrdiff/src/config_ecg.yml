@@ -2,7 +2,7 @@ project_path: '/home/liranc6/ecg_forecasting'
 
 tqdm: "terminal" # ["terminal", "notebook"]
 
-resume:
+resume_exp:
   resume: False  # resume training
   resume_from: false  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
   resume_optimizer: True

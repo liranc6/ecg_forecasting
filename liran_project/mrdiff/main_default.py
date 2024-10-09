@@ -64,7 +64,7 @@ def main():
     torch.backends.cudnn.deterministic = True  # Can change it to False --> default: False
     torch.backends.cudnn.enabled = True
     
-    if args.wandb.resume in ["allow", "must", "auto"] and args.resume.resume is not True:
+    if args.wandb.resume in ["allow", "must", "auto"] and args.resume_exp.resume is not True:
         raise ValueError("The 'resume' argument must be set to True in order to resume a wandb run.")
     
     # wandb
