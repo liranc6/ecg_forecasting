@@ -175,7 +175,11 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
         self.return_with_RR = return_with_RR
         
         self.normalize_method = normalize_method
-        self.norm_statistics = self._get_normalization_statistics(self.h5_filename)
+        if self.normalize_method != "None":
+            assert self.normalize_method in ['min_max', 'z_score'], f"{self.normalize_method=}"
+            self.norm_statistics = self._get_normalization_statistics(self.h5_filename)
+        else:
+            self.norm_statistics = None
 
     def __len__(self):
         return self.cumulative_sizes[-1] if self.cumulative_sizes.any() else 0
@@ -237,8 +241,7 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
             for i in range(len(to_cache)):
                 self.cache.popitem(last=True)
 
-        if self.normalize_method:
-            to_cache = normalized(to_cache, self.normalize_method, self.norm_statistics)
+        to_cache = normalized(to_cache, self.normalize_method, self.norm_statistics)
         
         if self.data_with_RR:
             for i in range(len(to_cache)):
@@ -265,29 +268,36 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
         welford = WelfordOnline()
 
         # Create and start the stopwatch thread
-        stop_event.clear()  # Clear the event before starting the thread
-        stopwatch_thread = threading.Thread(target=stopwatch, args=(f"creating_stats",))
-        stopwatch_thread.start()
+        # stop_event.clear()  # Clear the event before starting the thread
+        # stopwatch_thread = threading.Thread(target=stopwatch, args=(f"creating_stats",))
+        # stopwatch_thread.start()
         
-        try:
-            with h5py.File(filename, 'r') as h5_file:
-                num_keys = len(self.keys)
-                pbar_keys = tqdm(self.keys, total=num_keys)
-                
-                for key in pbar_keys:
-                    pbar_keys.set_description(f"Reading {key}")
-                    data = h5_file[key][()][:, 0, :] if self.data_with_RR else h5_file[key][()]
-                        
-                    curr_num_samples = data.shape[0]
-                    welford.add_points(data)
-                    total_num_samples += curr_num_samples
+        # try:
+        with h5py.File(filename, 'r') as h5_file:
+            num_keys = len(self.keys)
+            pbar_keys = tqdm(self.keys, total=num_keys)
+            
+            start_time = time.time()
+            pbar_keys.set_description(f"creating_stats")
+            for key in pbar_keys:
+                data = h5_file[key][()][:, 0, :] if self.data_with_RR else h5_file[key][()]
+                    
+                curr_num_samples = data.shape[0]
+                welford.add_points(data)
+                total_num_samples += curr_num_samples
 
-                    max_val = max(max_val, np.max(data))
-                    min_val = min(min_val, np.min(data))
-        finally:
-            # Signal the stopwatch to stop and wait for the thread to finish
-            stop_event.set()
-            stopwatch_thread.join()
+                max_val = max(max_val, np.max(data))
+                min_val = min(min_val, np.min(data))
+                # Calculate elapsed time
+                elapsed_time = time.time() - start_time
+                
+                # Update the postfix
+                pbar_keys.set_postfix({"time_elapsed": str(timedelta(seconds=int(elapsed_time))),
+                                        })
+        # finally:
+        #     # Signal the stopwatch to stop and wait for the thread to finish
+        #     stop_event.set()
+        #     stopwatch_thread.join()
 
         # Assert that total_num_samples is greater than zero
         assert total_num_samples > 0, "Total number of samples is zero. Check the data."

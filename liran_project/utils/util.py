@@ -209,7 +209,8 @@ def align_indices(longer_list_of_indices, shorter_list_of_indices, tensor_len, s
     
     new_indices = []
 
-    tensor_2 = torch.from_numpy(indices_to_binary_tensor(shorter_list_of_indices, torch.zeros(tensor_len)))
+    # tensor_2 = torch.from_numpy(indices_to_binary_tensor(shorter_list_of_indices, torch.zeros(tensor_len)))
+    tensor_2 = indices_to_binary_tensor(shorter_list_of_indices, torch.zeros(tensor_len))
 
     if longer_list_of_indices.shape[0] > shorter_list_of_indices.shape[0]:
         intervals = get_intervals_around_ones(shorter_list_of_indices, tensor_len, smooth_to_each_side)

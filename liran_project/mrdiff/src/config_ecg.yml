@@ -15,7 +15,7 @@ resume:
 
 wandb:
   entity: 'liranc6'  # wandb entity
-  mode: 'disabled'  # [online, disabled, offline]
+  mode: 'online'  # [online, disabled, offline]
   project: 'mrdiff'  # wandb project name
   resume: 'None'  # ["allow", "must", "never", "auto", "None"]
   run_name: "None" # wandb run name

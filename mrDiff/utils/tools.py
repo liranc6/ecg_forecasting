@@ -79,10 +79,10 @@ class EarlyStopping:
             if value < self.best_metrics[key] - self.delta: 
                 self.best_metrics[key] = value
                 
-                filename = filename.split('.')[0]
-                filename = f'{filename[:-4]}_{key}_{value}_.pth'
-                self.save_checkpoint(val_loss = val_loss, model = model, dir_path = dir_path, epoch=epoch, filename = filename, metrics=metrics)
-                filenames_to_save.append(f'{filename}')
+                curr_filename = filename.split('.')[0]
+                curr_filename = f'{curr_filename[:-4]}_{key}.pth'
+                self.save_checkpoint(val_loss = val_loss, model = model, dir_path = dir_path, epoch=epoch, filename = curr_filename, metrics=metrics)
+                filenames_to_save.append(f'{curr_filename}')
                 
         return filenames_to_save
 

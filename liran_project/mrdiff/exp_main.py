@@ -280,7 +280,7 @@ class Exp_Main(Exp_Basic):
         epochs_pbar = tqdm(range(train_epochs), total=train_epochs ,desc='epochs_pbar', position=0, leave=True)
         
         for epoch in epochs_pbar:
-            while epoch <= resume_epoch:
+            while epoch < resume_epoch:
                 epoch += 1
                 epochs_pbar.update(1)
                 epochs_pbar.set_postfix({"epoch": epoch + 1})
