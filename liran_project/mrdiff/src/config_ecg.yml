@@ -34,15 +34,15 @@ general:
 
 optimization:
   learning_rate: 0.001  # optimizer learning rate
-  batch_size: 8  # batch size of train input data
-  test_batch_size: 8  # batch size of test input data
+  batch_size: 20  # batch size of train input data
+  test_batch_size: 32  # batch size of test input data
   patience: 10  # early stopping patience
   weight_decay: 0.00001  # weight_decay
   lradj: '3'  # adjust learning rate
   pct_start: 0.3  # Percentage of training where learning rate increases
 
 hardware:
-  print_gpu_memory_usage: false  # print gpu memory usage
+  print_gpu_memory_usage: False  # print gpu memory usage
   num_workers: 0  # data loader num workers
   use_gpu: true  # use gpu
   gpu: 0  # gpu
@@ -100,8 +100,8 @@ training:
     # len = minutes * seconds * fs
     context_len: 10  # in minutes # input sequence length of SCINet encoder, look back window
     seq_len: 135000 # input_length; window size
-    label_len: 105000  # I think its context len # in minutes # start token length of Informer decoder
-    pred_len: 30000  # I think its label/forecast len # prediction sequence length, horizon
+    label_len: 120000  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 15000  # I think its label/forecast len # prediction sequence length, horizon
 
   model_info:
     opt_loss_type: 'mse'
@@ -117,7 +117,7 @@ training:
     channel_independence: false
 
   smoothing:
-    smoothed_factors: [5, 25, 51]  # List of smoothed factors
+    smoothed_factors: [5, 25, 51]  # List of smoothed factors, [5, 25, 51] are the kernel sizes for the smoothing
 
   ode:
     ot_ode: true  # use OT-ODE model

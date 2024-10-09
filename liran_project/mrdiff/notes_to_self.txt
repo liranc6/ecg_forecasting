@@ -1,0 +1,9 @@
+1. I marked a place with:
+    ##################this is a good place to minimize the memory usage
+
+    I need to go back to it and figure it out.
+
+2. why diffusion models needs to learn how to represent the time stamp (t) ? is only a number stating which stage we are
+
+3. I was in the middle of searching how to reduce memory usage
+
