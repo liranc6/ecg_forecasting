@@ -32,7 +32,7 @@ class BaseMapping(nn.Module):
         self.device = args.device
         
         if seq_len is None:
-            self.seq_len = args.training.sequence.context_len
+            self.seq_len = args.training.sequence.label_len
             self.pred_len = args.training.sequence.pred_len
         else:
             self.seq_len = seq_len
@@ -195,17 +195,17 @@ class Model(nn.Module):
         self.args = args
         self.device = args.device
 
-        self.seq_len = args.training.sequence.context_len
+        self.seq_len = args.training.sequence.label_len
         self.label_len = args.training.sequence.label_len
         self.pred_len = args.training.sequence.pred_len
         
         self.num_vars = args.data.num_vars
         self.smoothed_factors = args.training.smoothing.smoothed_factors 
-        self.linear_history_len = args.training.sequence.context_len # args.linear_history_lens
+        self.linear_history_len = 0 #args.training.sequence.context_len # args.linear_history_lens
         
         self.num_bridges = len(args.training.smoothing.smoothed_factors) + 1
         
-        self.base_models = nn.ModuleList([BaseMapping(args, seq_len=self.linear_history_len, pred_len=self.pred_len) for i in range(self.num_bridges)])
+        self.base_models = nn.ModuleList([BaseMapping(args, seq_len=self.seq_len, pred_len=self.pred_len) for i in range(self.num_bridges)])
         self.decompsitions = nn.ModuleList([series_decomp(i) for i in self.smoothed_factors])
         
         if args.training.model_info.u_net_type == "v0":
@@ -396,14 +396,14 @@ class Model(nn.Module):
                 past_trend_i = x_past
                 future_trend_i = self.rev(future_trend_i, 'denorm') if self.args.training.analysis.use_window_normalization else future_trend_i
                 past_trend_i = self.rev(past_trend_i, 'denorm') if self.args.training.analysis.use_window_normalization else past_trend_i
-                linear_guess = self.base_models[i].test_forward(past_trend_i[:,-self.linear_history_len:,:], x_mark_enc, future_trend_i, x_mark_dec)
+                linear_guess = self.base_models[i].test_forward(past_trend_i[:,:,:], x_mark_enc, future_trend_i, x_mark_dec)
                 linear_guess = self.rev(linear_guess, 'test_norm') if self.args.training.analysis.use_window_normalization else linear_guess
             else:
                 future_trend_i = future_trends[i-1]
                 past_trend_i = past_trends[i-1]
                 future_trend_i = self.rev(future_trend_i, 'denorm') if self.args.training.analysis.use_window_normalization else future_trend_i
                 past_trend_i = self.rev(past_trend_i, 'denorm') if self.args.training.analysis.use_window_normalization else past_trend_i
-                linear_guess_i = self.base_models[i].test_forward(past_trend_i[:,-self.linear_history_len:,:], x_mark_enc, future_trend_i, x_mark_dec)
+                linear_guess_i = self.base_models[i].test_forward(past_trend_i[:,:,:], x_mark_enc, future_trend_i, x_mark_dec)
                 linear_guess_i = self.rev(linear_guess_i, 'test_norm') if self.args.training.analysis.use_window_normalization else linear_guess_i
                 ar_init_trends.append(linear_guess_i)
 
@@ -577,7 +577,7 @@ class Model(nn.Module):
                 past_trend_i = self.rev(past_trend_i, 'denorm') if self.args.training.analysis.use_window_normalization else past_trend_i
 
                 # Compute the linear guess for the first bridge
-                linear_guess = self.base_models[i].test_forward(past_trend_i[:, -self.linear_history_len:, :], x_mark_enc, future_trend_i, x_mark_dec).detach()
+                linear_guess = self.base_models[i].test_forward(past_trend_i[:,:, :], x_mark_enc, future_trend_i, x_mark_dec).detach()
                 linear_guess = self.rev(linear_guess, 'test_norm') if self.args.training.analysis.use_window_normalization else linear_guess
 
             else:
@@ -595,7 +595,7 @@ class Model(nn.Module):
                 past_trend_i = self.rev(past_trend_i, 'denorm') if self.args.training.analysis.use_window_normalization else past_trend_i
 
                 # Compute the linear guess for the current bridge
-                linear_guess_i = self.base_models[i].test_forward(past_trend_i[:, -self.linear_history_len:, :], x_mark_enc, future_trend_i, x_mark_dec).detach()
+                linear_guess_i = self.base_models[i].test_forward(past_trend_i[:, :, :], x_mark_enc, future_trend_i, x_mark_dec).detach()
                 linear_guess_i = self.rev(linear_guess_i, 'test_norm') if self.args.training.analysis.use_window_normalization else linear_guess_i
 
                 # Append the linear guess to the list of initial trends for autoregression

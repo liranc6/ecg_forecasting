@@ -77,8 +77,8 @@ class Exp_Main(Exp_Basic):
         config_dict = self.args.configs.to_dict()
         # split the windows to fixed size context and label windows
         fs = config_dict['data']['fs']
-        context_window_size = config_dict['training']['sequence']['seq_len'] - config_dict['training']['sequence']['label_len']  # minutes * seconds * fs
-        label_window_size = config_dict['training']['sequence']['label_len']  # minutes * seconds * fs
+        context_window_size = config_dict['training']['sequence']['label_len']  # minutes * seconds * fs
+        label_window_size = config_dict['training']['sequence']['pred_len']  # minutes * seconds * fs
         window_size = context_window_size+label_window_size
         
         if flag == 'train':

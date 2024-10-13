@@ -21,7 +21,7 @@ Key attributes include:
 
 ### Noise Schedule
 
-The `beta_{\text{schedule}}` is the method used to adjust noise levels over time. The noise level increases progressively over diffusion steps:
+The `beta_schedule` is the method used to adjust noise levels over time. The noise level increases progressively over diffusion steps:
 $$
 \beta_t \in [\beta_{\text{start}}, \beta_{\text{end}}]
 $$
@@ -87,7 +87,7 @@ During training, the model:
 
 The model can be parameterized in two ways:
 - `noise`: The model predicts the noise $ \epsilon $.
-- `x_{\text{start}}$: The model predicts the original data $ x_0 $.
+- $x_{\text{start}}$: The model predicts the original data $ x_0 $.
 
 ## Posterior Sampling: `q_posterior` and `p_mean_variance`
 

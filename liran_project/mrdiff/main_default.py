@@ -52,8 +52,8 @@ def main():
     learning_rate = config_dict['optimization']['learning_rate']
     batch_size = config_dict['optimization']['batch_size']
 
-    context_len = config_dict['training']['sequence']['context_len']
-    label_len = config_dict['training']['sequence']['label_len']
+    context_len = config_dict['training']['sequence']['label_len']
+    label_len = config_dict['training']['sequence']['pred_len']
     model = config_dict['training']['model_info']['model']
     pred_len = config_dict['training']['sequence']['pred_len']
     iterations = config_dict['training']['iterations']['itr']
@@ -125,7 +125,7 @@ def main():
     
         # Get the current Git commit ID
         commit_id = subprocess.check_output(["git", "rev-parse", "HEAD"]).strip().decode('utf-8')
-        
+
         # Log the current Git commit ID
         wandb.config.update({"git_commit_id": commit_id})
         

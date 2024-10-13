@@ -15,7 +15,7 @@ resume_exp:
 
 wandb:
   entity: 'liranc6'  # wandb entity
-  mode: 'online'  # [online, disabled, offline]
+  mode: 'disabled'  # [online, disabled, offline]
   project: 'mrdiff'  # wandb project name
   resume: 'None'  # ["allow", "must", "never", "auto", "None"]
   run_name: "None" # wandb run name
@@ -84,12 +84,12 @@ training:
 
   patients:
     start_patient: 0
-    end_patient: 25
+    end_patient: 1
 
   iterations:
     itr: 1  # experiments times
     pretrain_epochs: 0  # train epochs
-    train_epochs: 300  # train epochs
+    train_epochs: 1  # train epochs
     sample_times: 1
 
   identifiers:
@@ -99,9 +99,9 @@ training:
   sequence:
     # len = minutes * seconds * fs
     context_len: 10  # in minutes # input sequence length of SCINet encoder, look back window
-    seq_len: 135000 # input_length; window size
-    label_len: 120000  # I think its context len # in minutes # start token length of Informer decoder
-    pred_len: 15000  # I think its label/forecast len # prediction sequence length, horizon
+    seq_len: 135 # input_length; window size
+    label_len: 120  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 15  # I think its label/forecast len # prediction sequence length, horizon
 
   model_info:
     opt_loss_type: 'mse'
@@ -162,9 +162,9 @@ training:
 validation:
   patients:
     start_patient: 0
-    end_patient: 5
+    end_patient: 1
 
 testing:
   patients:
     start_patient: 0
-    end_patient: 5
+    end_patient: 1

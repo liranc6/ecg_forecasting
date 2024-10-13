@@ -305,3 +305,72 @@ The total loss is the weighted sum of individual bridge losses.
 By combining these steps, the model aims to produce robust predictions for the future sequence based on both historical data and diffusion-based transformations.
 
 
+
+# `moving_avg` Class
+
+
+The `moving_avg` class implements a 1D moving average filter using PyTorch’s `AvgPool1d` function. Below is a breakdown of the functionality, with mathematical notations and explanations that omit code.
+
+---
+
+### Moving Average Filter
+
+A moving average filter smooths a time series by averaging the values within a sliding window, which moves over the input sequence. The filter size (window length) and stride (step size) define how the averaging is performed.
+
+Let $X = \{x_1, x_2, \dots, x_T\}$ represent the input time series, where $x_t$ is the value of the series at time $t$. The moving average operation computes the average over a window of size $k$ for each time step, shifting by a stride $s$ after each calculation.
+
+For a window of size $k$ and stride $s$, the moving average at time $t$ is given by:
+
+$$
+\text{MA}(x_t) = \frac{1}{k} \sum_{i=0}^{k-1} x_{t-i}
+$$
+
+This results in a smoothed sequence of values, reducing the effect of short-term fluctuations.
+
+### Padding at the Sequence Boundaries
+
+One challenge with applying a moving average is the treatment of boundary values, especially near the beginning and end of the time series. To address this, the `moving_avg` class replicates values at the boundaries:
+
+- **Front Padding**: The value at $x_1$ (the first element) is repeated $\frac{k-1}{2}$ times to create the padded values at the start of the sequence.
+- **End Padding**: Similarly, the value at $x_T$ (the last element) is repeated $\frac{k-1}{2}$ times at the end.
+
+Thus, for a kernel size $k$, the padded sequence $X_{\text{pad}}$ becomes:
+
+$$
+X_{\text{pad}} = \{\underbrace{x_1, x_1, \dots}_{\frac{k-1}{2}}, x_1, x_2, \dots, x_T, \underbrace{x_T, x_T, \dots}_{\frac{k-1}{2}}\}
+$$
+
+This padding ensures that the moving average filter can be applied across the entire original sequence without losing any boundary points.
+
+### Applying the Moving Average
+
+Once the sequence is padded, the moving average filter is applied by averaging values within each sliding window of size $k$. The stride $s$ controls how far the window moves after each averaging operation.
+
+Mathematically, the smoothed value for the $t$-th time step after padding is:
+
+$$
+y_t = \frac{1}{k} \sum_{i=t}^{t+k-1} X_{\text{pad}, i}
+$$
+
+where $y_t$ represents the value at the $t$-th time step of the smoothed sequence.
+
+The moving average is applied along the time dimension of the input, and the result is a smoothed version of the original sequence with a reduced level of short-term variation.
+
+### Permutation of Dimensions
+
+In some cases, time series data might be represented in a specific format, such as:
+- Batch size $B$,
+- Number of features $N$,
+- Sequence length $L$.
+
+To apply the 1D pooling operation correctly, the input is often permuted to match the expected dimensions for PyTorch’s `AvgPool1d`, which operates on the last dimension of the input. After applying the moving average, the sequence is permuted back to its original form.
+
+---
+
+### Summary of Key Processes
+
+1. **Padding**: The input sequence is padded at both ends to account for the boundary effects caused by the moving average window.
+2. **Moving Average Calculation**: A sliding window of size $k$ is applied, where each window is averaged to produce a smoothed value for the corresponding time step.
+3. **Dimension Handling**: The sequence dimensions are rearranged to match the expected format for 1D pooling, and then returned to the original format after the moving average is applied.
+
+The moving average filter smooths the input sequence, reducing the impact of noise or short-term fluctuations, and is particularly useful for trend extraction in time-series analysis.
