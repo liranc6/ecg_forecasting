@@ -15,7 +15,7 @@ resume_exp:
 
 wandb:
   entity: 'liranc6'  # wandb entity
-  mode: 'disabled'  # [online, disabled, offline]
+  mode: 'online'  # [online, disabled, offline]
   project: 'mrdiff'  # wandb project name
   resume: 'None'  # ["allow", "must", "never", "auto", "None"]
   run_name: "None" # wandb run name
@@ -27,10 +27,10 @@ general:
   random_seed: 42  # random seed
   evaluate: false  # true/false
   tag: null  # Optional
-  dataset: 'icentia11k'  # ['ETTh1', 'ETTh2', 'ETTm1', 'ETTm2', 'electricity', 'solar_AL', 'exchange_rate', 'traffic', 'PEMS03', 'PEMS04', 'PEMS07', 'PEMS08']
+  dataset: 'icentia11k'  # ['ETTh1', 'ETTh2', 'ETTm1', 'ETTm2', 'electricity', 'solar_AL', 'exchange_rate', 'traffic', 'PEMS03', 'PEMS04', 'PEMS07', 'PEMS08', 'icentia11k']
   features: 'S'  # S is univariate, M is multivariate
   training_mode: 'ONE'
-  interval: 1000  # number of diffusion steps
+  interval: 1000  # number of diffusion steps?
 
 optimization:
   learning_rate: 0.001  # optimizer learning rate
@@ -84,12 +84,12 @@ training:
 
   patients:
     start_patient: 0
-    end_patient: 1
+    end_patient: 25
 
   iterations:
     itr: 1  # experiments times
-    pretrain_epochs: 0  # train epochs
-    train_epochs: 1  # train epochs
+    pretrain_epochs: 0  # pretrain epochs
+    train_epochs: 300  # train epochs
     sample_times: 1
 
   identifiers:
@@ -98,10 +98,10 @@ training:
 
   sequence:
     # len = minutes * seconds * fs
-    context_len: 10  # in minutes # input sequence length of SCINet encoder, look back window
-    seq_len: 135 # input_length; window size
-    label_len: 120  # I think its context len # in minutes # start token length of Informer decoder
-    pred_len: 15  # I think its label/forecast len # prediction sequence length, horizon
+    context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
+    seq_len: 135000 # input_length; window size
+    label_len: 120000  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 15000  # I think its label/forecast len # prediction sequence length, horizon
 
   model_info:
     opt_loss_type: 'mse'
@@ -117,14 +117,14 @@ training:
     channel_independence: false
 
   smoothing:
-    smoothed_factors: [5, 25, 51]  # List of smoothed factors, [5, 25, 51] are the kernel sizes for the smoothing
+    smoothed_factors: [5, 11, 21, 31]  # mast be odd (non-even) numbers. List of smoothed factors, [5, 25, 51] are the kernel sizes for the smoothing
 
   ode:
     ot_ode: true  # use OT-ODE model
     beta_max: 1.0  # max diffusion for the diffusion model
     t0: 1e-4  # sigma start time in network parametrization
     T: 0.02  # sigma end time in network parametrization
-    nfe: 20
+    nfe: 20  # number of function evaluations
 
   ablation_study:
     ablation_study_F_type: 'Linear'  # Linear, CNN
@@ -162,9 +162,9 @@ training:
 validation:
   patients:
     start_patient: 0
-    end_patient: 1
+    end_patient: 5
 
 testing:
   patients:
     start_patient: 0
-    end_patient: 1
+    end_patient: 5
