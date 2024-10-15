@@ -679,6 +679,8 @@ class Exp_Main(Exp_Basic):
             
             os.makedirs(dir_path, exist_ok=True)
             filename = os.path.join(dir_path, filename)
+            if os.path.exists(filename):
+                os.remove(filename)
             
             savings = {
                         "model_state_dict": model.state_dict(),
