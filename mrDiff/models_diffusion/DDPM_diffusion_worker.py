@@ -316,3 +316,5 @@ class Diffusion_Worker(nn.Module):
         return outs
 
 
+        """_summary_
+        """

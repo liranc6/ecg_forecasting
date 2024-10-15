@@ -257,7 +257,7 @@ class Exp_Main(Exp_Basic):
         os.makedirs(self.args.paths.checkpoints, exist_ok=True)
 
 
-        early_stopping = EarlyStopping(patience=self.args.optimization.patience, verbose=True)
+        self.early_stopping = EarlyStopping(patience=self.args.optimization.patience, verbose=True)
         
         self.model_optim = self._select_optimizer()
         
@@ -279,6 +279,7 @@ class Exp_Main(Exp_Basic):
         
         epochs_pbar = tqdm(range(train_epochs), total=train_epochs ,desc='epochs_pbar', position=0, leave=True)
         
+        save_prev_cpt = 1
         for epoch in epochs_pbar:
             while epoch < resume_epoch:
                 epoch += 1
@@ -377,7 +378,7 @@ class Exp_Main(Exp_Basic):
                                     })
             
             #"Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(epoch + 1, train_steps, train_loss, vali_loss)
-            filenames_to_save = early_stopping(val_loss=vali_loss['loss'], model=self.model, epoch=epoch, dir_path=self.args.paths.checkpoints, metrics=dict_vali_loss)
+            filenames_to_save = self.early_stopping(val_loss=vali_loss['loss'], model=self.model, epoch=epoch, dir_path=self.args.paths.checkpoints, metrics=dict_vali_loss)
             
             for filename_to_save in filenames_to_save:
                 
@@ -389,7 +390,7 @@ class Exp_Main(Exp_Basic):
                                     metrics=dict_vali_loss
                                 )
                 
-            if early_stopping.early_stop:
+            if self.early_stopping.early_stop:
                 print("Early stopping")
                 break
 
@@ -406,13 +407,16 @@ class Exp_Main(Exp_Basic):
                                         model=self.model,
                                         dir_path=log_dir_path,
                                         epoch=epoch,
-                                        filename=f'e_{epoch}_checkpoint.pth',
+                                        filename=f'{save_prev_cpt}_checkpoint.pth',
                                         metrics=dict(vali_loss)
                                     )
                 
+                save_prev_cpt = 1 - save_prev_cpt
                 
                 
-        best_model_path = early_stopping.best_model_path
+                
+                
+        best_model_path = self.early_stopping.best_model_path
         print("Training finished")
         print(f"Best model path: ", best_model_path)
         checkpoint = torch.load(best_model_path)
@@ -646,6 +650,10 @@ class Exp_Main(Exp_Basic):
             if resume_config["resume_scheduler"]:
                 self.scheduler.load_state_dict(checkpoint["learning_rate_scheduler_state"])
                 print('Successfully loaded scheduler from checkpoint')
+            if resume_config["resume_metrics"]:
+                metrics = checkpoint["loss_and_metrics"]
+                self.early_stopping.best_metrics.update(metrics)
+                print('Successfully loaded metrics from checkpoint')
             
             self.args.update_config_from_dict(args_configs_box)
             self.args.resume_exp.was_resumed = True  

@@ -34,7 +34,7 @@ general:
 
 optimization:
   learning_rate: 0.001  # optimizer learning rate
-  batch_size: 20  # batch size of train input data
+  batch_size: 16  # batch size of train input data
   test_batch_size: 32  # batch size of test input data
   patience: 10  # early stopping patience
   weight_decay: 0.00001  # weight_decay
@@ -99,9 +99,9 @@ training:
   sequence:
     # len = minutes * seconds * fs
     context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
-    seq_len: 135000 # input_length; window size
-    label_len: 120000  # I think its context len # in minutes # start token length of Informer decoder
-    pred_len: 15000  # I think its label/forecast len # prediction sequence length, horizon
+    seq_len: 112500 # input_length; window size
+    label_len: 105000  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 7500  # I think its label/forecast len # prediction sequence length, horizon
 
   model_info:
     opt_loss_type: 'mse'
