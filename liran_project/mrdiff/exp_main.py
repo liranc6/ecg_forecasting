@@ -250,7 +250,7 @@ class Exp_Main(Exp_Basic):
         time_now = time.time()
             
         str_time_now = time.strftime("%d_%m_%Y_%H%M", time.localtime(time_now))
-        self.model_start_training_time = str_time_now
+        self.model_start_training_time = "15_10_2024_1615"  # str_time_now
         
         self.args.paths.checkpoints = os.path.join(self.args.paths.checkpoints, setting, self.model_start_training_time)
         tqdm.write(f"Saving model to {self.args.paths.checkpoints}")
@@ -279,6 +279,7 @@ class Exp_Main(Exp_Basic):
         
         epochs_pbar = tqdm(range(train_epochs), total=train_epochs ,desc='epochs_pbar', position=0, leave=True)
         
+        save_prev_cpt = 1
         for epoch in epochs_pbar:
             while epoch < resume_epoch:
                 epoch += 1
@@ -406,9 +407,10 @@ class Exp_Main(Exp_Basic):
                                         model=self.model,
                                         dir_path=log_dir_path,
                                         epoch=epoch,
-                                        filename=f'e_{epoch}_checkpoint.pth',
+                                        filename=f'{save_prev_cpt}_last_checkpoint.pth',
                                         metrics=dict(vali_loss)
                                     )
+                save_prev_cpt = 1 - save_prev_cpt
                 
                 
                 

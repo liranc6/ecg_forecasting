@@ -3,23 +3,23 @@ project_path: '/home/liranc6/ecg_forecasting'
 tqdm: "terminal" # ["terminal", "notebook"]
 
 resume_exp:
-  resume: False  # resume training
-  resume_from: false  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
+  resume: True  # resume training
+  resume_from: 9  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
   resume_optimizer: True
-  resume_epoch: "None"
+  resume_epoch: 9
   loss_and_metrics: True
   resume_scheduler: True
-  resume_configuration: True
-  specific_chpt_path: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl10_ll105_pl30_lr0.001_bs8_invFalse_itr0/09_10_2024_1410/best_checkpoint.pth"
+  resume_configuration: False
+  specific_chpt_path: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl105000_ll7500_pl7500_lr0.001_bs16_invFalse_itr0/15_10_2024_1615/logs/e_8_checkpoint.pth"
   was_resumed: false
 
 wandb:
   entity: 'liranc6'  # wandb entity
   mode: 'online'  # [online, disabled, offline]
   project: 'mrdiff'  # wandb project name
-  resume: 'None'  # ["allow", "must", "never", "auto", "None"]
+  resume: 'must'  # ["allow", "must", "never", "auto", "None"]
   run_name: "None" # wandb run name
-  id: 'None'  # wandb run id
+  id: 'hpjactss'  # wandb run id
   save_code: True  # save code to wandb
   resume_from: "None"  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
 
