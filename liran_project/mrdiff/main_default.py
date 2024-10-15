@@ -127,11 +127,13 @@ def main():
         commit_id = subprocess.check_output(["git", "rev-parse", "HEAD"]).strip().decode('utf-8')
 
         # Log the current Git commit ID
-        wandb.config.update({"git_commit_id": commit_id})
+        wandb.config.update({"git_commit_id": commit_id}, allow_val_change=True)
         
     if args.wandb.resume != "None" or args.wandb.resume_from != "None":
         def log_config_diffs(old_config, new_config, step):
             diffs = {}
+            new_config = dict(new_config)
+            old_config = dict(old_config)
             for key in new_config:
                 if key not in old_config or old_config[key] != new_config[key]:
                     diffs[key] = {'old': old_config.get(key), 'new': new_config[key]}
@@ -142,9 +144,9 @@ def main():
                     note += f"{key}: {value['old']} -> {value['new']}\n"
                 wandb.run.notes = (wandb.run.notes or "") + note + "\n\nAdditional information added later:\n"
         
-        old_config = wandb.config.copy()
-        wandb.config.update(args)
-        new_config = wandb.config.copy()
+        old_config = wandb.config
+        wandb.config.update(args, allow_val_change=True)
+        new_config = wandb.config
         log_config_diffs(old_config, new_config, step="update_args")
         
         

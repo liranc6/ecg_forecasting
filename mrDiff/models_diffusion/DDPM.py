@@ -11,6 +11,26 @@ from layers.RevIN import *
 
 from .samplers.dpm_sampler import DPMSolverSampler
 
+import yaml
+import os
+import sys
+
+CONFIG_FILENAME = '/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/config_ecg.yml'
+
+assert CONFIG_FILENAME.endswith('.yml')
+
+with open(CONFIG_FILENAME, 'r') as file:
+    config = yaml.safe_load(file)
+
+# Add the parent directory to the sys.path
+ProjectPath = config['project_path'] # '/home/liranc6/ecg_forecasting'
+sys.path.append(ProjectPath)
+
+from liran_project.utils.common import *
+
+hht_path = os.path.join(ProjectPath, 'Hilbert-Huang-transform')
+sys.path.append(hht_path)
+from torchHHT.hht import emd as torch_emd
 
 class BaseMapping(nn.Module):
     """
@@ -139,6 +159,28 @@ class moving_avg(nn.Module):
         x = self.avg(x.permute(0, 2, 1))
         x = x.permute(0, 2, 1)
         return x
+    
+class emd_decomposition(nn.Module):
+    def __init__(self, num_componentes):
+        self.num_imf = num_componentes
+
+    def forward(self, x):
+        """ Decompose the signal using Empirical Mode Decomposition (EMD). """
+        # x.shape should be [batch_size, length, dim]
+        x = x.permute(0, 2, 1)  # shape: [batch_size, dim, length]
+        imfs = torch_emd(x, num_imf=self.num_imf-1)  # shape: [batch_size, num_comp, length, dim]
+        print(f"{imfs.shape=}")
+        assert imfs.shape[1] == self.num_imf, f"Number of IMFs is not equal to {self.num_imf}. {imfs.shape=}"
+        # Sum the first num_comp IMFs along axis 1 to reconstruct the signal
+        reconstructed_signal = self._emd_reconstruct(imfs)
+        assert np.allclose(x, reconstructed_signal), "Reconstruction failed"
+        
+        return imfs # shape: [batch_size, num_comp, length, dim]
+    
+    def _reconstruct(self, imfs):
+        """ Reconstruct the signal from the IMFs. """
+        # x.shape should be [batch_size, num_comp, length, dim]
+        return torch.sum(imfs, axis=1)
 
 class series_decomp(nn.Module):
     """

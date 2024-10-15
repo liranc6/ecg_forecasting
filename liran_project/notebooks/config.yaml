@@ -1,0 +1,199 @@
+wandb_version: 1
+
+configs_filename:
+  desc: null
+  value: /home/liranc6/ecg_forecasting/liran_project/mrdiff/src/config_ecg.yml
+configs:
+  desc: null
+  value:
+    project_path: /home/liranc6/ecg_forecasting
+    tqdm: terminal
+    resume_exp:
+      resume: true
+      resume_from: false
+      resume_optimizer: true
+      resume_epoch: 5
+      loss_and_metrics: true
+      resume_scheduler: true
+      resume_configuration: true
+      specific_chpt_path: /home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl105000_ll7500_pl7500_lr0.001_bs16_invFalse_itr0/14_10_2024_2120/logs/e_5_checkpoint.pth
+      was_resumed: false
+    wandb:
+      entity: liranc6
+      mode: online
+      project: mrdiff
+      resume: must
+      run_name: None
+      id: idn4tt7m
+      save_code: true
+      resume_from: None
+    general:
+      random_seed: 42
+      evaluate: false
+      tag: null
+      dataset: icentia11k
+      features: S
+      training_mode: ONE
+      interval: 1000
+    optimization:
+      learning_rate: 0.001
+      batch_size: 20
+      test_batch_size: 32
+      patience: 10
+      weight_decay: 1.0e-05
+      lradj: '3'
+      pct_start: 0.3
+    hardware:
+      print_gpu_memory_usage: false
+      num_workers: 0
+      use_gpu: true
+      gpu: 0
+      use_multi_gpu: false
+      devices: '0'
+      device_ids:
+      - 0
+    paths:
+      train_data: /home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes/train/p0_to_p32.h5
+      val_data: /home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes/val/p33_to_p39.h5
+      test_data: /home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes/test/p40_to_p46.h5
+      output_dir: /home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff
+      checkpoints: /home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff
+      model_path: None
+    data:
+      fs: 250
+      freq: h
+      embed: timeF
+      cols: []
+      target: -1
+      inverse: false
+      individual: true
+      use_ar_init: false
+      use_residual: true
+      uncertainty: false
+      norm_method: None
+      normtype: 0
+      num_vars: 1
+    training:
+      logging:
+        sample: false
+        log_interval: 5
+        save_interval: 1
+        save_best: true
+        save_dir: /home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff
+      patients:
+        start_patient: 0
+        end_patient: 25
+      iterations:
+        itr: 1
+        pretrain_epochs: 0
+        train_epochs: 300
+        sample_times: 1
+      identifiers:
+        id_worst: -1
+        focus_variate: -1
+      sequence:
+        context_len: 0
+        seq_len: 135000
+        label_len: 120000
+        pred_len: 15000
+      model_info:
+        opt_loss_type: mse
+        model: DDPM
+        base_model: Linear
+        u_net_type: v0
+      analysis:
+        vis_MTS_analysis: 0
+        use_window_normalization: true
+        use_future_mixup: true
+        use_X0_in_THiDi: false
+        channel_independence: false
+      smoothing:
+        smoothed_factors:
+        - 5
+        - 11
+        - 21
+        - 31
+      ode:
+        ot_ode: true
+        beta_max: 1.0
+        t0: 1e-4
+        T: 0.02
+        nfe: 20
+      ablation_study:
+        ablation_study_F_type: Linear
+        beta_schedule: cosine
+        beta_dist_alpha: -1
+        ablation_study_masking_type: none
+        ablation_study_masking_tau: 0.9
+      diffusion:
+        beta_start: 0.0001
+        beta_end: 0.02
+        diff_steps: 100
+        ddpm_inp_embed: 64
+        ddpm_layers_inp: 10
+        ddpm_dim_diff_steps: 256
+        ddpm_channels_conv: 128
+        ddpm_channels_fusion_I: 256
+        ddpm_layers_I: 5
+        ddpm_layers_II: 10
+        kernel_size: 25
+        dec_channel_nums: 256
+        cond_ddpm_num_layers: 5
+        cond_ddpm_channels_conv: 256
+      sampler:
+        type_sampler: dpm
+        parameterization: x_start
+        our_ddpm_clip: 100
+      misc:
+        affine: 0
+        subtract_last: 0
+        subtract_short_terms: 0
+    validation:
+      patients:
+        start_patient: 0
+        end_patient: 5
+    testing:
+      patients:
+        start_patient: 0
+        end_patient: 5
+    use_gpu: true
+_wandb:
+  desc: null
+  value:
+    python_version: 3.10.13
+    cli_version: 0.16.0
+    framework: huggingface
+    huggingface_version: 4.35.2
+    is_jupyter_run: false
+    is_kaggle_kernel: false
+    start_time: 1728990764.464932
+    t:
+      1:
+      - 1
+      - 5
+      - 11
+      - 49
+      - 53
+      - 55
+      2:
+      - 1
+      - 5
+      - 11
+      - 49
+      - 53
+      - 55
+      3:
+      - 3
+      - 5
+      - 14
+      - 16
+      - 23
+      4: 3.10.13
+      5: 0.16.0
+      6: 4.35.2
+      8:
+      - 5
+      13: linux-x86_64
+git_commit_id:
+  desc: null
+  value: 90d6d588e9d76d65296006615563d7f2a981ed1a
