@@ -7,11 +7,12 @@ resume_exp:
   resume_from: 9  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
   resume_optimizer: True
   resume_epoch: 9
-  loss_and_metrics: True
+  resume_metrics: True
   resume_scheduler: True
   resume_configuration: False
   specific_chpt_path: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl105000_ll7500_pl7500_lr0.001_bs16_invFalse_itr0/15_10_2024_1615/logs/e_8_checkpoint.pth"
   was_resumed: false
+  model_start_training_time: "15_10_2024_1615"  # "%d_%m_%Y_%H%M" or "None" for example: "15_10_2024_1615"
 
 wandb:
   entity: 'liranc6'  # wandb entity
@@ -20,7 +21,7 @@ wandb:
   resume: 'must'  # ["allow", "must", "never", "auto", "None"]
   run_name: "None" # wandb run name
   id: 'hpjactss'  # wandb run id
-  save_code: True  # save code to wandb
+  save_code: False  # save code to wandb
   resume_from: "None"  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
 
 general:
@@ -77,7 +78,7 @@ training:
 
   logging:
     sample: false
-    log_interval: 5  # logging interval
+    log_interval: 2  # logging interval
     save_interval: 1  # save interval
     save_best: true  # save best model
     save_dir: '/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff'  # save directory
@@ -99,7 +100,7 @@ training:
   sequence:
     # len = minutes * seconds * fs
     context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
-    seq_len: 135000 # input_length; window size
+    seq_len: 112500 # input_length; window size
     label_len: 105000  # I think its context len # in minutes # start token length of Informer decoder
     pred_len: 7500  # I think its label/forecast len # prediction sequence length, horizon
 

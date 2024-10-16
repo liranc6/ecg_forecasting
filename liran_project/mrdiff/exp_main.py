@@ -15,7 +15,7 @@ sys.path.append(ProjectPath)
 
 from liran_project.mrdiff.src.parser import parse_args
 from liran_project.utils.dataset_loader import SingleLeadECGDatasetCrops_mrDiff as DataSet
-from liran_project.utils.util import ecg_signal_difference, check_gpu_memory_usage
+from liran_project.utils.util import ecg_signal_difference, check_gpu_memory_usage, stopwatch
 from liran_project.utils.common import *
 
 # Add the directory containing the exp module to the sys.path
@@ -216,14 +216,23 @@ class Exp_Main(Exp_Basic):
         return mean_results
     
     def train(self, setting):
+        
+        time_now = time.time()
             
-        if self.args.resume_exp.resume and self.args.resume_exp.resume_configuration:
-            resume_config = self.args.resume_exp
-            checkpoint = torch.load(self.args.resume_exp.specific_chpt_path, map_location='cpu')
-            self.args.update_config_from_dict(checkpoint["configuration_parameters"])
-            # checkpoint["configuration_parameters"]
-            checkpoint = None
-            self.args.resume_exp = resume_config
+        str_time_now = time.strftime("%d_%m_%Y_%H%M", time.localtime(time_now))
+        self.model_start_training_time = "15_10_2024_1615"  # str_time_now
+            
+        if self.args.resume_exp.resume:
+            if self.args.resume_exp.resume_configuration:
+                resume_config = self.args.resume_exp
+                checkpoint = torch.load(self.args.resume_exp.specific_chpt_path, map_location='cpu')
+                self.args.update_config_from_dict(checkpoint["configuration_parameters"])
+                # checkpoint["configuration_parameters"]
+                checkpoint = None
+                self.args.resume_exp = resume_config
+            if self.args.resume_exp.model_start_training_time != "None":
+                self.model_start_training_time = self.args.resume_exp.model_start_training_time
+            
             
         if "train" not in self.dataloaders.keys():
             self.read_data(flag='train')
@@ -246,18 +255,13 @@ class Exp_Main(Exp_Basic):
         # if self.args.general.training_mode == "TWO":
         #     print('loading model')
         #     self.model.base_models.load_state_dict(torch.load(os.path.join(self.args.paths.checkpoints + setting, 'pretrain_checkpoint.pth')))
-
-        time_now = time.time()
-            
-        str_time_now = time.strftime("%d_%m_%Y_%H%M", time.localtime(time_now))
-        self.model_start_training_time = "15_10_2024_1615"  # str_time_now
         
         self.args.paths.checkpoints = os.path.join(self.args.paths.checkpoints, setting, self.model_start_training_time)
         tqdm.write(f"Saving model to {self.args.paths.checkpoints}")
         os.makedirs(self.args.paths.checkpoints, exist_ok=True)
 
 
-        early_stopping = EarlyStopping(patience=self.args.optimization.patience, verbose=True)
+        self.early_stopping = EarlyStopping(patience=self.args.optimization.patience, verbose=True)
         
         self.model_optim = self._select_optimizer()
         
@@ -378,7 +382,7 @@ class Exp_Main(Exp_Basic):
                                     })
             
             #"Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(epoch + 1, train_steps, train_loss, vali_loss)
-            filenames_to_save = early_stopping(val_loss=vali_loss['loss'], model=self.model, epoch=epoch, dir_path=self.args.paths.checkpoints, metrics=dict_vali_loss)
+            filenames_to_save = self.early_stopping(val_loss=vali_loss['loss'], model=self.model, epoch=epoch, dir_path=self.args.paths.checkpoints, metrics=dict_vali_loss)
             
             for filename_to_save in filenames_to_save:
                 
@@ -387,10 +391,10 @@ class Exp_Main(Exp_Basic):
                                     dir_path=self.args.paths.checkpoints,
                                     epoch=epoch,
                                     filename=f'{filename_to_save}',
-                                    metrics=dict_vali_loss
+                                    metrics=self.early_stopping.best_metrics
                                 )
                 
-            if early_stopping.early_stop:
+            if self.early_stopping.early_stop:
                 print("Early stopping")
                 break
 
@@ -408,13 +412,13 @@ class Exp_Main(Exp_Basic):
                                         dir_path=log_dir_path,
                                         epoch=epoch,
                                         filename=f'{save_prev_cpt}_last_checkpoint.pth',
-                                        metrics=dict(vali_loss)
+                                        metrics=dict(self.early_stopping.best_metrics)
                                     )
                 save_prev_cpt = 1 - save_prev_cpt
                 
                 
                 
-        best_model_path = early_stopping.best_model_path
+        best_model_path = self.early_stopping.best_model_path
         print("Training finished")
         print(f"Best model path: ", best_model_path)
         checkpoint = torch.load(best_model_path)
@@ -635,6 +639,7 @@ class Exp_Main(Exp_Basic):
             self.model.load_state_dict(model_state_dict, strict=False)
             
             args_configs_box = self.args.configs
+            resume_exp_config = {"resume_exp": self.args.resume_exp}
             
             if resume_config["resume_configuration"]:
                 args_configs_box = checkpoint["configuration_parameters"]
@@ -642,12 +647,17 @@ class Exp_Main(Exp_Basic):
                     args_configs_box['resume_exp'] = args_configs_box['resume']
                     del args_configs_box['resume']
                 
+                args_configs_box.update(resume_exp_config)
+                
             if resume_config["resume_optimizer"]:
                 self.model_optim.load_state_dict(checkpoint["optimizer_state"])
                 print('Successfully loaded optimizer from checkpoint')
             if resume_config["resume_scheduler"]:
                 self.scheduler.load_state_dict(checkpoint["learning_rate_scheduler_state"])
                 print('Successfully loaded scheduler from checkpoint')
+            if resume_config["resume_metrics"]:
+                self.early_stopping.best_metrics.update(checkpoint["loss_and_metrics"])
+                print('Successfully loaded metrics from checkpoint')
             
             self.args.update_config_from_dict(args_configs_box)
             self.args.resume_exp.was_resumed = True  
@@ -667,9 +677,9 @@ class Exp_Main(Exp_Basic):
         
     def save_checkpoint(self, val_loss, model, dir_path, epoch=0, filename='checkpoint.pth', metrics={}):
         
-        print(f"saving checkpoint to: {dir_path=}, {filename=}")
         # check if model has save_checkpoint() method
         if hasattr(model, 'save_checkpoint'):
+            print(f"saving checkpoint to: {dir_path=}, {filename=}")
             model.save_checkpoint(dir_path=dir_path,
                                     filename=filename,
                                     epoch=epoch,
@@ -688,12 +698,13 @@ class Exp_Main(Exp_Basic):
                         "model_state_dict": model.state_dict(),
                         "optimizer_state": self.model_optim.state_dict(),
                         "epoch": epoch,
-                        "loss_and_metrics": metrics,
+                        "loss_and_metrics": dict(metrics),
                         "learning_rate_scheduler_state": self.scheduler.state_dict(),
                         "configuration_parameters": self.args.configs.to_dict(),
                     }
             
-            torch.save(savings, filename)
+            with stopwatch(msg=f"saving to {filename}"):
+                torch.save(savings, filename)
             
         print("checkpoint saved")
     

@@ -10,6 +10,8 @@ from fastdtw import fastdtw
 import neurokit2 as nk
 # from tqdm import tqdm
 from scipy.spatial import distance
+import threading
+import time
 
 SAMPLING_RATE = 250
 MIN_WINDOW_SIZE_FOR_NK_ECG_PROCESS = 10*SAMPLING_RATE
@@ -847,3 +849,28 @@ def check_gpu_memory_usage(device_id=0):
     else:
         print("CUDA is not available.")
         return None
+
+# Function to display the stopwatch
+# Event to signal the stopwatch to stop
+class stopwatch:
+    def __init__(self, msg="running"):
+        self.stop_event = threading.Event()
+        self.msg = msg
+    
+    def __enter__(self):
+        self.stop_event.clear()
+        self.thread = threading.Thread(target=self._stopwatch, args=(self.msg,))
+        self.thread.start()
+        return self.stop_event
+    
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.stop_event.set()
+        self.thread.join()
+    
+    def _stopwatch(self, msg):
+        start_time = time.time()
+        while not self.stop_event.is_set():
+            elapsed_time = time.time() - start_time
+            print(f"\r{msg}... {elapsed_time:.2f} seconds elapsed", end="")
+            time.sleep(0.5)
+        

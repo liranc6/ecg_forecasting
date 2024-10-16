@@ -15,14 +15,6 @@ sys.path.append(ProjectPath)
 
 from liran_project.utils.common import *
 
-# Function to display the stopwatch
-def stopwatch(msg="Reading data"):
-    start_time = time.time()
-    while not stop_event.is_set():
-        elapsed_time = time.time() - start_time
-        print(f"\r{msg}... {elapsed_time:.2f} seconds elapsed", end="")
-        time.sleep(0.5)
-
 # Event to signal the stopwatch to stop
 stop_event = threading.Event()
 
