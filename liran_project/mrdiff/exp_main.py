@@ -220,7 +220,7 @@ class Exp_Main(Exp_Basic):
         time_now = time.time()
             
         str_time_now = time.strftime("%d_%m_%Y_%H%M", time.localtime(time_now))
-        self.model_start_training_time = "15_10_2024_1615"  # str_time_now
+        self.model_start_training_time = str_time_now
             
         if self.args.resume_exp.resume:
             if self.args.resume_exp.resume_configuration:

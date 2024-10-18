@@ -233,9 +233,9 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
             for i in range(len(to_cache)):
                 self.cache.popitem(last=True)
 
-        to_cache = normalized(to_cache, self.normalize_method, self.norm_statistics)
         
         if self.data_with_RR:
+            to_cache[:, 0, :] = normalized(to_cache[:, 0, :], self.normalize_method, self.norm_statistics)
             for i in range(len(to_cache)):
                 window = to_cache[i]
                 signal_len = len(window[0])
@@ -244,6 +244,7 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
                 y = window[:, advance + self.context_window_size : advance + self.context_window_size + self.label_window_size]
                 self.cache[idx + i] = (x, y)
         else:
+            to_cache = normalized(to_cache, self.normalize_method, self.norm_statistics)
             for i in range(len(to_cache)):
                 window = to_cache[i]
                 window = window[0]
@@ -298,7 +299,8 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
 
         # Avoid zero std dev
         std = np.where(std == 0, 1, std)  # Log a warning if std is 1
-        return mean, std, max_val, min_val     
+        stats = {'mean': mean, 'std': std, 'max': max_val, 'min': min_val}
+        return stats     
             
 def normalized(data, normalize_method, norm_statistics):
     if normalize_method == 'min_max':

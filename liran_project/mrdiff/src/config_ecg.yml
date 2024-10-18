@@ -3,7 +3,7 @@ project_path: '/home/liranc6/ecg_forecasting'
 tqdm: "terminal" # ["terminal", "notebook"]
 
 resume_exp:
-  resume: True  # resume training
+  resume: False  # resume training
   resume_from: 9  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
   resume_optimizer: True
   resume_epoch: 9
@@ -12,15 +12,15 @@ resume_exp:
   resume_configuration: False
   specific_chpt_path: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl105000_ll7500_pl7500_lr0.001_bs16_invFalse_itr0/15_10_2024_1615/logs/e_8_checkpoint.pth"
   was_resumed: false
-  model_start_training_time: "15_10_2024_1615"  # "%d_%m_%Y_%H%M" or "None" for example: "15_10_2024_1615"
+  model_start_training_time: "None"  # "%d_%m_%Y_%H%M" or "None" for example: "15_10_2024_1615"
 
 wandb:
   entity: 'liranc6'  # wandb entity
   mode: 'online'  # [online, disabled, offline]
   project: 'mrdiff'  # wandb project name
-  resume: 'must'  # ["allow", "must", "never", "auto", "None"]
+  resume: 'None'  # ["allow", "must", "never", "auto", "None"]
   run_name: "None" # wandb run name
-  id: 'hpjactss'  # wandb run id
+  id: 'None'  # wandb run id
   save_code: False  # save code to wandb
   resume_from: "None"  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
 
@@ -70,7 +70,7 @@ data:
   use_ar_init: false  # use autoregressive initialization
   use_residual: true
   uncertainty: false
-  norm_method: 'None'  # ['None', 'z_score', 'min_max']
+  norm_method: 'z_score'  # ['None', 'z_score', 'min_max']
   normtype: 0
 
 
