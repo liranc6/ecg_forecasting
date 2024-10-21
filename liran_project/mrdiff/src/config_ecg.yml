@@ -3,15 +3,16 @@ project_path: '/home/liranc6/ecg_forecasting'
 tqdm: "terminal" # ["terminal", "notebook"]
 
 resume_exp:
-  resume: False  # resume training
-  resume_from: false  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
+  resume: True  # resume training
+  resume_from: 0  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
   resume_optimizer: True
-  resume_epoch: 5
-  loss_and_metrics: True
+  resume_epoch: 0
+  resume_metrics: True
   resume_scheduler: True
   resume_configuration: True
-  specific_chpt_path: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl105000_ll7500_pl7500_lr0.001_bs16_invFalse_itr0/14_10_2024_2120/logs/e_5_checkpoint.pth"
+  specific_chpt_path: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl105000_ll7500_pl7500_lr0.001_bs16_invFalse_itr0/21_10_2024_1424/logs/1_last_checkpoint.pth"
   was_resumed: false
+  model_start_training_time: "None"  # "%d_%m_%Y_%H%M" or "None" for example: "15_10_2024_1615"
 
 wandb:
   entity: 'liranc6'  # wandb entity
@@ -19,7 +20,7 @@ wandb:
   project: 'mrdiff'  # wandb project name
   resume: 'None'  # ["allow", "must", "never", "auto", "None"]
   run_name: "None" # wandb run name
-  id: 'None'  # wandb run id
+  id: '58xo7zdv'  # wandb run id
   save_code: False  # save code to wandb
   resume_from: "None"  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
 
@@ -69,7 +70,7 @@ data:
   use_ar_init: false  # use autoregressive initialization
   use_residual: true
   uncertainty: false
-  norm_method: 'None'  # ['None', 'z_score', 'min_max']
+  norm_method: 'z_score'  # ['None', 'z_score', 'min_max']
   normtype: 0
 
 
@@ -77,7 +78,7 @@ training:
 
   logging:
     sample: false
-    log_interval: 5  # logging interval
+    log_interval: 2  # logging interval
     save_interval: 1  # save interval
     save_best: true  # save best model
     save_dir: '/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff'  # save directory
@@ -117,7 +118,7 @@ training:
     channel_independence: false
 
   smoothing:
-    smoothed_factors: [5, 11, 21, 31]  # mast be odd (non-even) numbers. List of smoothed factors, [5, 25, 51] are the kernel sizes for the smoothing
+    smoothed_factors: [11, 21, 31]  # mast be odd (non-even) numbers. List of smoothed factors, [5, 25, 51] are the kernel sizes for the smoothing
 
   ode:
     ot_ode: true  # use OT-ODE model
