@@ -384,15 +384,23 @@ class Exp_Main(Exp_Basic):
             #"Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(epoch + 1, train_steps, train_loss, vali_loss)
             filenames_to_save = self.early_stopping(val_loss=vali_loss['loss'], model=self.model, epoch=epoch, dir_path=self.args.paths.checkpoints, metrics=dict_vali_loss)
             
-            for filename_to_save in filenames_to_save:
-                
-                self.save_checkpoint(val_loss=vali_loss['loss'], 
-                                    model=self.model,
-                                    dir_path=self.args.paths.checkpoints,
-                                    epoch=epoch,
-                                    filename=f'{filename_to_save}',
-                                    metrics=self.early_stopping.best_metrics
-                                )
+            threads = []
+
+            with stopwatch("Saving checkpoints"):
+                for filename_to_save in filenames_to_save:
+                    thread = threading.Thread(target=self.save_checkpoint, 
+                                                args=(vali_loss['loss'],  # val_loss
+                                                        self.model,  # model
+                                                        self.args.paths.checkpoints,  # dir_path
+                                                        epoch,  # epoch
+                                                        filename_to_save,  # filename
+                                                        self.early_stopping.best_metrics))  # metrics
+                    thread.start()
+                    threads.append(thread)
+                    
+                # Optionally, wait for all threads to complete
+                for thread in threads:
+                    thread.join()
                 
             if self.early_stopping.early_stop:
                 print("Early stopping")
@@ -676,7 +684,6 @@ class Exp_Main(Exp_Basic):
             print(f"{attr}: {value}")
         
     def save_checkpoint(self, val_loss, model, dir_path, epoch=0, filename='checkpoint.pth', metrics={}):
-        
         # check if model has save_checkpoint() method
         if hasattr(model, 'save_checkpoint'):
             print(f"saving checkpoint to: {dir_path=}, {filename=}")
@@ -703,8 +710,7 @@ class Exp_Main(Exp_Basic):
                         "configuration_parameters": self.args.configs.to_dict(),
                     }
             
-            with stopwatch():
-                torch.save(savings, filename)
+            torch.save(savings, filename)
             
         print("checkpoint saved")
     
