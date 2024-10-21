@@ -208,7 +208,6 @@ class Diffusion_Worker(nn.Module):
         model_out = self.net(x_k, t, cond=condition, ar_init=ar_init, future_gt=x0, mask=None)  # a bit less than a quarter of the memory
         
         cond_ts = x_k = condition = ar_init = x0 =None
-        torch.cuda.empty_cache()
         
         
         if self.parameterization == "noise":
@@ -246,7 +245,6 @@ class Diffusion_Worker(nn.Module):
         # x = x0 = x1 = mask = condition = ar_init = cond_ts = None
         x = cond_ts = t = noise = x_k = model_out = target = loss_simple = loss_vlb = None
 
-        torch.cuda.empty_cache()
         return loss
 
 

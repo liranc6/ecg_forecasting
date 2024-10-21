@@ -438,7 +438,5 @@ class My_DiffusionUnet_v0(nn.Module):
         # xt = timesteps = cond = ar_init = future_gt = mask = diffusion_emb = None
         diffusion_emb = prev_scale_out = pred_out = temp_out = y_clean = rand_for_mask = None
 
-        torch.cuda.empty_cache()
-
         # SHOULD BE  B, N, L
         return out
