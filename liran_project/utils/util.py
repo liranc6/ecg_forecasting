@@ -871,6 +871,6 @@ class stopwatch:
         start_time = time.time()
         while not self.stop_event.is_set():
             elapsed_time = time.time() - start_time
-            print(f"\r{msg}... {elapsed_time:.2f} seconds elapsed", end="")
+            print(f"\r{msg}... {elapsed_time:.2f} seconds elapsed", end="", flush=True)
             time.sleep(0.5)
         

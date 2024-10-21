@@ -88,12 +88,12 @@ class EarlyStopping:
 
     def save_checkpoint(self, val_loss, model, dir_path, epoch=0, filename='checkpoint.pth', metrics={}):
         
+        return
         # print(f"saving checkpoint to: {dir_path=}, {filename=}")
         
         if self.verbose:
             print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
         
-        return
     
         # check if model has save_checkpoint() method
         if hasattr(model, 'save_checkpoint'):

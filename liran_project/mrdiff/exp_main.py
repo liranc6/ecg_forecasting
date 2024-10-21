@@ -703,7 +703,7 @@ class Exp_Main(Exp_Basic):
                         "configuration_parameters": self.args.configs.to_dict(),
                     }
             
-            with stopwatch(msg=f"saving to {filename}"):
+            with stopwatch():
                 torch.save(savings, filename)
             
         print("checkpoint saved")
