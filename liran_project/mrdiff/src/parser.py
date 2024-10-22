@@ -11,13 +11,13 @@ class Args:
         def __init__(self, config_filename, cmd_args=None):
             assert config_filename.endswith('.yml')
             self.configs_filename = config_filename
-            self.configs = self.read_config()
+            self.configs = self.read_config(self.configs_filename)
             # if cmd_args is not None:
             #     self.override_with_cmd_args(cmd_args)
             self._analyze_config()
 
-        def read_config(self):
-            with open(self.configs_filename, 'r') as file:
+        def read_config(self, filename):
+            with open(filename, 'r') as file:
                 config = yaml.safe_load(file)
             return Box(config)
 
@@ -66,6 +66,22 @@ class Args:
     
             if self.configs['general']['features'] == "S":
                 self.configs['data']['num_vars'] = 1
+            
+            
+            if (self.resume_exp.resume and self.resume_exp.resume_configuration) and self.configs['debug']:
+                print("\033[93mWarning: Resume configuration is enabled, but debug mode is also enabled. Debug mode will override resume configuration.\033[0m")
+    
+            if self.resume_exp.resume and self.resume_exp.resume_configuration:
+                    resume_config = self.resume_exp
+                    checkpoint = torch.load(self.resume_exp.specific_chpt_path, map_location='cpu')
+                    self.update_config_from_dict(checkpoint["configuration_parameters"])
+                    self.resume_exp = resume_config
+                    
+            if self.configs['debug'] and self.configs['paths']['debug_config_path'] != "None":
+                filename = self.configs['paths']['debug_config_path']
+                debug_configs = self.read_config(filename)
+                self.update_config_from_dict(debug_configs) 
+
 
         def update_config_from_dict(self, new_dict):
             """update self.config with new_dict

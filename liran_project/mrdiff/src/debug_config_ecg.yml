@@ -1,0 +1,38 @@
+wandb:
+  mode: 'disabled'  # [online, disabled, offline]
+
+optimization:
+  batch_size: 64  # batch size of train input data
+  test_batch_size: 128  # batch size of test input data
+  
+data:
+  norm_method: 'None'  # ['None', 'z_score', 'min_max']
+
+training:
+  # logging:
+  #   sample: false
+  #   log_interval: 2  # logging interval
+  #   save_interval: 1  # save interval
+  #   save_best: true  # save best model
+  #   save_dir: '/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff'  # save directory
+
+  patients:
+    start_patient: 0
+    end_patient: 1
+
+  sequence:
+    # len = minutes * seconds * fs
+    context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
+    seq_len: 1125 # input_length; window size
+    label_len: 1050  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 75  # I think its label/forecast len # prediction sequence length, horizon
+
+validation:
+  patients:
+    start_patient: 0
+    end_patient: 1
+
+testing:
+  patients:
+    start_patient: 0
+    end_patient: 1

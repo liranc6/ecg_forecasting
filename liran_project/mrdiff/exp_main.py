@@ -223,13 +223,6 @@ class Exp_Main(Exp_Basic):
         self.model_start_training_time = str_time_now
             
         if self.args.resume_exp.resume:
-            if self.args.resume_exp.resume_configuration:
-                resume_config = self.args.resume_exp
-                checkpoint = torch.load(self.args.resume_exp.specific_chpt_path, map_location='cpu')
-                self.args.update_config_from_dict(checkpoint["configuration_parameters"])
-                # checkpoint["configuration_parameters"]
-                checkpoint = None
-                self.args.resume_exp = resume_config
             if self.args.resume_exp.model_start_training_time != "None":
                 self.model_start_training_time = self.args.resume_exp.model_start_training_time
             
