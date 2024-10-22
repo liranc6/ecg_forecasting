@@ -99,7 +99,7 @@ class Args:
             
             assert isinstance(self.configs, Box), f"self.config must be a Box object, got {type(self.configs)}"
             
-            self.configs.update(new_dict)
+            self.configs.merge_update(new_dict)
         
                                                 
 def parse_args(config_filename):
