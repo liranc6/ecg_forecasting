@@ -949,7 +949,7 @@ def update_nested_dict(old, new):
         if key in old:
             if isinstance(old[key], dict) and isinstance(value, dict):
                 value = update_nested_dict(old[key], value)
-            if  isinstance(old[key], dict) and not isinstance(value, dict) \
+            elif  isinstance(old[key], dict) and not isinstance(value, dict) \
                     or \
                     not isinstance(old[key], dict) and isinstance(value, dict):
                 raise ValueError(f"Cannot merge {type(old[key])} with {type(value)}")

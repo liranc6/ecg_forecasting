@@ -11,24 +11,24 @@ resume_exp:
   resume: False
   
 data:
-  norm_method: 'None'  # ['None', 'z_score', 'min_max']
+  norm_method: 'z_score'  # ['None', 'z_score', 'min_max']
 
 training:
 
-  iterations:
-    train_epochs: 4  # train epochs
-    sample_times: 1
+  # sequence:
+  #   # len = minutes * seconds * fs
+  #   context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
+  #   seq_len: 112500 # input_length; window size
+  #   label_len: 105000  # I think its context len # in minutes # start token length of Informer decoder
+  #   pred_len: 7500  # I think its label/forecast len # prediction sequence length, horizon
 
-  # logging:
-  #   sample: false
-  #   log_interval: 2  # logging interval
-  #   save_interval: 1  # save interval
-  #   save_best: true  # save best model
-  #   save_dir: '/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff'  # save directory
+  iterations:
+    train_epochs: 15  # train epochs
+    sample_times: 1
 
   patients:
     start_patient: 0
-    end_patient: 1
+    end_patient: 10
 
   # sequence:
     # len = minutes * seconds * fs
@@ -37,12 +37,19 @@ training:
     # label_len: 105000  # I think its context len # in minutes # start token length of Informer decoder
     # pred_len: 7500  # I think its label/forecast len # prediction sequence length, horizon
 
+  # logging:
+  #   sample: false
+  #   log_interval: 2  # logging interval
+  #   save_interval: 1  # save interval
+  #   save_best: true  # save best model
+  #   save_dir: '/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff'  # save directory
+
 validation:
   patients:
     start_patient: 0
-    end_patient: 1
+    end_patient: 2
 
 testing:
   patients:
     start_patient: 0
-    end_patient: 1
+    end_patient: 2

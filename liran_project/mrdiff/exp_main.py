@@ -382,8 +382,12 @@ class Exp_Main(Exp_Basic):
             
             threads = []
             
+            if self.args.debug:
+                #remove all elem from filenames_to_save except "best_checkpoint.pth"
+                filenames_to_save = ["best_checkpoint.pth"] if "best_checkpoint.pth" in filenames_to_save else []
             
             tqdm.write(f"Saving checkpoints to dir: {self.args.paths.checkpoints}\n files: {filenames_to_save}")
+                
             with stopwatch("Saving checkpoints"):
                 for filename_to_save in filenames_to_save:
                     thread = threading.Thread(target=self.save_checkpoint, 
@@ -414,14 +418,15 @@ class Exp_Main(Exp_Basic):
                 log_dir_path = os.path.join(self.args.paths.checkpoints, 'logs')
                 
                 tqdm.write(f"Saving logs to: {log_dir_path}")
-                                
-                self.save_checkpoint(val_loss=vali_loss['loss'], 
-                                        model=self.model,
-                                        dir_path=log_dir_path,
-                                        epoch=epoch,
-                                        filename=f'{save_prev_cpt}_last_checkpoint.pth',
-                                        metrics=dict(self.early_stopping.best_metrics)
-                                    )
+                
+                with stopwatch("Saving logs"):
+                    self.save_checkpoint(val_loss=vali_loss['loss'], 
+                                            model=self.model,
+                                            dir_path=log_dir_path,
+                                            epoch=epoch,
+                                            filename=f'{save_prev_cpt}_last_checkpoint.pth',
+                                            metrics=dict(self.early_stopping.best_metrics)
+                                        )
                 save_prev_cpt = 1 - save_prev_cpt
                 
                 
@@ -698,8 +703,6 @@ class Exp_Main(Exp_Basic):
             print(f"{attr}: {value}")
         
     def save_checkpoint(self, val_loss, model, dir_path, epoch=0, filename='checkpoint.pth', metrics={}):
-        if self.args.debug:
-            return
         # check if model has save_checkpoint() method
         if hasattr(model, 'save_checkpoint'):
             print(f"saving checkpoint to: {dir_path=}, {filename=}")
