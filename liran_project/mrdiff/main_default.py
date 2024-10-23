@@ -15,7 +15,7 @@ sys.path.append(ProjectPath)
 
 from liran_project.mrdiff.src.parser import parse_args
 from liran_project.utils.dataset_loader import SingleLeadECGDatasetCrops_mrDiff as DataSet
-from liran_project.utils.util import ecg_signal_difference, check_gpu_memory_usage
+from liran_project.utils.util import ecg_signal_difference, check_gpu_memory_usage, Debbuger
 from liran_project.mrdiff.exp_main import Exp_Main
 from liran_project.mrdiff.src.parser import Args
 from liran_project.utils.common import *
@@ -166,11 +166,9 @@ def main():
 
         exp = Exp_Main(args)
         
-        exp.read_data(flag='train')
-        exp.read_data(flag='val')
-        
         print(f'>>>>>>>start training : {setting}>>>>>>>>>>>>>>>>>>>>>>>>>')
-        exp.train(setting)
+        with Debbuger(debug=args.debug):
+            exp.train(setting)
 
         print(f'>>>>>>>testing : {setting}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<')
         exp.test(setting, test=1)

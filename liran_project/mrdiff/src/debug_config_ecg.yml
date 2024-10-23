@@ -1,14 +1,24 @@
 wandb:
   mode: 'disabled'  # [online, disabled, offline]
+  resume: 'None'  # ["allow", "must", "never", "auto", "None"]
+  id: 'None'  # wandb run id
 
-optimization:
-  batch_size: 64  # batch size of train input data
-  test_batch_size: 128  # batch size of test input data
+# optimization:
+#   batch_size: 16  # batch size of train input data
+#   test_batch_size: 32  # batch size of test input data
+
+resume_exp:
+  resume: False
   
 data:
   norm_method: 'None'  # ['None', 'z_score', 'min_max']
 
 training:
+
+  iterations:
+    train_epochs: 4  # train epochs
+    sample_times: 1
+
   # logging:
   #   sample: false
   #   log_interval: 2  # logging interval
@@ -20,12 +30,12 @@ training:
     start_patient: 0
     end_patient: 1
 
-  sequence:
+  # sequence:
     # len = minutes * seconds * fs
-    context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
-    seq_len: 1125 # input_length; window size
-    label_len: 1050  # I think its context len # in minutes # start token length of Informer decoder
-    pred_len: 75  # I think its label/forecast len # prediction sequence length, horizon
+    # context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
+    # seq_len: 112500 # input_length; window size
+    # label_len: 105000  # I think its context len # in minutes # start token length of Informer decoder
+    # pred_len: 7500  # I think its label/forecast len # prediction sequence length, horizon
 
 validation:
   patients:

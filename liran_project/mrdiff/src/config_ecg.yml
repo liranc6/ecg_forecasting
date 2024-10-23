@@ -2,15 +2,18 @@ project_path: '/home/liranc6/ecg_forecasting'
 
 tqdm: "terminal" # ["terminal", "notebook"]
 
+debug: True  # debug mode
+  # debug_config_path: "/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/debug_config_ecg.yml"
+
 resume_exp:
-  resume: False  # resume training
+  resume: True  # resume training
   resume_from: 9  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
   resume_optimizer: True
   resume_epoch: 9
   resume_metrics: True
   resume_scheduler: True
   resume_configuration: False
-  specific_chpt_path: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl105000_ll7500_pl7500_lr0.001_bs16_invFalse_itr0/15_10_2024_1615/logs/e_8_checkpoint.pth"
+  specific_chpt_path: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl105000_ll7500_pl7500_lr0.001_bs16_invFalse_itr0/21_10_2024_1424/logs/1_last_checkpoint.pth"
   was_resumed: false
   model_start_training_time: "None"  # "%d_%m_%Y_%H%M" or "None" for example: "15_10_2024_1615"
 
@@ -18,9 +21,9 @@ wandb:
   entity: 'liranc6'  # wandb entity
   mode: 'online'  # [online, disabled, offline]
   project: 'mrdiff'  # wandb project name
-  resume: 'None'  # ["allow", "must", "never", "auto", "None"]
+  resume: 'must'  # ["allow", "must", "never", "auto", "None"]
   run_name: "None" # wandb run name
-  id: 'None'  # wandb run id
+  id: '58xo7zdv'  # wandb run id
   save_code: False  # save code to wandb
   resume_from: "None"  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
 
@@ -57,7 +60,7 @@ paths:
   output_dir: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff"
   checkpoints: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff"
   model_path: "None" # "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl10_ll105000_pl30000_lr0.001_bs8_invFalse_itr0/05_10_2024_1202/checkpoint.pth"
-
+  debug_config_path: "/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/debug_config_ecg.yml"
   
 data:
   fs: 250

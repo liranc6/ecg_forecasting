@@ -15,7 +15,7 @@ sys.path.append(ProjectPath)
 
 from liran_project.mrdiff.src.parser import parse_args
 from liran_project.utils.dataset_loader import SingleLeadECGDatasetCrops_mrDiff as DataSet
-from liran_project.utils.util import ecg_signal_difference, check_gpu_memory_usage, stopwatch
+from liran_project.utils.util import ecg_signal_difference, check_gpu_memory_usage, stopwatch, update_nested_dict
 from liran_project.utils.common import *
 
 # Add the directory containing the exp module to the sys.path
@@ -33,6 +33,8 @@ from mrDiff.utils.metrics import metric
 
 
 warnings.filterwarnings('ignore')
+
+config = None
 
 
 class Exp_Main(Exp_Basic):
@@ -82,17 +84,17 @@ class Exp_Main(Exp_Basic):
         window_size = context_window_size+label_window_size
         
         if flag == 'train':
-            data_path = config['paths']['train_data']
-            start_patiant = config['training']['patients']['start_patient']
-            end_patiant = config['training']['patients']['end_patient']
+            data_path = self.args.paths.train_data
+            start_patiant = self.args.training.patients.start_patient
+            end_patiant = self.args.training.patients.end_patient
         elif flag == 'val':
-            data_path = config['paths']['val_data']
-            start_patiant = config['validation']['patients']['start_patient']
-            end_patiant = config['validation']['patients']['end_patient']
+            data_path = self.args.paths.val_data
+            start_patiant = self.args.validation.patients.start_patient
+            end_patiant = self.args.validation.patients.end_patient
         elif flag == 'test':
-            data_path = config['paths']['test_data']
-            start_patiant = config['testing']['patients']['start_patient']
-            end_patiant = config['testing']['patients']['end_patient']
+            data_path = self.args.paths.test_data
+            start_patiant = self.args.testing.patients.start_patient
+            end_patiant = self.args.testing.patients.end_patient
 
         dataset = DataSet(context_window_size,
                                 label_window_size,
@@ -136,7 +138,7 @@ class Exp_Main(Exp_Basic):
             dataset,
             batch_size=batch_size,
             shuffle=shuffle_flag,
-            num_workers=config['hardware']['num_workers'],
+            num_workers=self.args.hardware.num_workers,
             drop_last=drop_last,
             sampler=sampler
         )
@@ -223,8 +225,12 @@ class Exp_Main(Exp_Basic):
         self.model_start_training_time = str_time_now
             
         if self.args.resume_exp.resume:
-            if self.args.resume_exp.model_start_training_time != "None":
-                self.model_start_training_time = self.args.resume_exp.model_start_training_time
+            chpt_path = self.args.resume_exp.specific_chpt_path
+            if chpt_path is None or chpt_path == "None":
+                raise ValueError("specific_chpt_path is None")
+                        # Extract the part '21_10_2024_1424'
+            model_starting_time = os.path.basename(os.path.dirname(os.path.dirname(chpt_path)))
+            self.model_start_training_time = model_starting_time
             
             
         if "train" not in self.dataloaders.keys():
@@ -277,11 +283,8 @@ class Exp_Main(Exp_Basic):
         epochs_pbar = tqdm(range(train_epochs), total=train_epochs ,desc='epochs_pbar', position=0, leave=True)
         
         save_prev_cpt = 1
+        epochs_pbar.update(resume_epoch)
         for epoch in epochs_pbar:
-            while epoch < resume_epoch:
-                epoch += 1
-                epochs_pbar.update(1)
-                epochs_pbar.set_postfix({"epoch": epoch + 1})
             
             train_loss = []
 
@@ -308,7 +311,7 @@ class Exp_Main(Exp_Basic):
                 # batch_x_mark = batch_x_mark.float().to(self.device)
                 # batch_y_mark = batch_y_mark.float().to(self.device)
 
-                self.model_optim.zero_grad()
+                self.model_optim.zero_grad(set_to_none=True)
                 if epoch < 2 and batch_idx < 2 and self.args.hardware.print_gpu_memory_usage:
                     loss = self.model.train_forward(batch_x_without_RR, None, batch_y_without_RR, None)
                 else:
@@ -378,7 +381,9 @@ class Exp_Main(Exp_Basic):
             filenames_to_save = self.early_stopping(val_loss=vali_loss['loss'], model=self.model, epoch=epoch, dir_path=self.args.paths.checkpoints, metrics=dict_vali_loss)
             
             threads = []
-
+            
+            
+            tqdm.write(f"Saving checkpoints to dir: {self.args.paths.checkpoints}\n files: {filenames_to_save}")
             with stopwatch("Saving checkpoints"):
                 for filename_to_save in filenames_to_save:
                     thread = threading.Thread(target=self.save_checkpoint, 
@@ -407,6 +412,8 @@ class Exp_Main(Exp_Basic):
             if epoch % self.args.training.logging.log_interval == 0:
                 
                 log_dir_path = os.path.join(self.args.paths.checkpoints, 'logs')
+                
+                tqdm.write(f"Saving logs to: {log_dir_path}")
                                 
                 self.save_checkpoint(val_loss=vali_loss['loss'], 
                                         model=self.model,
@@ -648,7 +655,7 @@ class Exp_Main(Exp_Basic):
                     args_configs_box['resume_exp'] = args_configs_box['resume']
                     del args_configs_box['resume']
                 
-                args_configs_box.update(resume_exp_config)
+                args_configs_box = Box(update_nested_dict(args_configs_box.to_dict(), resume_exp_config.to_dict()))
                 
             if resume_config["resume_optimizer"]:
                 self.model_optim.load_state_dict(checkpoint["optimizer_state"])
@@ -661,7 +668,21 @@ class Exp_Main(Exp_Basic):
                 print('Successfully loaded metrics from checkpoint')
             
             self.args.update_config_from_dict(args_configs_box)
-            self.args.resume_exp.was_resumed = True  
+            self.args.resume_exp.was_resumed = True
+            
+            if (self.args.resume_exp.resume and self.args.resume_exp.resume_configuration) and self.configs['debug']:
+                print("\033[93mWarning: Resume configuration is enabled, but debug mode is also enabled. Debug mode will override resume configuration.\033[0m")
+    
+            if self.args.resume_exp.resume and self.args.resume_exp.resume_configuration:
+                    resume_config = self.args.resume_exp
+                    checkpoint = torch.load(self.resume_exp.specific_chpt_path, map_location='cpu')
+                    self.args.update_config_from_dict(checkpoint["configuration_parameters"])
+                    self.args.resume_exp = resume_config
+                    
+            if self.args.configs['debug'] and self.configs['paths']['debug_config_path'] != "None":
+                filename = self.configs['paths']['debug_config_path']
+                debug_configs = self.args.read_config(filename)
+                self.args.update_config_from_dict(debug_configs)
             
             print('Successfully loaded model from specific_chpt_path')
             
@@ -677,6 +698,8 @@ class Exp_Main(Exp_Basic):
             print(f"{attr}: {value}")
         
     def save_checkpoint(self, val_loss, model, dir_path, epoch=0, filename='checkpoint.pth', metrics={}):
+        if self.args.debug:
+            return
         # check if model has save_checkpoint() method
         if hasattr(model, 'save_checkpoint'):
             print(f"saving checkpoint to: {dir_path=}, {filename=}")

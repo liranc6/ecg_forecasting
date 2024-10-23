@@ -12,6 +12,11 @@ import neurokit2 as nk
 from scipy.spatial import distance
 import threading
 import time
+import logging
+import socket
+from datetime import datetime, timedelta
+from torchvision import models
+from box import Box
 
 SAMPLING_RATE = 250
 MIN_WINDOW_SIZE_FOR_NK_ECG_PROCESS = 10*SAMPLING_RATE
@@ -873,4 +878,80 @@ class stopwatch:
             elapsed_time = time.time() - start_time
             print(f"\r{msg}... {elapsed_time:.2f} seconds elapsed", end="", flush=True)
             time.sleep(0.5)
+
+
+class Debbuger:
+    def __init__(self, debug=False, filename=None):
+        self.debug = debug
+        logging.basicConfig(
+                            format="%(levelname)s:%(asctime)s %(message)s",
+                            level=logging.INFO,
+                            datefmt="%Y-%m-%d %H:%M:%S",
+                            )
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(level=logging.INFO)
+        self.time_format_str = "%b_%d_%H_%M_%S"
+        self.max_num_of_mem_events_per_snapshot = 100000
+        self.filename = filename
         
+    def __enter__(self):
+        if not self.debug:
+            return
+        
+        # start record memory history
+        if not torch.cuda.is_available():
+            self.logger.info("CUDA unavailable. Not recording memory history")
+            return
+
+        self.logger.info("Starting snapshot record_memory_history")
+        torch.cuda.memory._record_memory_history(
+            max_entries=self.max_num_of_mem_events_per_snapshot
+        )
+        
+    def __exit__(self, exc_type, exc_value, traceback):
+        if not self.debug:
+            return
+        if not torch.cuda.is_available():
+            self.logger.info("CUDA unavailable. Not recording memory history")
+            return
+
+        self._export_memory_snapshot()
+        
+    def _export_memory_snapshot(self,) -> None:
+        if not torch.cuda.is_available():
+            self.logger.info("CUDA unavailable. Not exporting memory snapshot")
+            return
+
+        # Prefix for file names.
+        host_name = socket.gethostname()
+        timestamp = datetime.now().strftime(self.time_format_str)
+        file_prefix = f"{host_name}_{timestamp}"
+
+        try:
+            self.logger.info(f"Saving snapshot to local file: {file_prefix}.pickle")
+            torch.cuda.memory._dump_snapshot(f"{file_prefix}.pickle")
+        except Exception as e:
+            self.logger.error(f"Failed to capture memory snapshot {e}")
+            return
+        
+
+def update_nested_dict(old, new):
+    """
+        Merge two nested dictionaries, updating existing values and adding new keys/values.
+        Note: Keys present in the old dictionary but not in the new one will remain unchanged.
+        
+        Example:
+        old = {'a': 1, 'b': {'c': 2, 'd': 3}}
+        new = {'b': {'c': 4, 'e': 5}}
+        Result: {'a': 1, 'b': {'c': 4, 'd': 3, 'e': 5}}
+    """
+    for key, value in new.items():
+        if key in old:
+            if isinstance(old[key], dict) and isinstance(value, dict):
+                value = update_nested_dict(old[key], value)
+            if  isinstance(old[key], dict) and not isinstance(value, dict) \
+                    or \
+                    not isinstance(old[key], dict) and isinstance(value, dict):
+                raise ValueError(f"Cannot merge {type(old[key])} with {type(value)}")
+        old[key] = value
+    return old

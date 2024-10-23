@@ -6,6 +6,8 @@ import numpy as np
 import yaml
 from box import Box
 
+from liran_project.utils.util import update_nested_dict
+
 
 class Args:
         def __init__(self, config_filename, cmd_args=None):
@@ -17,6 +19,7 @@ class Args:
             self._analyze_config()
 
         def read_config(self, filename):
+            # config = Box.from_yaml(filename)
             with open(filename, 'r') as file:
                 config = yaml.safe_load(file)
             return Box(config)
@@ -78,6 +81,7 @@ class Args:
                     self.resume_exp = resume_config
                     
             if self.configs['debug'] and self.configs['paths']['debug_config_path'] != "None":
+                print("\033[93mWarning: Debug mode is enabled. Debug configuration will override the current configuration.\033[0m")
                 filename = self.configs['paths']['debug_config_path']
                 debug_configs = self.read_config(filename)
                 self.update_config_from_dict(debug_configs) 
@@ -91,15 +95,22 @@ class Args:
             Args:
                 new_dict (dict): new dictionary to update self.config, can be nested, can be partial
             """
-            if isinstance(new_dict, dict):
-                new_dict = Box(new_dict)
+            if isinstance(new_dict, Box):
+                new_dict = new_dict.to_dict()
             
-            if not isinstance(new_dict, Box):
+            if not isinstance(new_dict, dict):
                 raise ValueError(f"new_dict must be a dictionary or a Box object, got {type(new_dict)}")
             
-            assert isinstance(self.configs, Box), f"self.config must be a Box object, got {type(self.configs)}"
+            self.configs = Box(update_nested_dict(self.configs.to_dict(), new_dict))
+            # if isinstance(new_dict, dict):
+            #     new_dict = Box(new_dict)
             
-            self.configs.merge_update(new_dict)
+            # if not isinstance(new_dict, Box):
+            #     raise ValueError(f"new_dict must be a dictionary or a Box object, got {type(new_dict)}")
+            
+            # assert isinstance(self.configs, Box), f"self.config must be a Box object, got {type(self.configs)}"
+            
+            # self.configs.merge_update(new_dict)
         
                                                 
 def parse_args(config_filename):
