@@ -315,32 +315,35 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
     
     if len(ecg_signals_batch[-1]) < MIN_WINDOW_SIZE_FOR_NK_ECG_PROCESS:
         return diffs
-        
-    # Assuming ecg_batch_pred is a torch tensor with shape (batch_size, channels, sequence_length)
-    # and sampling_rate is defined elsewhere.
+    
+    try:
+        # Assuming ecg_batch_pred is a torch tensor with shape (batch_size, channels, sequence_length)
+        # and sampling_rate is defined elsewhere.
 
-    # Convert ecg_batch_pred to numpy array
-    ecg_pred_batch_numpy = ecg_pred_batch.cpu().numpy()
+        # Convert ecg_batch_pred to numpy array
+        ecg_pred_batch_numpy = ecg_pred_batch.cpu().numpy()
 
-    # Initialize new_ecg_batch_pred tensor
-    # new_ecg_pred_batch = torch.zeros(ecg_pred_batch.shape[0], 2, ecg_pred_batch.shape[2])
+        # Initialize new_ecg_batch_pred tensor
+        # new_ecg_pred_batch = torch.zeros(ecg_pred_batch.shape[0], 2, ecg_pred_batch.shape[2])
 
-    ecg_pred_R_beats_batch_indices = []
+        ecg_pred_R_beats_batch_indices = []
 
-    # Iterate over each prediction in the batch and extract R peaks
-    for i, ecg_pred in enumerate(ecg_pred_batch_numpy):
-        ecg_pred = ecg_pred.squeeze()  # Remove singleton dimensions
-        # new_ecg_pred_batch[i][0] = torch.from_numpy(ecg_pred)  # Store the ECG prediction in the tensor
+        # Iterate over each prediction in the batch and extract R peaks
+        for i, ecg_pred in enumerate(ecg_pred_batch_numpy):
+            ecg_pred = ecg_pred.squeeze()  # Remove singleton dimensions
+            # new_ecg_pred_batch[i][0] = torch.from_numpy(ecg_pred)  # Store the ECG prediction in the tensor
 
-        _, info = nk.ecg_process(ecg_pred, sampling_rate=sampling_rate)
-        ecg_pred_R_beats_indices = info['ECG_R_Peaks']
-        ecg_pred_R_beats_batch_indices.append(ecg_pred_R_beats_indices)
+            _, info = nk.ecg_process(ecg_pred, sampling_rate=sampling_rate)
+            ecg_pred_R_beats_indices = info['ECG_R_Peaks']
+            ecg_pred_R_beats_batch_indices.append(ecg_pred_R_beats_indices)
 
 
-    ecg_R_beats_batch_indices = [torch.nonzero(row == 1).squeeze(1) for row in ecg_R_beats_batch]
+        ecg_R_beats_batch_indices = [torch.nonzero(row == 1).squeeze(1) for row in ecg_R_beats_batch]
 
-    diffs_by_r_indices_dict = differences_by_R_indices(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices, ecg_len=ecg_signals_batch.shape[1])
-    diffs.update(diffs_by_r_indices_dict)
+        diffs_by_r_indices_dict = differences_by_R_indices(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices, ecg_len=ecg_signals_batch.shape[1])
+        diffs.update(diffs_by_r_indices_dict)
+    except Exception as e:
+        print(f"Error: {e}")
 
     return diffs
 
