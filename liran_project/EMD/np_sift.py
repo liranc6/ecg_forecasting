@@ -1213,8 +1213,7 @@ def sift(X, sift_thresh=1e-8, energy_thresh=50, rilling_thresh=None,
     if not imf_opts:
         imf_opts = {'env_step_size': 1,
                     'sd_thresh': .1}
-    rilling_thresh = _set_rilling_defaults(rilling_thresh)
-
+        
     X = ensure_1d_with_singleton([X], ['X'], 'sift')
 
     _nsamples_warn(X.shape[0], max_imfs)
@@ -1225,7 +1224,7 @@ def sift(X, sift_thresh=1e-8, energy_thresh=50, rilling_thresh=None,
                                         max_imfs=max_imfs,
                                         sift_thresh=None,
                                         energy_thresh=None,
-                                        rilling_thresh=rilling_thresh,
+                                        rilling_thresh=None,
                                         envelope_opts=envelope_opts,
                                         extrema_opts=extrema_opts,
                                         merge_tests=True)
@@ -1258,7 +1257,7 @@ def sift(X, sift_thresh=1e-8, energy_thresh=50, rilling_thresh=None,
                                             max_imfs=max_imfs,
                                             sift_thresh=sift_thresh,
                                             energy_thresh=energy_thresh,
-                                            rilling_thresh=rilling_thresh,
+                                            rilling_thresh=None,
                                             envelope_opts=envelope_opts,
                                             extrema_opts=extrema_opts,
                                             merge_tests=True)
@@ -1311,12 +1310,12 @@ def ensure_1d_with_singleton(to_check, names, func_name):
         elif (xx.ndim >= 2) and np.all(xx.shape[1:] == np.ones_like(xx.shape[1:])) == False:  # noqa: E712
             # nd input where some trailing are not one
             msg = "Checking {0} inputs - trailing dims of input '{1}' {2} must be singletons (length=1)"
-            logger.error(msg.format(func_name, names[idx], xx.shape))
+            print(msg.format(func_name, names[idx], xx.shape))
             raise ValueError(msg)
         elif xx.ndim == 1:
             # Vector input - add a dummy dimension
             msg = "Checking {0} inputs - Adding dummy dimension to input '{1}'"
-            logger.debug(msg.format(func_name, names[idx]))
+            print(msg.format(func_name, names[idx]))
             out_args[idx] = out_args[idx][:, np.newaxis]
 
     if len(out_args) == 1:
