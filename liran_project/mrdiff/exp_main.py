@@ -23,9 +23,6 @@ exp_module_path = os.path.join(ProjectPath, 'mrDiff')
 sys.path.append(exp_module_path)
 
 # from mrDiff.exp.exp_main import Exp_Main
-from mrDiff.data_process.etth_dataloader import Dataset_ETT_hour, Dataset_ETT_minute, Dataset_Custom, Dataset_Wind, Dataset_Caiso, Dataset_Production, Dataset_Caiso_M, Dataset_Production_M
-from mrDiff.data_process.financial_dataloader import DatasetH
-from mrDiff.data_process.forecast_dataloader import ForecastDataset
 from mrDiff.exp.exp_basic import Exp_Basic
 from mrDiff.models_diffusion import DDPM
 from mrDiff.utils.tools import EarlyStopping, adjust_learning_rate, visual
@@ -127,8 +124,8 @@ class Exp_Main(Exp_Basic):
         elif flag == 'val':
             shuffle_flag = False
             drop_last = False
-            batch_size = self.args.optimization.batch_size
-            freq=self
+            batch_size = self.args.optimization.test_batch_size
+            freq=self.args.data.freq
             sampler = self._get_nth_sampler(dataset, n=8)
         else:
             raise ValueError("Invalid flag")
@@ -377,26 +374,47 @@ class Exp_Main(Exp_Basic):
                                     "Vali_Loss": vali_loss["loss"]
                                     })
             
-            if epoch >=10: # start early stopping and logging after 10 epochs
+            if epoch >= self.args.training.logging.log_start_epoch: # start early stopping and logging after x epochs
                     
                 filenames_to_save = self.early_stopping(val_loss=vali_loss['loss'], model=self.model, epoch=epoch, dir_path=self.args.paths.checkpoints, metrics=dict_vali_loss)
                 
                 if self.args.debug:
                     #remove all elem from filenames_to_save except "best_checkpoint.pth"
                     filenames_to_save = ["best_checkpoint.pth"] if "best_checkpoint.pth" in filenames_to_save else []
-                
+                else:
+                    filtered_filenames = []
+                    for filename in filenames_to_save:
+                        if filename in ["best_checkpoint.pth",
+                                        "best_checkp_dtw_dist.pth", 
+                                        "best_checkp_modified_chamfer_distance.pth",
+                                        "best_checkp_mean_extra_r_beats.pth"]:
+                            filtered_filenames.append(filename)
+
+                    # Assign the filtered list back to filenames_to_save
+                    filenames_to_save = filtered_filenames
+                            
                 tqdm.write(f"Saving checkpoints to dir: {self.args.paths.checkpoints}\n files: {filenames_to_save}")
-                
+                                
                 threads = []
+                
                 with stopwatch("Saving checkpoints"):
+                    model_state_dict= self.model.state_dict(), 
+                    model_optim_state_dict=self.model_optim.state_dict(),
+                    scheduler_state_dict=self.scheduler.state_dict(),
+                    checkpoints_dir_path = self.args.paths.checkpoints
+                    best_metrics=dict(self.early_stopping.best_metrics)
+                    
                     for filename_to_save in filenames_to_save:
                         thread = threading.Thread(target=self.save_checkpoint, 
-                                                    args=(vali_loss['loss'],  # val_loss
-                                                            self.model,  # model
-                                                            self.args.paths.checkpoints,  # dir_path
-                                                            epoch,  # epoch
-                                                            filename_to_save,  # filename
-                                                            self.early_stopping.best_metrics))  # metrics
+                                                    args=(  
+                                                            model_state_dict,
+                                                            model_optim_state_dict,
+                                                            scheduler_state_dict,
+                                                            checkpoints_dir_path,
+                                                            epoch,
+                                                            filename_to_save,
+                                                            best_metrics
+                                                        ))  # metrics
                         thread.start()
                         threads.append(thread)
                         
@@ -411,8 +429,9 @@ class Exp_Main(Exp_Basic):
                     tqdm.write(f"Saving logs to: {log_dir_path}")
                     
                     with stopwatch("Saving logs"):
-                        self.save_checkpoint(val_loss=vali_loss['loss'], 
-                                                model=self.model,
+                        self.save_checkpoint(model_state_dict=self.model.state_dict(), 
+                                                model_optim_state_dict=self.model_optim.state_dict(),
+                                                scheduler_state_dict=self.scheduler.state_dict(),
                                                 dir_path=log_dir_path,
                                                 epoch=epoch,
                                                 filename=f'{save_prev_cpt}_last_checkpoint.pth',
@@ -433,6 +452,8 @@ class Exp_Main(Exp_Basic):
         best_model_path = self.early_stopping.best_model_path
         print("Training finished")
         print(f"Best model path: ", best_model_path)
+        self.model = None
+        torch.cuda.clear_memory_allocated(self.device)
         checkpoint = torch.load(best_model_path)
         self.model.load_state_dict(checkpoint["model_state_dict"], strict=False)
 
@@ -701,34 +722,34 @@ class Exp_Main(Exp_Basic):
         for attr, value in self.__dict__.items():
             print(f"{attr}: {value}")
         
-    def save_checkpoint(self, val_loss, model, dir_path, epoch=0, filename='checkpoint.pth', metrics={}):
-        # check if model has save_checkpoint() method
-        if hasattr(model, 'save_checkpoint'):
-            print(f"saving checkpoint to: {dir_path=}, {filename=}")
-            model.save_checkpoint(dir_path=dir_path,
-                                    filename=filename,
-                                    epoch=epoch,
-                                    model=model,
-                                    val_loss=val_loss,
-                                    metrics=metrics
-                                    )
-        else:
+    def save_checkpoint(self, model_state_dict, model_optim_state_dict, scheduler_state_dict, dir_path, epoch, filename='checkpoint.pth', metrics={}):
+        # # check if model has save_checkpoint() method
+        # if hasattr(model, 'save_checkpoint'):
+        #     print(f"saving checkpoint to: {dir_path=}, {filename=}")
+        #     model.save_checkpoint(dir_path=dir_path,
+        #                             filename=filename,
+        #                             epoch=epoch,
+        #                             model=model,
+        #                             val_loss=val_loss,
+        #                             metrics=metrics
+        #                             )
+        # else:
             
-            os.makedirs(dir_path, exist_ok=True)
-            filename = os.path.join(dir_path, filename)
-            if os.path.exists(filename):
-                os.remove(filename)
-            
-            savings = {
-                        "model_state_dict": model.state_dict(),
-                        "optimizer_state": self.model_optim.state_dict(),
-                        "epoch": epoch,
-                        "loss_and_metrics": dict(metrics),
-                        "learning_rate_scheduler_state": self.scheduler.state_dict(),
-                        "configuration_parameters": self.args.configs.to_dict(),
-                    }
-            
-            torch.save(savings, filename)
+        os.makedirs(dir_path, exist_ok=True)
+        filename = os.path.join(dir_path, filename)
+        if os.path.exists(filename):
+            os.remove(filename)
+        
+        savings = {
+                    "model_state_dict": model_state_dict,
+                    "optimizer_state": model_optim_state_dict,
+                    "epoch": epoch,
+                    "loss_and_metrics": dict(metrics),
+                    "learning_rate_scheduler_state": scheduler_state_dict,
+                    "configuration_parameters": self.args.configs.to_dict(),
+                }
+        
+        torch.save(savings, filename)
             
         print("checkpoint saved")
     
