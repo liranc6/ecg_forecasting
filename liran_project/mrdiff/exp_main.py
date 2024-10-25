@@ -377,58 +377,57 @@ class Exp_Main(Exp_Basic):
                                     "Vali_Loss": vali_loss["loss"]
                                     })
             
-            #"Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(epoch + 1, train_steps, train_loss, vali_loss)
-            filenames_to_save = self.early_stopping(val_loss=vali_loss['loss'], model=self.model, epoch=epoch, dir_path=self.args.paths.checkpoints, metrics=dict_vali_loss)
-            
-            threads = []
-            
-            if self.args.debug:
-                #remove all elem from filenames_to_save except "best_checkpoint.pth"
-                filenames_to_save = ["best_checkpoint.pth"] if "best_checkpoint.pth" in filenames_to_save else []
-            
-            tqdm.write(f"Saving checkpoints to dir: {self.args.paths.checkpoints}\n files: {filenames_to_save}")
-                
-            with stopwatch("Saving checkpoints"):
-                for filename_to_save in filenames_to_save:
-                    thread = threading.Thread(target=self.save_checkpoint, 
-                                                args=(vali_loss['loss'],  # val_loss
-                                                        self.model,  # model
-                                                        self.args.paths.checkpoints,  # dir_path
-                                                        epoch,  # epoch
-                                                        filename_to_save,  # filename
-                                                        self.early_stopping.best_metrics))  # metrics
-                    thread.start()
-                    threads.append(thread)
+            if epoch >=10: # start early stopping and logging after 10 epochs
                     
-                # Optionally, wait for all threads to complete
-                for thread in threads:
-                    thread.join()
+                filenames_to_save = self.early_stopping(val_loss=vali_loss['loss'], model=self.model, epoch=epoch, dir_path=self.args.paths.checkpoints, metrics=dict_vali_loss)
                 
-            if self.early_stopping.early_stop:
-                print("Early stopping")
-                break
+                if self.args.debug:
+                    #remove all elem from filenames_to_save except "best_checkpoint.pth"
+                    filenames_to_save = ["best_checkpoint.pth"] if "best_checkpoint.pth" in filenames_to_save else []
+                
+                tqdm.write(f"Saving checkpoints to dir: {self.args.paths.checkpoints}\n files: {filenames_to_save}")
+                
+                threads = []
+                with stopwatch("Saving checkpoints"):
+                    for filename_to_save in filenames_to_save:
+                        thread = threading.Thread(target=self.save_checkpoint, 
+                                                    args=(vali_loss['loss'],  # val_loss
+                                                            self.model,  # model
+                                                            self.args.paths.checkpoints,  # dir_path
+                                                            epoch,  # epoch
+                                                            filename_to_save,  # filename
+                                                            self.early_stopping.best_metrics))  # metrics
+                        thread.start()
+                        threads.append(thread)
+                        
+                    # Optionally, wait for all threads to complete
+                    for thread in threads:
+                        thread.join()
+
+                if (not self.args.debug) and epoch % self.args.training.logging.log_interval == 0:
+                
+                    log_dir_path = os.path.join(self.args.paths.checkpoints, 'logs')
+                    
+                    tqdm.write(f"Saving logs to: {log_dir_path}")
+                    
+                    with stopwatch("Saving logs"):
+                        self.save_checkpoint(val_loss=vali_loss['loss'], 
+                                                model=self.model,
+                                                dir_path=log_dir_path,
+                                                epoch=epoch,
+                                                filename=f'{save_prev_cpt}_last_checkpoint.pth',
+                                                metrics=dict(self.early_stopping.best_metrics)
+                                            )
+                    save_prev_cpt = 1 - save_prev_cpt
+                    
+                if self.early_stopping.early_stop:
+                    print("Early stopping - stopped training")
+                    break
 
             if self.args.optimization.lradj != 'TST':
                 adjust_learning_rate(self.model_optim, self.scheduler, epoch + 1, self.args)
             else:
                 print('Updating learning rate to {}'.format(self.scheduler.get_last_lr()[0]))
-                
-            if epoch % self.args.training.logging.log_interval == 0:
-                
-                log_dir_path = os.path.join(self.args.paths.checkpoints, 'logs')
-                
-                tqdm.write(f"Saving logs to: {log_dir_path}")
-                
-                with stopwatch("Saving logs"):
-                    self.save_checkpoint(val_loss=vali_loss['loss'], 
-                                            model=self.model,
-                                            dir_path=log_dir_path,
-                                            epoch=epoch,
-                                            filename=f'{save_prev_cpt}_last_checkpoint.pth',
-                                            metrics=dict(self.early_stopping.best_metrics)
-                                        )
-                save_prev_cpt = 1 - save_prev_cpt
-                
                 
                 
         best_model_path = self.early_stopping.best_model_path

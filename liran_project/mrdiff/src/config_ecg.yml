@@ -2,11 +2,11 @@ project_path: '/home/liranc6/ecg_forecasting'
 
 tqdm: "terminal" # ["terminal", "notebook"]
 
-debug: True  # debug mode
+debug: False  # debug mode
   # debug_config_path: "/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/debug_config_ecg.yml"
 
 resume_exp:
-  resume: True  # resume training
+  resume: False  # resume training
   resume_from: 9  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
   resume_optimizer: True
   resume_epoch: 9
@@ -21,9 +21,9 @@ wandb:
   entity: 'liranc6'  # wandb entity
   mode: 'online'  # [online, disabled, offline]
   project: 'mrdiff'  # wandb project name
-  resume: 'must'  # ["allow", "must", "never", "auto", "None"]
+  resume: 'None'  # ["allow", "must", "never", "auto", "None"]
   run_name: "None" # wandb run name
-  id: '58xo7zdv'  # wandb run id
+  id: 'None'  # wandb run id
   save_code: False  # save code to wandb
   resume_from: "None"  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
 
@@ -40,9 +40,9 @@ optimization:
   learning_rate: 0.001  # optimizer learning rate
   batch_size: 16  # batch size of train input data
   test_batch_size: 32  # batch size of test input data
-  patience: 10  # early stopping patience
+  patience: 30  # early stopping patience
   weight_decay: 0.00001  # weight_decay
-  lradj: '3'  # adjust learning rate
+  lradj: '3'  # adjust learning rate (Learning Rate ADJustment)  # ['TST', 'type1', 'type2', 'type3', 'constant', '1', '2', '3', '4', '5']
   pct_start: 0.3  # Percentage of training where learning rate increases
 
 hardware:

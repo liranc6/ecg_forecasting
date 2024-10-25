@@ -15,15 +15,15 @@ data:
 
 training:
 
-  # sequence:
+  sequence:
     # len = minutes * seconds * fs
-    # context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
-    # seq_len: 56250 # input_length; window size
-    # label_len: 52500  # I think its context len # in minutes # start token length of Informer decoder
-    # pred_len: 3750  # I think its label/forecast len # prediction sequence length, horizon
+    context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
+    seq_len: 56250 # input_length; window size
+    label_len: 52500  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 3750  # I think its label/forecast len # prediction sequence length, horizon
 
   iterations:
-    train_epochs: 40  # train epochs
+    train_epochs: 50  # train epochs
     sample_times: 1
 
   patients:
