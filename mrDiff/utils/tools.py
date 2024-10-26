@@ -163,7 +163,7 @@ class StandardScaler():
         std = torch.from_numpy(self.std).type_as(data).to(data.device) if torch.is_tensor(data) else self.std
         return (data * std) + mean
 
-def visual(history, true, preds=None, name='./pic/test.pdf'):
+def visual(history, true, preds=None, name='./pic/test.pdf', dpi=300):
     """
     Results visualization
     """
@@ -182,7 +182,7 @@ def visual(history, true, preds=None, name='./pic/test.pdf'):
     plt.legend()
     plt.tight_layout()
     print(name)
-    plt.savefig(name, bbox_inches='tight') 
+    plt.savefig(name, bbox_inches='tight', dpi=dpi) 
 
     f = open(name[:-4]+'.pkl', "wb")
     pickle.dump(preds, f)
@@ -195,7 +195,6 @@ def visual(history, true, preds=None, name='./pic/test.pdf'):
     f = open(name[:-4]+'_history.pkl', "wb")
     pickle.dump(history, f)
     f.close()
-
 
 
         

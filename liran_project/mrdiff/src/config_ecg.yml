@@ -64,16 +64,16 @@ paths:
   
 data:
   fs: 250
-  freq: 'h'  # Options: [s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly], or more detailed freq like 15min or 3h
+  # freq: 'h'  # Options: [s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly], or more detailed freq like 15min or 3h
   embed: 'timeF'  # Options: [timeF, fixed, learned]
   cols: []  # file list
   target: -1  # target feature
-  inverse: false  # denorm the output data
+  inverse: True  # denorm the output data
   individual: true  # DLinear: a linear layer for each variate(channel) individually
   use_ar_init: false  # use autoregressive initialization
   use_residual: true
   uncertainty: false
-  norm_method: 'z_score'  # ['None', 'z_score', 'min_max']
+  norm_method: 'None'  # ['None', 'z_score', 'min_max']
   normtype: 0
 
 
@@ -105,8 +105,8 @@ training:
     # len = minutes * seconds * fs
     context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
     seq_len: 112500 # input_length; window size
-    label_len: 105000  # I think its context len # in minutes # start token length of Informer decoder
-    pred_len: 7500  # I think its label/forecast len # prediction sequence length, horizon
+    label_len: 109500  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 3000  # I think its label/forecast len # prediction sequence length, horizon
 
   model_info:
     opt_loss_type: 'mse'

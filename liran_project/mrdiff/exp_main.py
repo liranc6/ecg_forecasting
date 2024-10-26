@@ -15,6 +15,7 @@ sys.path.append(ProjectPath)
 
 from liran_project.mrdiff.src.parser import parse_args
 from liran_project.utils.dataset_loader import SingleLeadECGDatasetCrops_mrDiff as DataSet
+from liran_project.utils.dataset_loader import de_normalized
 from liran_project.utils.util import ecg_signal_difference, check_gpu_memory_usage, stopwatch, update_nested_dict
 from liran_project.utils.common import *
 
@@ -452,33 +453,31 @@ class Exp_Main(Exp_Basic):
         best_model_path = self.early_stopping.best_model_path
         print("Training finished")
         print(f"Best model path: ", best_model_path)
-        self.model = None
-        torch.cuda.clear_memory_allocated(self.device)
+        del self.model_optim
+        del self.scheduler
+        del self.early_stopping
+        del self.dataloaders
+        del self.datasets
+        torch.cuda.empty_cache()
         checkpoint = torch.load(best_model_path)
         self.model.load_state_dict(checkpoint["model_state_dict"], strict=False)
 
         return self.model
 
 
-    def test(self, setting, time_path=None, test=0, visualize=False):
+    def test(self, setting, time_path=None, test=0, visualize=False, chpt_path=None):
 
-        if "test" not in self.dataloaders.keys():
-            test_data, test_loader = self._get_data(flag='test')
-        else:
-            test_data, test_loader = self.datasets['test'], self.dataloaders['test']
+        test_data, test_loader = self._get_data(flag='test')
         
         if time_path is None:
             if self.model_start_training_time is None:
                 time_now = time.time()
-                str_time_now = time.strftime("%d_%m_%Y_%H%M", time.localtime(time_now))
-                self.model_start_training_time = str_time_now
+                self.model_start_training_time = time.strftime("%d_%m_%Y_%H%M", time.localtime(time_now))
             time_path = self.model_start_training_time
             assert time_path is not None, "time_path is None. Please provide a time_path from when the model was trained."
         if test:
             print('loading model')
-            best_model_path = os.path.join(self.args.paths.checkpoints,'best_checkpoint.pth')
-            checkpoint = torch.load(best_model_path)
-            self.model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+            self.load_checkpoint(chpt_path)
 
         preds = []
         trues = []
@@ -488,12 +487,11 @@ class Exp_Main(Exp_Basic):
         str_start_time = time.strftime("%d_%m_%Y_%H%M", time.localtime(start_time))
         
         folder_path = os.path.join(self.args.paths.checkpoints, setting, str_start_time)
-        if not os.path.exists(folder_path):
-            os.makedirs(folder_path)
+        os.makedirs(folder_path, exist_ok=True)
             
         # add the folder a note stating the path of the model used
         note_filename = os.path.join(folder_path, 'note.txt')
-        note = f"Model used: {best_model_path}\n"\
+        note = f"Model used: {chpt_path}\n"\
                         f"Time: {str_start_time}\n"\
                         f"Setting: {setting}\n"\
         
@@ -510,8 +508,8 @@ class Exp_Main(Exp_Basic):
                 batch_x = batch_x.float().to(self.device)
                 batch_y = batch_y.float().to(self.device)
 
-                batch_x_mark = batch_x_mark.float().to(self.device)
-                batch_y_mark = batch_y_mark.float().to(self.device)
+                # batch_x_mark = batch_x_mark.float().to(self.device)
+                # batch_y_mark = batch_y_mark.float().to(self.device)
                 
                 # encoder - decoder           
                 
@@ -526,30 +524,43 @@ class Exp_Main(Exp_Basic):
                 outputs = outputs.detach()[:, -self.args.training.sequence.pred_len:, :]
                 batch_y_without_RR = batch_y_without_RR.detach()[:, -self.args.training.sequence.pred_len:, :]
                 batch_y_with_RR = batch_y.detach()[:, :, -self.args.training.sequence.pred_len:]
-                outputs = outputs.cpu().numpy()
-                batch_y_without_RR = batch_y_without_RR.cpu().numpy()
+                # outputs = outputs.cpu().numpy()
+                # batch_y_without_RR = batch_y_without_RR.cpu().numpy()
 
                 pred = outputs  # outputs.detach().cpu().numpy()  # .squeeze()
                 true = batch_y_without_RR  # batch_y.detach().cpu().numpy()  # .squeeze()
 
                 # print(np.shape(pred), np.shape(true))
                 # (32, 12, 1) (32, 12, 1)
-                his = batch_x_without_RR.detach().cpu().numpy()
+                his = batch_x_without_RR.detach()
 
-                if self.args.data.inverse:
-                    B, L, D = np.shape(pred)
+                if self.args.data.inverse or True: #for now
+                    
+                    his = his.permute(0, 2, 1) # B, L, D -> B, D, L
+                    pred = pred.permute(0, 2, 1)
+                    true = true.permute(0, 2, 1)
+                    
+                    his = de_normalized(his, test_data.normalize_method, test_data.norm_statistics)
+                    pred = de_normalized(pred, test_data.normalize_method, test_data.norm_statistics)
+                    true = de_normalized(true, test_data.normalize_method, test_data.norm_statistics)
+                    
+                    his = his.permute(0, 2, 1)
+                    pred = pred.permute(0, 2, 1)
+                    true = true.permute(0, 2, 1)
+                    
+                    # B, L, D = np.shape(pred)
 
-                    pred = rearrange(pred, 'b l d -> (b l) d')
-                    true = rearrange(true, 'b l d -> (b l) d')
-                    his = rearrange(his, 'b l d -> (b l) d')
+                    # pred = rearrange(pred, 'b l d -> (b l) d')
+                    # true = rearrange(true, 'b l d -> (b l) d')
+                    # his = rearrange(his, 'b l d -> (b l) d')
 
-                    pred = test_data.inverse_transform(pred)
-                    true = test_data.inverse_transform(true)
-                    his = test_data.inverse_transform(his)
+                    # pred = test_data.inverse_transform(pred)
+                    # true = test_data.inverse_transform(true)
+                    # his = test_data.inverse_transform(his)
             
-                    pred = rearrange(pred, '(b l) d -> b l d', b=B, l=L)
-                    true = rearrange(true, '(b l) d -> b l d', b=B, l=L)
-                    his = rearrange(his, '(b l) d -> b l d', b=B)
+                    # pred = rearrange(pred, '(b l) d -> b l d', b=B, l=L)
+                    # true = rearrange(true, '(b l) d -> b l d', b=B, l=L)
+                    # his = rearrange(his, '(b l) d -> b l d', b=B)
 
                 
                 # if i == 0:
@@ -560,26 +571,24 @@ class Exp_Main(Exp_Basic):
                 #     trues = np.concatenate((trues, true), axis=0)
 
                 # inputx.append(his)
-                if i % 1 == 0 and i < 20:
-                    input = his # batch_x.detach().cpu().numpy()
-
-                    id_worst = self.args.training.identifiers.id_worst # -1 # -1
-
-                    history = input[0, -336:, id_worst]
-                    gt = true[0, :, id_worst]
-                    pd = pred[0, :, id_worst]
-                    if visualize:
-                        visual(history, gt, pd, os.path.join(folder_path, str(i) + '.png'))
-                        
+                if visualize:
+                    his = his[:, -self.args.data.fs:, :]
+                    for sample in range(pred.shape[0]): # B, L, D
+                        history = his[sample, :, 0].cpu().numpy()
+                        gt = true[sample, :, 0].cpu().numpy()
+                        pd = pred[sample, :, 0].cpu().numpy()
+                        visual(history, gt, pd, os.path.join(folder_path, str(sample) + '.png'), dpi=200+sample*20)
+                
+                """
                 # result saves
                 metrics_keys = ['mae', 'mse', 'rmse', 'mape', 'mspe', 'rse', 'corr', 'nrmse']
-                metrics_vals = metric(pred, true)
+                # metrics_vals = metric(pred, true)
                 metrics_dict = {}
 
-                for i in range(len(metrics_keys)):
-                    metrics_dict[metrics_keys[i]] = metrics_vals[i]
+                # for i in range(len(metrics_keys)):
+                #     metrics_dict[metrics_keys[i]] = metrics_vals[i]
 
-                results.append_metrics(metrics_dict)
+                # results.append_metrics(metrics_dict)
                 
                 
                 if isinstance(true, np.ndarray):
@@ -594,7 +603,7 @@ class Exp_Main(Exp_Basic):
                     pred = torch.from_numpy(pred).permute(0, 2, 1)
                     
                 results.append_ecg_signal_difference(true, pred, self.args.data.fs)
-                
+                """
                 end_time = time.time()
                 elapsed_time_ms = (end_time - start_time) * 1000 / np.shape(batch_x_without_RR)[0]
 
@@ -610,7 +619,7 @@ class Exp_Main(Exp_Basic):
         # trues = np.array(trues)
         # inputx = np.array(inputx)
         
-        print(">>------------------>", np.shape(preds), np.shape(trues))
+        # print(">>------------------>", np.shape(preds), np.shape(trues))
 
         id_worst = None
         
@@ -653,13 +662,12 @@ class Exp_Main(Exp_Basic):
 
         
             
-        test_loss = results.calc_mean()
-        log = {f"test_{key}": value for key, value in test_loss.items() if value != 0}
+        # test_loss = results.calc_mean()
+        # log = {f"test_{key}": value for key, value in test_loss.items() if value != 0}
         
-        # note += f"Test loss: {test_loss=}\n"
-        wandb.log(log)
+        # print(f"{log=}")
 
-        return test_loss
+        return None #test_loss
     
     def load_checkpoint(self, filename):
         checkpoint = torch.load(filename, map_location='cpu')
@@ -669,7 +677,7 @@ class Exp_Main(Exp_Basic):
         
         try:
             model_state_dict = checkpoint["model_state_dict"]
-            self.model.load_state_dict(model_state_dict, strict=False)
+            self.model.load_state_dict(dict(model_state_dict[0]), strict=False)
             
             args_configs_box = self.args.configs
             resume_exp_config = {"resume_exp": self.args.resume_exp}
@@ -680,7 +688,7 @@ class Exp_Main(Exp_Basic):
                     args_configs_box['resume_exp'] = args_configs_box['resume']
                     del args_configs_box['resume']
                 
-                args_configs_box = Box(update_nested_dict(args_configs_box.to_dict(), resume_exp_config.to_dict()))
+                args_configs_box = Box(update_nested_dict(args_configs_box, resume_exp_config))
                 
             if resume_config["resume_optimizer"]:
                 self.model_optim.load_state_dict(checkpoint["optimizer_state"])
@@ -695,14 +703,8 @@ class Exp_Main(Exp_Basic):
             self.args.update_config_from_dict(args_configs_box)
             self.args.resume_exp.was_resumed = True
             
-            if (self.args.resume_exp.resume and self.args.resume_exp.resume_configuration) and self.configs['debug']:
+            if (self.args.resume_exp.resume and self.args.resume_exp.resume_configuration) and self.args.debug:
                 print("\033[93mWarning: Resume configuration is enabled, but debug mode is also enabled. Debug mode will override resume configuration.\033[0m")
-    
-            if self.args.resume_exp.resume and self.args.resume_exp.resume_configuration:
-                    resume_config = self.args.resume_exp
-                    checkpoint = torch.load(self.resume_exp.specific_chpt_path, map_location='cpu')
-                    self.args.update_config_from_dict(checkpoint["configuration_parameters"])
-                    self.args.resume_exp = resume_config
                     
             if self.args.configs['debug'] and self.configs['paths']['debug_config_path'] != "None":
                 filename = self.configs['paths']['debug_config_path']

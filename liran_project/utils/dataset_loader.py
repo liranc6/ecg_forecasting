@@ -303,6 +303,22 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
         return stats     
             
 def normalized(data, normalize_method, norm_statistics):
+    """
+    Normalize the given data using the specified normalization method.
+
+    Parameters:
+    data (array-like): The data to be normalized. shape=(B, 1, L)
+    normalize_method (str): The normalization method to use. 
+                            Options are 'min_max' for Min-Max normalization 
+                            and 'z_score' for Z-score normalization.
+    norm_statistics (dict): A dictionary containing the necessary statistics 
+                            for normalization. For 'min_max', it should contain 
+                            'min' and 'max'. For 'z_score', it should contain 
+                            'mean' and 'std'.
+
+    Returns:
+    array-like: The normalized data.
+    """
     if normalize_method == 'min_max':
         scale = norm_statistics['max'] - norm_statistics['min']
         data = (data - norm_statistics['min']) / scale
@@ -313,6 +329,18 @@ def normalized(data, normalize_method, norm_statistics):
     return data
 
 def de_normalized(data, normalize_method, norm_statistics):
+    """
+    De-normalizes the given data based on the specified normalization method and statistics.
+
+    Parameters:
+    data (numpy.ndarray or similar): The normalized data to be de-normalized. shape=(B, 1, L)
+    normalize_method (str): The normalization method used. Supported methods are 'min_max' and 'z_score'.
+    norm_statistics (dict): The statistics used for normalization. For 'min_max', it should contain 'min' and 'max'.
+                            For 'z_score', it should contain 'mean' and 'std'.
+
+    Returns:
+    numpy.ndarray or similar: The de-normalized data.
+    """
     if normalize_method == 'min_max':
         scale = norm_statistics['max'] - norm_statistics['min']
         data = data * scale + norm_statistics['min']
