@@ -81,7 +81,7 @@ training:
 
   logging:
     sample: false
-    log_interval: 2  # logging interval
+    log_interval: 5  # logging interval
     save_interval: 1  # save interval
     save_best: true  # save best model
     save_dir: '/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff'  # save directory
@@ -105,8 +105,8 @@ training:
     # len = minutes * seconds * fs
     context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
     seq_len: 112500 # input_length; window size
-    label_len: 109500  # I think its context len # in minutes # start token length of Informer decoder
-    pred_len: 3000  # I think its label/forecast len # prediction sequence length, horizon
+    label_len: 105000  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 7500  # I think its label/forecast len # prediction sequence length, horizon
 
   model_info:
     opt_loss_type: 'mse'
