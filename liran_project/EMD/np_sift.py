@@ -1308,6 +1308,7 @@ def ensure_1d_with_singleton(to_check, names, func_name):
             logger.debug(msg.format(func_name, names[idx], xx.shape))
             out_args[idx] = np.squeeze(xx)[:, np.newaxis]
         elif (xx.ndim >= 2) and np.all(xx.shape[1:] == np.ones_like(xx.shape[1:])) == False:  # noqa: E712
+            assert False, "Should never get here"
             # nd input where some trailing are not one
             msg = "Checking {0} inputs - trailing dims of input '{1}' {2} must be singletons (length=1)"
             print(msg.format(func_name, names[idx], xx.shape))
