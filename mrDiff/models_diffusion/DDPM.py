@@ -281,8 +281,11 @@ class Model(nn.Module):
                 batch_x_trends.append(batch_x_trend.permute(0,2,1))
                 batch_x_trend_0 = batch_x_trend
                 
-        
-
+        if self.args.training.smoothing.reverse_order:
+            batch_x_trends.reverse()
+            
+        del batch_x
+        torch.cuda.empty_cache()
         # plt.savefig("demo_haha.png")
         return batch_x_trends
 

@@ -740,10 +740,10 @@ class Exp_Main(Exp_Basic):
         
         savings = {
                     "model_state_dict": model_state_dict,
-                    "optimizer_state": model_optim_state_dict,
+                    "optimizer_state": None, #model_optim_state_dict,
                     "epoch": epoch,
                     "loss_and_metrics": dict(metrics),
-                    "learning_rate_scheduler_state": scheduler_state_dict,
+                    "learning_rate_scheduler_state": None, #scheduler_state_dict,
                     "configuration_parameters": self.args.configs.to_dict(),
                 }
         

@@ -22,9 +22,9 @@ data:
 training:
 
   sequence:
-    seq_len: 56250 # input_length; window size
-    label_len: 52500  # I think its context len # in minutes # start token length of Informer decoder
-    pred_len: 3750  # I think its label/forecast len # prediction sequence length, horizon
+    seq_len: 112500 # input_length; window size
+    label_len: 109500  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 3000  # I think its label/forecast len # prediction sequence length, horizon
 
   iterations:
     train_epochs: 2  # train epochs

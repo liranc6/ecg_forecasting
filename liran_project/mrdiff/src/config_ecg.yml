@@ -110,9 +110,9 @@ training:
   sequence:
     # len = minutes * seconds * fs
     context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
-    seq_len: 112500 # input_length; window size
-    label_len: 105000  # I think its context len # in minutes # start token length of Informer decoder
-    pred_len: 7500  # I think its label/forecast len # prediction sequence length, horizon
+    seq_len: 97500 # input_length; window size
+    label_len: 80000  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 7000  # I think its label/forecast len # prediction sequence length, horizon
 
   model_info:
     opt_loss_type: 'mse'
@@ -128,6 +128,7 @@ training:
     channel_independence: false
 
   smoothing:
+    reverse_order: True  # reverse order of the smoothed factors
     smoothed_factors: [11, 21, 31]  # mast be odd (non-even) numbers. List of smoothed factors, [5, 25, 51] are the kernel sizes for the smoothing
 
   ode:
