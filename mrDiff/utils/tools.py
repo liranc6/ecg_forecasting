@@ -41,7 +41,7 @@ def adjust_learning_rate(optimizer, scheduler, epoch, args, printout=True):
 
 
 class EarlyStopping:
-    def __init__(self, patience=7, verbose=False, delta=0):
+    def __init__(self, patience=10, verbose=False, delta=0):
         self.patience = patience
         self.verbose = verbose
         self.counter = 0
@@ -66,7 +66,7 @@ class EarlyStopping:
             self.counter += 1
             print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
             if self.counter >= self.patience:
-                self.early_stop = filename
+                self.early_stop = True
         else:
             self.best_score = score
             self.save_checkpoint(val_loss = val_loss, model = model, dir_path = dir_path, epoch=epoch, filename = filename, metrics=metrics)
@@ -88,12 +88,12 @@ class EarlyStopping:
 
     def save_checkpoint(self, val_loss, model, dir_path, epoch=0, filename='checkpoint.pth', metrics={}):
         
+        return
         # print(f"saving checkpoint to: {dir_path=}, {filename=}")
         
         if self.verbose:
             print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
         
-        return
     
         # check if model has save_checkpoint() method
         if hasattr(model, 'save_checkpoint'):
@@ -163,7 +163,7 @@ class StandardScaler():
         std = torch.from_numpy(self.std).type_as(data).to(data.device) if torch.is_tensor(data) else self.std
         return (data * std) + mean
 
-def visual(history, true, preds=None, name='./pic/test.pdf'):
+def visual(history, true, preds=None, name='./pic/test.pdf', dpi=300):
     """
     Results visualization
     """
@@ -182,7 +182,7 @@ def visual(history, true, preds=None, name='./pic/test.pdf'):
     plt.legend()
     plt.tight_layout()
     print(name)
-    plt.savefig(name, bbox_inches='tight') 
+    plt.savefig(name, bbox_inches='tight', dpi=dpi) 
 
     f = open(name[:-4]+'.pkl', "wb")
     pickle.dump(preds, f)
@@ -195,7 +195,6 @@ def visual(history, true, preds=None, name='./pic/test.pdf'):
     f = open(name[:-4]+'_history.pkl', "wb")
     pickle.dump(history, f)
     f.close()
-
 
 
         

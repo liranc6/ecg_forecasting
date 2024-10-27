@@ -15,14 +15,6 @@ sys.path.append(ProjectPath)
 
 from liran_project.utils.common import *
 
-# Function to display the stopwatch
-def stopwatch(msg="Reading data"):
-    start_time = time.time()
-    while not stop_event.is_set():
-        elapsed_time = time.time() - start_time
-        print(f"\r{msg}... {elapsed_time:.2f} seconds elapsed", end="")
-        time.sleep(0.5)
-
 # Event to signal the stopwatch to stop
 stop_event = threading.Event()
 
@@ -241,9 +233,9 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
             for i in range(len(to_cache)):
                 self.cache.popitem(last=True)
 
-        to_cache = normalized(to_cache, self.normalize_method, self.norm_statistics)
         
         if self.data_with_RR:
+            to_cache[:, 0, :] = normalized(to_cache[:, 0, :], self.normalize_method, self.norm_statistics)
             for i in range(len(to_cache)):
                 window = to_cache[i]
                 signal_len = len(window[0])
@@ -252,6 +244,7 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
                 y = window[:, advance + self.context_window_size : advance + self.context_window_size + self.label_window_size]
                 self.cache[idx + i] = (x, y)
         else:
+            to_cache = normalized(to_cache, self.normalize_method, self.norm_statistics)
             for i in range(len(to_cache)):
                 window = to_cache[i]
                 window = window[0]
@@ -306,9 +299,26 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
 
         # Avoid zero std dev
         std = np.where(std == 0, 1, std)  # Log a warning if std is 1
-        return mean, std, max_val, min_val     
+        stats = {'mean': mean, 'std': std, 'max': max_val, 'min': min_val}
+        return stats     
             
 def normalized(data, normalize_method, norm_statistics):
+    """
+    Normalize the given data using the specified normalization method.
+
+    Parameters:
+    data (array-like): The data to be normalized. shape=(B, 1, L)
+    normalize_method (str): The normalization method to use. 
+                            Options are 'min_max' for Min-Max normalization 
+                            and 'z_score' for Z-score normalization.
+    norm_statistics (dict): A dictionary containing the necessary statistics 
+                            for normalization. For 'min_max', it should contain 
+                            'min' and 'max'. For 'z_score', it should contain 
+                            'mean' and 'std'.
+
+    Returns:
+    array-like: The normalized data.
+    """
     if normalize_method == 'min_max':
         scale = norm_statistics['max'] - norm_statistics['min']
         data = (data - norm_statistics['min']) / scale
@@ -319,6 +329,18 @@ def normalized(data, normalize_method, norm_statistics):
     return data
 
 def de_normalized(data, normalize_method, norm_statistics):
+    """
+    De-normalizes the given data based on the specified normalization method and statistics.
+
+    Parameters:
+    data (numpy.ndarray or similar): The normalized data to be de-normalized. shape=(B, 1, L)
+    normalize_method (str): The normalization method used. Supported methods are 'min_max' and 'z_score'.
+    norm_statistics (dict): The statistics used for normalization. For 'min_max', it should contain 'min' and 'max'.
+                            For 'z_score', it should contain 'mean' and 'std'.
+
+    Returns:
+    numpy.ndarray or similar: The de-normalized data.
+    """
     if normalize_method == 'min_max':
         scale = norm_statistics['max'] - norm_statistics['min']
         data = data * scale + norm_statistics['min']

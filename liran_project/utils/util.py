@@ -10,6 +10,13 @@ from fastdtw import fastdtw
 import neurokit2 as nk
 # from tqdm import tqdm
 from scipy.spatial import distance
+import threading
+import time
+import logging
+import socket
+from datetime import datetime, timedelta
+from torchvision import models
+from box import Box
 
 SAMPLING_RATE = 250
 MIN_WINDOW_SIZE_FOR_NK_ECG_PROCESS = 10*SAMPLING_RATE
@@ -308,32 +315,35 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
     
     if len(ecg_signals_batch[-1]) < MIN_WINDOW_SIZE_FOR_NK_ECG_PROCESS:
         return diffs
-        
-    # Assuming ecg_batch_pred is a torch tensor with shape (batch_size, channels, sequence_length)
-    # and sampling_rate is defined elsewhere.
+    
+    try:
+        # Assuming ecg_batch_pred is a torch tensor with shape (batch_size, channels, sequence_length)
+        # and sampling_rate is defined elsewhere.
 
-    # Convert ecg_batch_pred to numpy array
-    ecg_pred_batch_numpy = ecg_pred_batch.cpu().numpy()
+        # Convert ecg_batch_pred to numpy array
+        ecg_pred_batch_numpy = ecg_pred_batch.cpu().numpy()
 
-    # Initialize new_ecg_batch_pred tensor
-    # new_ecg_pred_batch = torch.zeros(ecg_pred_batch.shape[0], 2, ecg_pred_batch.shape[2])
+        # Initialize new_ecg_batch_pred tensor
+        # new_ecg_pred_batch = torch.zeros(ecg_pred_batch.shape[0], 2, ecg_pred_batch.shape[2])
 
-    ecg_pred_R_beats_batch_indices = []
+        ecg_pred_R_beats_batch_indices = []
 
-    # Iterate over each prediction in the batch and extract R peaks
-    for i, ecg_pred in enumerate(ecg_pred_batch_numpy):
-        ecg_pred = ecg_pred.squeeze()  # Remove singleton dimensions
-        # new_ecg_pred_batch[i][0] = torch.from_numpy(ecg_pred)  # Store the ECG prediction in the tensor
+        # Iterate over each prediction in the batch and extract R peaks
+        for i, ecg_pred in enumerate(ecg_pred_batch_numpy):
+            ecg_pred = ecg_pred.squeeze()  # Remove singleton dimensions
+            # new_ecg_pred_batch[i][0] = torch.from_numpy(ecg_pred)  # Store the ECG prediction in the tensor
 
-        _, info = nk.ecg_process(ecg_pred, sampling_rate=sampling_rate)
-        ecg_pred_R_beats_indices = info['ECG_R_Peaks']
-        ecg_pred_R_beats_batch_indices.append(ecg_pred_R_beats_indices)
+            _, info = nk.ecg_process(ecg_pred, sampling_rate=sampling_rate)
+            ecg_pred_R_beats_indices = info['ECG_R_Peaks']
+            ecg_pred_R_beats_batch_indices.append(ecg_pred_R_beats_indices)
 
 
-    ecg_R_beats_batch_indices = [torch.nonzero(row == 1).squeeze(1) for row in ecg_R_beats_batch]
+        ecg_R_beats_batch_indices = [torch.nonzero(row == 1).squeeze(1) for row in ecg_R_beats_batch]
 
-    diffs_by_r_indices_dict = differences_by_R_indices(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices, ecg_len=ecg_signals_batch.shape[1])
-    diffs.update(diffs_by_r_indices_dict)
+        diffs_by_r_indices_dict = differences_by_R_indices(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices, ecg_len=ecg_signals_batch.shape[1])
+        diffs.update(diffs_by_r_indices_dict)
+    except Exception as e:
+        print(f"Error: {e}")
 
     return diffs
 
@@ -847,3 +857,104 @@ def check_gpu_memory_usage(device_id=0):
     else:
         print("CUDA is not available.")
         return None
+
+# Function to display the stopwatch
+# Event to signal the stopwatch to stop
+class stopwatch:
+    def __init__(self, msg="running"):
+        self.stop_event = threading.Event()
+        self.msg = msg
+    
+    def __enter__(self):
+        self.stop_event.clear()
+        self.thread = threading.Thread(target=self._stopwatch, args=(self.msg,))
+        self.thread.start()
+        return self.stop_event
+    
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.stop_event.set()
+        self.thread.join()
+    
+    def _stopwatch(self, msg):
+        start_time = time.time()
+        while not self.stop_event.is_set():
+            elapsed_time = time.time() - start_time
+            print(f"\r{msg}... {elapsed_time:.2f} seconds elapsed", end="", flush=True)
+            time.sleep(0.5)
+
+
+class Debbuger:
+    def __init__(self, debug=False, filename=None):
+        self.debug = debug
+        logging.basicConfig(
+                            format="%(levelname)s:%(asctime)s %(message)s",
+                            level=logging.INFO,
+                            datefmt="%Y-%m-%d %H:%M:%S",
+                            )
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(level=logging.INFO)
+        self.time_format_str = "%b_%d_%H_%M_%S"
+        self.max_num_of_mem_events_per_snapshot = 100000
+        self.filename = filename
+        
+    def __enter__(self):
+        if not self.debug:
+            return
+        
+        # start record memory history
+        if not torch.cuda.is_available():
+            self.logger.info("CUDA unavailable. Not recording memory history")
+            return
+
+        self.logger.info("Starting snapshot record_memory_history")
+        torch.cuda.memory._record_memory_history(
+            max_entries=self.max_num_of_mem_events_per_snapshot
+        )
+        
+    def __exit__(self, exc_type, exc_value, traceback):
+        if not self.debug:
+            return
+        if not torch.cuda.is_available():
+            self.logger.info("CUDA unavailable. Not recording memory history")
+            return
+
+        self._export_memory_snapshot()
+        
+    def _export_memory_snapshot(self,) -> None:
+        if not torch.cuda.is_available():
+            self.logger.info("CUDA unavailable. Not exporting memory snapshot")
+            return
+
+        # Prefix for file names.
+        host_name = socket.gethostname()
+        timestamp = datetime.now().strftime(self.time_format_str)
+        file_prefix = f"{host_name}_{timestamp}"
+
+        try:
+            self.logger.info(f"Saving snapshot to local file: {file_prefix}.pickle")
+            torch.cuda.memory._dump_snapshot(f"{file_prefix}.pickle")
+        except Exception as e:
+            self.logger.error(f"Failed to capture memory snapshot {e}")
+            return
+        
+
+def update_nested_dict(old, new):
+    """
+        Merge two nested dictionaries, updating existing values and adding new keys/values.
+        Note: Keys present in the old dictionary but not in the new one will remain unchanged.
+        
+        Example:
+        old = {'a': 1, 'b': {'c': 2, 'd': 3}}
+        new = {'b': {'c': 4, 'e': 5}}
+        Result: {'a': 1, 'b': {'c': 4, 'd': 3, 'e': 5}}
+    """
+    for key, value in new.items():
+        if key in old:
+            if isinstance(old[key], dict) and isinstance(value, dict):
+                value = update_nested_dict(old[key], value)
+            elif  isinstance(old[key], dict) and not isinstance(value, dict) \
+                    or \
+                    not isinstance(old[key], dict) and isinstance(value, dict):
+                raise ValueError(f"Cannot merge {type(old[key])} with {type(value)}")
+        old[key] = value
+    return old

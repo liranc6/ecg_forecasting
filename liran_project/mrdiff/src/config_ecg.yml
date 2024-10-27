@@ -2,14 +2,17 @@ project_path: '/home/liranc6/ecg_forecasting'
 
 tqdm: "terminal" # ["terminal", "notebook"]
 
+debug: False  # debug mode
+  # debug_config_path: "/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/debug_config_ecg.yml"
+
 resume_exp:
-  resume: True  # resume training
-  resume_from: 0  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
+  resume: False  # resume training
+  resume_from: 9  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
   resume_optimizer: True
-  resume_epoch: 0
+  resume_epoch: 9
   resume_metrics: True
   resume_scheduler: True
-  resume_configuration: True
+  resume_configuration: False
   specific_chpt_path: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl105000_ll7500_pl7500_lr0.001_bs16_invFalse_itr0/21_10_2024_1424/logs/1_last_checkpoint.pth"
   was_resumed: false
   model_start_training_time: "None"  # "%d_%m_%Y_%H%M" or "None" for example: "15_10_2024_1615"
@@ -20,7 +23,7 @@ wandb:
   project: 'mrdiff'  # wandb project name
   resume: 'None'  # ["allow", "must", "never", "auto", "None"]
   run_name: "None" # wandb run name
-  id: '58xo7zdv'  # wandb run id
+  id: 'None'  # wandb run id
   save_code: False  # save code to wandb
   resume_from: "None"  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
 
@@ -37,9 +40,9 @@ optimization:
   learning_rate: 0.001  # optimizer learning rate
   batch_size: 16  # batch size of train input data
   test_batch_size: 32  # batch size of test input data
-  patience: 10  # early stopping patience
+  patience: 30  # early stopping patience
   weight_decay: 0.00001  # weight_decay
-  lradj: '3'  # adjust learning rate
+  lradj: '3'  # adjust learning rate (Learning Rate ADJustment)  # ['TST', 'type1', 'type2', 'type3', 'constant', '1', '2', '3', '4', '5']
   pct_start: 0.3  # Percentage of training where learning rate increases
 
 hardware:
@@ -57,20 +60,20 @@ paths:
   output_dir: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff"
   checkpoints: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff"
   model_path: "None" # "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl10_ll105000_pl30000_lr0.001_bs8_invFalse_itr0/05_10_2024_1202/checkpoint.pth"
-
+  debug_config_path: "/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/debug_config_ecg.yml"
   
 data:
   fs: 250
-  freq: 'h'  # Options: [s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly], or more detailed freq like 15min or 3h
+  # freq: 'h'  # Options: [s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly], or more detailed freq like 15min or 3h
   embed: 'timeF'  # Options: [timeF, fixed, learned]
   cols: []  # file list
   target: -1  # target feature
-  inverse: false  # denorm the output data
+  inverse: True  # denorm the output data
   individual: true  # DLinear: a linear layer for each variate(channel) individually
   use_ar_init: false  # use autoregressive initialization
   use_residual: true
   uncertainty: false
-  norm_method: 'z_score'  # ['None', 'z_score', 'min_max']
+  norm_method: 'None'  # ['None', 'z_score', 'min_max']
   normtype: 0
 
 
@@ -78,10 +81,11 @@ training:
 
   logging:
     sample: false
-    log_interval: 2  # logging interval
+    log_interval: 5  # logging interval
     save_interval: 1  # save interval
     save_best: true  # save best model
     save_dir: '/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff'  # save directory
+    log_start_epoch: 10
 
   patients:
     start_patient: 0

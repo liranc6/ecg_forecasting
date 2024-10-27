@@ -15,7 +15,8 @@ sys.path.append(ProjectPath)
 
 from liran_project.mrdiff.src.parser import parse_args
 from liran_project.utils.dataset_loader import SingleLeadECGDatasetCrops_mrDiff as DataSet
-from liran_project.utils.util import ecg_signal_difference, check_gpu_memory_usage
+from liran_project.utils.dataset_loader import de_normalized
+from liran_project.utils.util import ecg_signal_difference, check_gpu_memory_usage, stopwatch, update_nested_dict
 from liran_project.utils.common import *
 
 # Add the directory containing the exp module to the sys.path
@@ -23,9 +24,6 @@ exp_module_path = os.path.join(ProjectPath, 'mrDiff')
 sys.path.append(exp_module_path)
 
 # from mrDiff.exp.exp_main import Exp_Main
-from mrDiff.data_process.etth_dataloader import Dataset_ETT_hour, Dataset_ETT_minute, Dataset_Custom, Dataset_Wind, Dataset_Caiso, Dataset_Production, Dataset_Caiso_M, Dataset_Production_M
-from mrDiff.data_process.financial_dataloader import DatasetH
-from mrDiff.data_process.forecast_dataloader import ForecastDataset
 from mrDiff.exp.exp_basic import Exp_Basic
 from mrDiff.models_diffusion import DDPM
 from mrDiff.utils.tools import EarlyStopping, adjust_learning_rate, visual
@@ -33,6 +31,8 @@ from mrDiff.utils.metrics import metric
 
 
 warnings.filterwarnings('ignore')
+
+config = None
 
 
 class Exp_Main(Exp_Basic):
@@ -82,17 +82,17 @@ class Exp_Main(Exp_Basic):
         window_size = context_window_size+label_window_size
         
         if flag == 'train':
-            data_path = config['paths']['train_data']
-            start_patiant = config['training']['patients']['start_patient']
-            end_patiant = config['training']['patients']['end_patient']
+            data_path = self.args.paths.train_data
+            start_patiant = self.args.training.patients.start_patient
+            end_patiant = self.args.training.patients.end_patient
         elif flag == 'val':
-            data_path = config['paths']['val_data']
-            start_patiant = config['validation']['patients']['start_patient']
-            end_patiant = config['validation']['patients']['end_patient']
+            data_path = self.args.paths.val_data
+            start_patiant = self.args.validation.patients.start_patient
+            end_patiant = self.args.validation.patients.end_patient
         elif flag == 'test':
-            data_path = config['paths']['test_data']
-            start_patiant = config['testing']['patients']['start_patient']
-            end_patiant = config['testing']['patients']['end_patient']
+            data_path = self.args.paths.test_data
+            start_patiant = self.args.testing.patients.start_patient
+            end_patiant = self.args.testing.patients.end_patient
 
         dataset = DataSet(context_window_size,
                                 label_window_size,
@@ -125,8 +125,8 @@ class Exp_Main(Exp_Basic):
         elif flag == 'val':
             shuffle_flag = False
             drop_last = False
-            batch_size = self.args.optimization.batch_size
-            freq=self
+            batch_size = self.args.optimization.test_batch_size
+            freq=self.args.data.freq
             sampler = self._get_nth_sampler(dataset, n=8)
         else:
             raise ValueError("Invalid flag")
@@ -136,7 +136,7 @@ class Exp_Main(Exp_Basic):
             dataset,
             batch_size=batch_size,
             shuffle=shuffle_flag,
-            num_workers=config['hardware']['num_workers'],
+            num_workers=self.args.hardware.num_workers,
             drop_last=drop_last,
             sampler=sampler
         )
@@ -216,14 +216,20 @@ class Exp_Main(Exp_Basic):
         return mean_results
     
     def train(self, setting):
+        
+        time_now = time.time()
             
-        if self.args.resume_exp.resume and self.args.resume_exp.resume_configuration:
-            resume_config = self.args.resume_exp
-            checkpoint = torch.load(self.args.resume_exp.specific_chpt_path, map_location='cpu')
-            self.args.update_config_from_dict(checkpoint["configuration_parameters"])
-            # checkpoint["configuration_parameters"]
-            checkpoint = None
-            self.args.resume_exp = resume_config
+        str_time_now = time.strftime("%d_%m_%Y_%H%M", time.localtime(time_now))
+        self.model_start_training_time = str_time_now
+            
+        if self.args.resume_exp.resume:
+            chpt_path = self.args.resume_exp.specific_chpt_path
+            if chpt_path is None or chpt_path == "None":
+                raise ValueError("specific_chpt_path is None")
+                        # Extract the part '21_10_2024_1424'
+            model_starting_time = os.path.basename(os.path.dirname(os.path.dirname(chpt_path)))
+            self.model_start_training_time = model_starting_time
+            
             
         if "train" not in self.dataloaders.keys():
             self.read_data(flag='train')
@@ -246,11 +252,6 @@ class Exp_Main(Exp_Basic):
         # if self.args.general.training_mode == "TWO":
         #     print('loading model')
         #     self.model.base_models.load_state_dict(torch.load(os.path.join(self.args.paths.checkpoints + setting, 'pretrain_checkpoint.pth')))
-
-        time_now = time.time()
-            
-        str_time_now = time.strftime("%d_%m_%Y_%H%M", time.localtime(time_now))
-        self.model_start_training_time = str_time_now
         
         self.args.paths.checkpoints = os.path.join(self.args.paths.checkpoints, setting, self.model_start_training_time)
         tqdm.write(f"Saving model to {self.args.paths.checkpoints}")
@@ -280,11 +281,8 @@ class Exp_Main(Exp_Basic):
         epochs_pbar = tqdm(range(train_epochs), total=train_epochs ,desc='epochs_pbar', position=0, leave=True)
         
         save_prev_cpt = 1
+        epochs_pbar.update(resume_epoch)
         for epoch in epochs_pbar:
-            while epoch < resume_epoch:
-                epoch += 1
-                epochs_pbar.update(1)
-                epochs_pbar.set_postfix({"epoch": epoch + 1})
             
             train_loss = []
 
@@ -311,7 +309,7 @@ class Exp_Main(Exp_Basic):
                 # batch_x_mark = batch_x_mark.float().to(self.device)
                 # batch_y_mark = batch_y_mark.float().to(self.device)
 
-                self.model_optim.zero_grad()
+                self.model_optim.zero_grad(set_to_none=True)
                 if epoch < 2 and batch_idx < 2 and self.args.hardware.print_gpu_memory_usage:
                     loss = self.model.train_forward(batch_x_without_RR, None, batch_y_without_RR, None)
                 else:
@@ -377,73 +375,109 @@ class Exp_Main(Exp_Basic):
                                     "Vali_Loss": vali_loss["loss"]
                                     })
             
-            #"Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(epoch + 1, train_steps, train_loss, vali_loss)
-            filenames_to_save = self.early_stopping(val_loss=vali_loss['loss'], model=self.model, epoch=epoch, dir_path=self.args.paths.checkpoints, metrics=dict_vali_loss)
-            
-            for filename_to_save in filenames_to_save:
+            if epoch >= self.args.training.logging.log_start_epoch: # start early stopping and logging after x epochs
+                    
+                filenames_to_save = self.early_stopping(val_loss=vali_loss['loss'], model=self.model, epoch=epoch, dir_path=self.args.paths.checkpoints, metrics=dict_vali_loss)
                 
-                self.save_checkpoint(val_loss=vali_loss['loss'], 
-                                    model=self.model,
-                                    dir_path=self.args.paths.checkpoints,
-                                    epoch=epoch,
-                                    filename=f'{filename_to_save}',
-                                    metrics=dict_vali_loss
-                                )
+                if self.args.debug:
+                    #remove all elem from filenames_to_save except "best_checkpoint.pth"
+                    filenames_to_save = ["best_checkpoint.pth"] if "best_checkpoint.pth" in filenames_to_save else []
+                else:
+                    filtered_filenames = []
+                    for filename in filenames_to_save:
+                        if filename in ["best_checkpoint.pth",
+                                        "best_checkp_dtw_dist.pth", 
+                                        "best_checkp_modified_chamfer_distance.pth",
+                                        "best_checkp_mean_extra_r_beats.pth"]:
+                            filtered_filenames.append(filename)
+
+                    # Assign the filtered list back to filenames_to_save
+                    filenames_to_save = filtered_filenames
+                            
+                tqdm.write(f"Saving checkpoints to dir: {self.args.paths.checkpoints}\n files: {filenames_to_save}")
+                                
+                threads = []
                 
-            if self.early_stopping.early_stop:
-                print("Early stopping")
-                break
+                with stopwatch("Saving checkpoints"):
+                    model_state_dict= self.model.state_dict(), 
+                    model_optim_state_dict=self.model_optim.state_dict(),
+                    scheduler_state_dict=self.scheduler.state_dict(),
+                    checkpoints_dir_path = self.args.paths.checkpoints
+                    best_metrics=dict(self.early_stopping.best_metrics)
+                    
+                    for filename_to_save in filenames_to_save:
+                        thread = threading.Thread(target=self.save_checkpoint, 
+                                                    args=(  
+                                                            model_state_dict,
+                                                            model_optim_state_dict,
+                                                            scheduler_state_dict,
+                                                            checkpoints_dir_path,
+                                                            epoch,
+                                                            filename_to_save,
+                                                            best_metrics
+                                                        ))  # metrics
+                        thread.start()
+                        threads.append(thread)
+                        
+                    # Optionally, wait for all threads to complete
+                    for thread in threads:
+                        thread.join()
+
+                if (not self.args.debug) and epoch % self.args.training.logging.log_interval == 0:
+                
+                    log_dir_path = os.path.join(self.args.paths.checkpoints, 'logs')
+                    
+                    tqdm.write(f"Saving logs to: {log_dir_path}")
+                    
+                    with stopwatch("Saving logs"):
+                        self.save_checkpoint(model_state_dict=self.model.state_dict(), 
+                                                model_optim_state_dict=self.model_optim.state_dict(),
+                                                scheduler_state_dict=self.scheduler.state_dict(),
+                                                dir_path=log_dir_path,
+                                                epoch=epoch,
+                                                filename=f'{save_prev_cpt}_last_checkpoint.pth',
+                                                metrics=dict(self.early_stopping.best_metrics)
+                                            )
+                    save_prev_cpt = 1 - save_prev_cpt
+                    
+                if self.early_stopping.early_stop:
+                    print("Early stopping - stopped training")
+                    break
 
             if self.args.optimization.lradj != 'TST':
                 adjust_learning_rate(self.model_optim, self.scheduler, epoch + 1, self.args)
             else:
                 print('Updating learning rate to {}'.format(self.scheduler.get_last_lr()[0]))
                 
-            if epoch % self.args.training.logging.log_interval == 0:
-                
-                log_dir_path = os.path.join(self.args.paths.checkpoints, 'logs')
-                                
-                self.save_checkpoint(val_loss=vali_loss['loss'], 
-                                        model=self.model,
-                                        dir_path=log_dir_path,
-                                        epoch=epoch,
-                                        filename=f'{save_prev_cpt}_checkpoint.pth',
-                                        metrics=dict(vali_loss)
-                                    )
-                
-                save_prev_cpt = 1 - save_prev_cpt
-                
-                
-                
                 
         best_model_path = self.early_stopping.best_model_path
         print("Training finished")
         print(f"Best model path: ", best_model_path)
+        del self.model_optim
+        del self.scheduler
+        del self.early_stopping
+        del self.dataloaders
+        del self.datasets
+        torch.cuda.empty_cache()
         checkpoint = torch.load(best_model_path)
         self.model.load_state_dict(checkpoint["model_state_dict"], strict=False)
 
         return self.model
 
 
-    def test(self, setting, time_path=None, test=0, visualize=False):
+    def test(self, setting, time_path=None, test=0, visualize=False, chpt_path=None):
 
-        if "test" not in self.dataloaders.keys():
-            test_data, test_loader = self._get_data(flag='test')
-        else:
-            test_data, test_loader = self.datasets['test'], self.dataloaders['test']
+        test_data, test_loader = self._get_data(flag='test')
         
         if time_path is None:
             if self.model_start_training_time is None:
                 time_now = time.time()
-                str_time_now = time.strftime("%d_%m_%Y_%H%M", time.localtime(time_now))
-                self.model_start_training_time = str_time_now
+                self.model_start_training_time = time.strftime("%d_%m_%Y_%H%M", time.localtime(time_now))
             time_path = self.model_start_training_time
             assert time_path is not None, "time_path is None. Please provide a time_path from when the model was trained."
         if test:
             print('loading model')
-            best_model_path = os.path.join(self.args.paths.checkpoints,'best_checkpoint.pth')
-            checkpoint = torch.load(best_model_path)
-            self.model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+            self.load_checkpoint(chpt_path)
 
         preds = []
         trues = []
@@ -453,12 +487,11 @@ class Exp_Main(Exp_Basic):
         str_start_time = time.strftime("%d_%m_%Y_%H%M", time.localtime(start_time))
         
         folder_path = os.path.join(self.args.paths.checkpoints, setting, str_start_time)
-        if not os.path.exists(folder_path):
-            os.makedirs(folder_path)
+        os.makedirs(folder_path, exist_ok=True)
             
         # add the folder a note stating the path of the model used
         note_filename = os.path.join(folder_path, 'note.txt')
-        note = f"Model used: {best_model_path}\n"\
+        note = f"Model used: {chpt_path}\n"\
                         f"Time: {str_start_time}\n"\
                         f"Setting: {setting}\n"\
         
@@ -475,8 +508,8 @@ class Exp_Main(Exp_Basic):
                 batch_x = batch_x.float().to(self.device)
                 batch_y = batch_y.float().to(self.device)
 
-                batch_x_mark = batch_x_mark.float().to(self.device)
-                batch_y_mark = batch_y_mark.float().to(self.device)
+                # batch_x_mark = batch_x_mark.float().to(self.device)
+                # batch_y_mark = batch_y_mark.float().to(self.device)
                 
                 # encoder - decoder           
                 
@@ -491,30 +524,43 @@ class Exp_Main(Exp_Basic):
                 outputs = outputs.detach()[:, -self.args.training.sequence.pred_len:, :]
                 batch_y_without_RR = batch_y_without_RR.detach()[:, -self.args.training.sequence.pred_len:, :]
                 batch_y_with_RR = batch_y.detach()[:, :, -self.args.training.sequence.pred_len:]
-                outputs = outputs.cpu().numpy()
-                batch_y_without_RR = batch_y_without_RR.cpu().numpy()
+                # outputs = outputs.cpu().numpy()
+                # batch_y_without_RR = batch_y_without_RR.cpu().numpy()
 
                 pred = outputs  # outputs.detach().cpu().numpy()  # .squeeze()
                 true = batch_y_without_RR  # batch_y.detach().cpu().numpy()  # .squeeze()
 
                 # print(np.shape(pred), np.shape(true))
                 # (32, 12, 1) (32, 12, 1)
-                his = batch_x_without_RR.detach().cpu().numpy()
+                his = batch_x_without_RR.detach()
 
-                if self.args.data.inverse:
-                    B, L, D = np.shape(pred)
+                if self.args.data.inverse or True: #for now
+                    
+                    his = his.permute(0, 2, 1) # B, L, D -> B, D, L
+                    pred = pred.permute(0, 2, 1)
+                    true = true.permute(0, 2, 1)
+                    
+                    his = de_normalized(his, test_data.normalize_method, test_data.norm_statistics)
+                    pred = de_normalized(pred, test_data.normalize_method, test_data.norm_statistics)
+                    true = de_normalized(true, test_data.normalize_method, test_data.norm_statistics)
+                    
+                    his = his.permute(0, 2, 1)
+                    pred = pred.permute(0, 2, 1)
+                    true = true.permute(0, 2, 1)
+                    
+                    # B, L, D = np.shape(pred)
 
-                    pred = rearrange(pred, 'b l d -> (b l) d')
-                    true = rearrange(true, 'b l d -> (b l) d')
-                    his = rearrange(his, 'b l d -> (b l) d')
+                    # pred = rearrange(pred, 'b l d -> (b l) d')
+                    # true = rearrange(true, 'b l d -> (b l) d')
+                    # his = rearrange(his, 'b l d -> (b l) d')
 
-                    pred = test_data.inverse_transform(pred)
-                    true = test_data.inverse_transform(true)
-                    his = test_data.inverse_transform(his)
+                    # pred = test_data.inverse_transform(pred)
+                    # true = test_data.inverse_transform(true)
+                    # his = test_data.inverse_transform(his)
             
-                    pred = rearrange(pred, '(b l) d -> b l d', b=B, l=L)
-                    true = rearrange(true, '(b l) d -> b l d', b=B, l=L)
-                    his = rearrange(his, '(b l) d -> b l d', b=B)
+                    # pred = rearrange(pred, '(b l) d -> b l d', b=B, l=L)
+                    # true = rearrange(true, '(b l) d -> b l d', b=B, l=L)
+                    # his = rearrange(his, '(b l) d -> b l d', b=B)
 
                 
                 # if i == 0:
@@ -525,26 +571,24 @@ class Exp_Main(Exp_Basic):
                 #     trues = np.concatenate((trues, true), axis=0)
 
                 # inputx.append(his)
-                if i % 1 == 0 and i < 20:
-                    input = his # batch_x.detach().cpu().numpy()
-
-                    id_worst = self.args.training.identifiers.id_worst # -1 # -1
-
-                    history = input[0, -336:, id_worst]
-                    gt = true[0, :, id_worst]
-                    pd = pred[0, :, id_worst]
-                    if visualize:
-                        visual(history, gt, pd, os.path.join(folder_path, str(i) + '.png'))
-                        
+                if visualize:
+                    his = his[:, -self.args.data.fs:, :]
+                    for sample in range(pred.shape[0]): # B, L, D
+                        history = his[sample, :, 0].cpu().numpy()
+                        gt = true[sample, :, 0].cpu().numpy()
+                        pd = pred[sample, :, 0].cpu().numpy()
+                        visual(history, gt, pd, os.path.join(folder_path, str(sample) + '.png'), dpi=200+sample*20)
+                
+                """
                 # result saves
                 metrics_keys = ['mae', 'mse', 'rmse', 'mape', 'mspe', 'rse', 'corr', 'nrmse']
-                metrics_vals = metric(pred, true)
+                # metrics_vals = metric(pred, true)
                 metrics_dict = {}
 
-                for i in range(len(metrics_keys)):
-                    metrics_dict[metrics_keys[i]] = metrics_vals[i]
+                # for i in range(len(metrics_keys)):
+                #     metrics_dict[metrics_keys[i]] = metrics_vals[i]
 
-                results.append_metrics(metrics_dict)
+                # results.append_metrics(metrics_dict)
                 
                 
                 if isinstance(true, np.ndarray):
@@ -559,7 +603,7 @@ class Exp_Main(Exp_Basic):
                     pred = torch.from_numpy(pred).permute(0, 2, 1)
                     
                 results.append_ecg_signal_difference(true, pred, self.args.data.fs)
-                
+                """
                 end_time = time.time()
                 elapsed_time_ms = (end_time - start_time) * 1000 / np.shape(batch_x_without_RR)[0]
 
@@ -575,7 +619,7 @@ class Exp_Main(Exp_Basic):
         # trues = np.array(trues)
         # inputx = np.array(inputx)
         
-        print(">>------------------>", np.shape(preds), np.shape(trues))
+        # print(">>------------------>", np.shape(preds), np.shape(trues))
 
         id_worst = None
         
@@ -618,13 +662,12 @@ class Exp_Main(Exp_Basic):
 
         
             
-        test_loss = results.calc_mean()
-        log = {f"test_{key}": value for key, value in test_loss.items() if value != 0}
+        # test_loss = results.calc_mean()
+        # log = {f"test_{key}": value for key, value in test_loss.items() if value != 0}
         
-        # note += f"Test loss: {test_loss=}\n"
-        wandb.log(log)
+        # print(f"{log=}")
 
-        return test_loss
+        return None #test_loss
     
     def load_checkpoint(self, filename):
         checkpoint = torch.load(filename, map_location='cpu')
@@ -634,15 +677,18 @@ class Exp_Main(Exp_Basic):
         
         try:
             model_state_dict = checkpoint["model_state_dict"]
-            self.model.load_state_dict(model_state_dict, strict=False)
+            self.model.load_state_dict(dict(model_state_dict[0]), strict=False)
             
             args_configs_box = self.args.configs
+            resume_exp_config = {"resume_exp": self.args.resume_exp}
             
             if resume_config["resume_configuration"]:
                 args_configs_box = checkpoint["configuration_parameters"]
                 if 'resume' in args_configs_box.keys():  # for backward compatibility from previous versions
                     args_configs_box['resume_exp'] = args_configs_box['resume']
                     del args_configs_box['resume']
+                
+                args_configs_box = Box(update_nested_dict(args_configs_box, resume_exp_config))
                 
             if resume_config["resume_optimizer"]:
                 self.model_optim.load_state_dict(checkpoint["optimizer_state"])
@@ -651,12 +697,19 @@ class Exp_Main(Exp_Basic):
                 self.scheduler.load_state_dict(checkpoint["learning_rate_scheduler_state"])
                 print('Successfully loaded scheduler from checkpoint')
             if resume_config["resume_metrics"]:
-                metrics = checkpoint["loss_and_metrics"]
-                self.early_stopping.best_metrics.update(metrics)
+                self.early_stopping.best_metrics.update(checkpoint["loss_and_metrics"])
                 print('Successfully loaded metrics from checkpoint')
             
             self.args.update_config_from_dict(args_configs_box)
-            self.args.resume_exp.was_resumed = True  
+            self.args.resume_exp.was_resumed = True
+            
+            if (self.args.resume_exp.resume and self.args.resume_exp.resume_configuration) and self.args.debug:
+                print("\033[93mWarning: Resume configuration is enabled, but debug mode is also enabled. Debug mode will override resume configuration.\033[0m")
+                    
+            if self.args.configs['debug'] and self.configs['paths']['debug_config_path'] != "None":
+                filename = self.configs['paths']['debug_config_path']
+                debug_configs = self.args.read_config(filename)
+                self.args.update_config_from_dict(debug_configs)
             
             print('Successfully loaded model from specific_chpt_path')
             
@@ -671,33 +724,34 @@ class Exp_Main(Exp_Basic):
         for attr, value in self.__dict__.items():
             print(f"{attr}: {value}")
         
-    def save_checkpoint(self, val_loss, model, dir_path, epoch=0, filename='checkpoint.pth', metrics={}):
+    def save_checkpoint(self, model_state_dict, model_optim_state_dict, scheduler_state_dict, dir_path, epoch, filename='checkpoint.pth', metrics={}):
+        # # check if model has save_checkpoint() method
+        # if hasattr(model, 'save_checkpoint'):
+        #     print(f"saving checkpoint to: {dir_path=}, {filename=}")
+        #     model.save_checkpoint(dir_path=dir_path,
+        #                             filename=filename,
+        #                             epoch=epoch,
+        #                             model=model,
+        #                             val_loss=val_loss,
+        #                             metrics=metrics
+        #                             )
+        # else:
+            
+        os.makedirs(dir_path, exist_ok=True)
+        filename = os.path.join(dir_path, filename)
+        if os.path.exists(filename):
+            os.remove(filename)
         
-        print(f"saving checkpoint to: {dir_path=}, {filename=}")
-        # check if model has save_checkpoint() method
-        if hasattr(model, 'save_checkpoint'):
-            model.save_checkpoint(dir_path=dir_path,
-                                    filename=filename,
-                                    epoch=epoch,
-                                    model=model,
-                                    val_loss=val_loss,
-                                    metrics=metrics
-                                    )
-        else:
-            
-            os.makedirs(dir_path, exist_ok=True)
-            filename = os.path.join(dir_path, filename)
-            
-            savings = {
-                        "model_state_dict": model.state_dict(),
-                        "optimizer_state": self.model_optim.state_dict(),
-                        "epoch": epoch,
-                        "loss_and_metrics": metrics,
-                        "learning_rate_scheduler_state": self.scheduler.state_dict(),
-                        "configuration_parameters": self.args.configs.to_dict(),
-                    }
-            
-            torch.save(savings, filename)
+        savings = {
+                    "model_state_dict": model_state_dict,
+                    "optimizer_state": model_optim_state_dict,
+                    "epoch": epoch,
+                    "loss_and_metrics": dict(metrics),
+                    "learning_rate_scheduler_state": scheduler_state_dict,
+                    "configuration_parameters": self.args.configs.to_dict(),
+                }
+        
+        torch.save(savings, filename)
             
         print("checkpoint saved")
     
