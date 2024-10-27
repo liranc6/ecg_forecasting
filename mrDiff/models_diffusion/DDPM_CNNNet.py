@@ -284,7 +284,7 @@ class My_DiffusionUnet_v0(nn.Module):
 
         self.net_id = net_id
         self.smoothed_factors = args.training.smoothing.smoothed_factors 
-        self.num_bridges = len(self.smoothed_factors) + 1
+        self.num_bridges = len(self.smoothed_factors) + 1 if not self.args.emd.use_emd else self.args.emd.num_sifts
 
         self.dim_diff_step = args.training.diffusion.ddpm_dim_diff_steps
         time_embed_dim = self.dim_diff_step

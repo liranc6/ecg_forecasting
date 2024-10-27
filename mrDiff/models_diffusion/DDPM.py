@@ -11,6 +11,19 @@ from layers.RevIN import *
 
 from .samplers.dpm_sampler import DPMSolverSampler
 
+import sys
+import yaml
+CONFIG_FILENAME = '/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/config_ecg.yml'
+
+assert CONFIG_FILENAME.endswith('.yml')
+
+with open(CONFIG_FILENAME, 'r') as file:
+    config = yaml.safe_load(file)
+
+# Add the parent directory to the sys.path
+ProjectPath = config['project_path']
+sys.path.append(ProjectPath)
+from liran_project.EMD import np_sift as my_np_sift_file
 
 class BaseMapping(nn.Module):
     """
@@ -203,7 +216,7 @@ class Model(nn.Module):
         self.smoothed_factors = args.training.smoothing.smoothed_factors 
         self.linear_history_len = 0 #args.training.sequence.context_len # args.linear_history_lens
         
-        self.num_bridges = len(args.training.smoothing.smoothed_factors) + 1
+        self.num_bridges = len(self.smoothed_factors) + 1 if not self.args.emd.use_emd else self.args.emd.num_sifts
         
         self.base_models = nn.ModuleList([BaseMapping(args, seq_len=self.seq_len, pred_len=self.pred_len) for i in range(self.num_bridges)])
         self.decompsitions = nn.ModuleList([series_decomp(i) for i in self.smoothed_factors])
@@ -224,24 +237,51 @@ class Model(nn.Module):
             self.samplers = [DPMSolverSampler(self.u_nets[i], self.diffusion_workers[i]) for i in range(self.num_bridges)]
 
     def obatin_multi_trends(self, batch_x):
-
         # batch_x: (B, N, L)
-
-        batch_x = batch_x.permute(0,2,1)
-
-        # batch_x: (B, L, N)
-        # print("self.smoothed_factors", self.smoothed_factors)
-        
         batch_x_trends = []
-        batch_x_trend_0 = batch_x
-        for i in range(self.num_bridges-1):
-            _, batch_x_trend = self.decompsitions[i](batch_x_trend_0)
-            # print("batch_x_trend", np.shape(batch_x_trend))
+        
+        if self.args.emd.use_emd:
+            batch_x = batch_x.squeeze().to(self.device)
+            batch_x_np = batch_x.cpu().numpy()
+            for sample_idx, sample_tensor in enumerate(batch_x):
+                sample_np = batch_x_np[sample_idx]
+                imfs = my_np_sift_file.sift(sample_np, max_imfs=self.args.emd.num_sifts)
+                imfs_tensor = torch.tensor(imfs).float().to(self.device)
+                sample_components = []
+                for n in range(imfs_tensor.shape[1]-1, 0, -1):
+                    comp = sample_tensor - torch.sum(imfs_tensor[:, :n], dim=1) 
+                    comp = comp.unsqueeze(0)
+                    sample_components.append(comp)
+                    
+                last_comp = torch.sum(imfs_tensor, dim=1).unsqueeze(0)
+                sample_components.append(last_comp)
+                sample_components = torch.stack(sample_components)
+                batch_x_trends.append(sample_components)
+                
+            batch = torch.stack(batch_x_trends)
+            batch = batch.permute(1,0,2,3)
+            batch_x_trends = []
+            for t in batch:
+                batch_x_trends.append(t)
             
-            # plt.plot(batch_x_trend[0,0,:].cpu().numpy())
+            batch_x_trends.reverse()
+            
+            
+        else:     
+            batch_x = batch_x.permute(0,2,1) # batch_x: (B, L, N)
+            # print("self.smoothed_factors", self.smoothed_factors)
+            
+            batch_x_trend_0 = batch_x
+            for i in range(self.num_bridges-1):
+                _, batch_x_trend = self.decompsitions[i](batch_x_trend_0)
+                # print("batch_x_trend", np.shape(batch_x_trend))
+                
+                # plt.plot(batch_x_trend[0,0,:].cpu().numpy())
 
-            batch_x_trends.append(batch_x_trend.permute(0,2,1))
-            batch_x_trend_0 = batch_x_trend
+                batch_x_trends.append(batch_x_trend.permute(0,2,1))
+                batch_x_trend_0 = batch_x_trend
+                
+        
 
         # plt.savefig("demo_haha.png")
         return batch_x_trends

@@ -108,25 +108,21 @@ class Exp_Main(Exp_Basic):
             shuffle_flag = False 
             drop_last = False
             batch_size = self.args.optimization.test_batch_size
-            freq=self.args.data.freq
             sampler = self._get_nth_sampler(dataset, n=8)
         elif flag=='pred':
             shuffle_flag = False 
             drop_last = False 
             batch_size = 1
-            freq=self.args.detail_freq
             sampler = None
         elif flag == 'train':
             shuffle_flag = True
             drop_last = True
             batch_size = self.args.optimization.batch_size
-            freq=self.args.data.freq
             sampler = None
         elif flag == 'val':
             shuffle_flag = False
             drop_last = False
             batch_size = self.args.optimization.test_batch_size
-            freq=self.args.data.freq
             sampler = self._get_nth_sampler(dataset, n=8)
         else:
             raise ValueError("Invalid flag")

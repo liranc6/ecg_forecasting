@@ -5,6 +5,12 @@ tqdm: "terminal" # ["terminal", "notebook"]
 debug: False  # debug mode
   # debug_config_path: "/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/debug_config_ecg.yml"
 
+emd:
+  use_emd: True
+  num_sifts: 5
+  max_iter: 1000
+  tol: 1e-6
+
 resume_exp:
   resume: False  # resume training
   resume_from: 9  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
@@ -73,7 +79,7 @@ data:
   use_ar_init: false  # use autoregressive initialization
   use_residual: true
   uncertainty: false
-  norm_method: 'None'  # ['None', 'z_score', 'min_max']
+  norm_method: 'min_max'  # ['None', 'z_score', 'min_max']
   normtype: 0
 
 

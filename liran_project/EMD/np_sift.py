@@ -17,7 +17,7 @@ import logging
 import numpy as np
 
 # Housekeeping for logging
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
 
 
 def get_padded_extrema(X, pad_width=2, mode='peaks', parabolic_extrema=False,
@@ -75,31 +75,31 @@ def get_padded_extrema(X, pad_width=2, mode='peaks', parabolic_extrema=False,
         max_locs, max_ext = _find_extrema(X, parabolic_extrema=parabolic_extrema)
         min_locs, min_ext = _find_extrema(-X, parabolic_extrema=parabolic_extrema)
         min_ext = -min_ext
-        logger.debug('found {0} minima and {1} maxima on mode {2}'.format(len(min_locs),
-                                                                          len(max_locs),
-                                                                          mode))
+        # logger.debug('found {0} minima and {1} maxima on mode {2}'.format(len(min_locs),
+        #                                                                   len(max_locs),
+        #                                                                   mode))
     elif mode == 'peaks':
         max_locs, max_ext = _find_extrema(X, parabolic_extrema=parabolic_extrema)
-        logger.debug('found {0} maxima on mode {1}'.format(len(max_locs),
-                                                           mode))
+        # logger.debug('found {0} maxima on mode {1}'.format(len(max_locs),
+                                                        #    mode))
     elif mode == 'troughs':
         max_locs, max_ext = _find_extrema(-X, parabolic_extrema=parabolic_extrema)
         max_ext = -max_ext
-        logger.debug('found {0} minima on mode {1}'.format(len(max_locs),
-                                                           mode))
+        # logger.debug('found {0} minima on mode {1}'.format(len(max_locs),
+                                                        #    mode))
     elif mode == 'abs_peaks':
         max_locs, max_ext = _find_extrema(np.abs(X), parabolic_extrema=parabolic_extrema)
-        logger.debug('found {0} extrema on mode {1}'.format(len(max_locs),
-                                                            mode))
+        # logger.debug('found {0} extrema on mode {1}'.format(len(max_locs),
+        #                                                     mode))
     else:
         raise ValueError('Mode {0} not recognised by get_padded_extrema'.format(mode))
 
     # Return nothing if we don't have enough extrema
     if (len(max_locs) == 0) or (max_locs.size <= 1):
-        logger.debug('Not enough extrema to pad.')
+        # logger.debug('Not enough extrema to pad.')
         return None, None
     elif (mode == 'both' or method == 'rilling') and len(min_locs) <= 1:
-        logger.debug('Not enough extrema to pad 2.')
+        # logger.debug('Not enough extrema to pad 2.')
         return None, None
 
     # Run the padding by requested method
@@ -160,9 +160,9 @@ def _pad_extrema_numpy(locs, mags, lenx, pad_width, loc_pad_opts, mag_pad_opts):
         magnitude of each extrema (including padded and original points)
 
     """
-    logger.verbose("Padding {0} extrema in signal X {1} using method '{2}'".format(pad_width,
-                                                                                   lenx,
-                                                                                   'numpypad'))
+    # logger.verbose("Padding {0} extrema in signal X {1} using method '{2}'".format(pad_width,
+    #                                                                                lenx,
+    #                                                                                'numpypad'))
 
     if not loc_pad_opts:  # Empty dict evaluates to False
         loc_pad_opts = {'mode': 'reflect', 'reflect_type': 'odd'}
@@ -193,8 +193,8 @@ def _pad_extrema_numpy(locs, mags, lenx, pad_width, loc_pad_opts, mag_pad_opts):
     # Keep padding if the locations don't stretch to the edge
     count = 0
     while np.max(ret_locs) < lenx or np.min(ret_locs) >= 0:
-        logger.debug('Padding again - first ext {0}, last ext {1}'.format(np.min(ret_locs), np.max(ret_locs)))
-        logger.debug(ret_locs)
+        # logger.debug('Padding again - first ext {0}, last ext {1}'.format(np.min(ret_locs), np.max(ret_locs)))
+        # logger.debug(ret_locs)
         ret_locs = np.pad(ret_locs, pad_width, loc_pad_mode, **loc_pad_opts)
         ret_mag = np.pad(ret_mag, pad_width, mag_pad_mode, **mag_pad_opts)
         count += 1
@@ -236,9 +236,9 @@ def _pad_extrema_rilling(indmin, indmax, X, pad_width):
         magnitude of each maxima (including padded and original points)
 
     """
-    logger.debug("Padding {0} extrema in signal X {1} using method '{2}'".format(pad_width,
-                                                                                 X.shape,
-                                                                                 'rilling'))
+    # logger.debug("Padding {0} extrema in signal X {1} using method '{2}'".format(pad_width,
+    #                                                                              X.shape,
+    #                                                                              'rilling'))
 
     t = np.arange(len(X))
 
@@ -247,13 +247,13 @@ def _pad_extrema_rilling(indmin, indmax, X, pad_width):
         # First maxima is before first minima
         if X[0] > X[indmin[0]]:
             # First value is larger than first minima - reflect about first MAXIMA
-            logger.debug('L: max earlier than min, first val larger than first min')
+            # logger.debug('L: max earlier than min, first val larger than first min')
             lmax = np.flipud(indmax[1:pad_width+1])
             lmin = np.flipud(indmin[:pad_width])
             lsym = indmax[0]
         else:
             # First value is smaller than first minima - reflect about first MINIMA
-            logger.debug('L: max earlier than min, first val smaller than first min')
+            # logger.debug('L: max earlier than min, first val smaller than first min')
             lmax = np.flipud(indmax[:pad_width])
             lmin = np.r_[np.flipud(indmin[:pad_width-1]), 0]
             lsym = 0
@@ -268,7 +268,7 @@ def _pad_extrema_rilling(indmin, indmax, X, pad_width):
             lsym = indmin[0]
         else:
             # First value is smaller than first minima - reflect about first MAXIMA
-            logger.debug('L: max later than min, first val smaller than first max')
+            # loggerdebug('L: max later than min, first val smaller than first max')
             lmin = np.flipud(indmin[:pad_width])
             lmax = np.r_[np.flipud(indmax[:pad_width-1]), 0]
             lsym = 0
@@ -278,13 +278,13 @@ def _pad_extrema_rilling(indmin, indmax, X, pad_width):
         # Last maxima is before last minima
         if X[-1] < X[indmax[-1]]:
             # Last value is larger than last minima - reflect about first MAXIMA
-            logger.debug('R: max earlier than min, last val smaller than last max')
+            # loggerdebug('R: max earlier than min, last val smaller than last max')
             rmax = np.flipud(indmax[-pad_width:])
             rmin = np.flipud(indmin[-pad_width-1:-1])
             rsym = indmin[-1]
         else:
             # First value is smaller than first minima - reflect about first MINIMA
-            logger.debug('R: max earlier than min, last val larger than last max')
+            # loggerdebug('R: max earlier than min, last val larger than last max')
             rmax = np.r_[X.shape[0] - 1, np.flipud(indmax[-(pad_width-2):])]
             rmin = np.flipud(indmin[-(pad_width-1):])
             rsym = X.shape[0] - 1
@@ -292,13 +292,13 @@ def _pad_extrema_rilling(indmin, indmax, X, pad_width):
     else:
         if X[-1] > X[indmin[-1]]:
             # Last value is larger than last minima - reflect about first MAXIMA
-            logger.debug('R: max later than min, last val larger than last min')
+            # loggerdebug('R: max later than min, last val larger than last min')
             rmax = np.flipud(indmax[-pad_width-1:-1])
             rmin = np.flipud(indmin[-pad_width:])
             rsym = indmax[-1]
         else:
             # First value is smaller than first minima - reflect about first MINIMA
-            logger.debug('R: max later than min, last val smaller than last min')
+            # loggerdebug('R: max later than min, last val smaller than last min')
             rmax = np.flipud(indmax[-(pad_width-1):])
             rmin = np.r_[X.shape[0] - 1, np.flipud(indmin[-(pad_width-2):])]
             rsym = X.shape[0] - 1
@@ -319,7 +319,7 @@ def _pad_extrema_rilling(indmin, indmax, X, pad_width):
     # Flip again if needed - don't really get what this is doing, will trust the source...
     if (tlmin[0] >= t[0]) or (tlmax[0] >= t[0]):
         msg = 'Flipping start again - first min: {0}, first max: {1}, t[0]: {2}'
-        logger.debug(msg.format(tlmin[0], tlmax[0], t[0]))
+        # loggerdebug(msg.format(tlmin[0], tlmax[0], t[0]))
         if lsym == indmax[0]:
             lmax = np.flipud(indmax[:pad_width])
         else:
@@ -335,7 +335,7 @@ def _pad_extrema_rilling(indmin, indmax, X, pad_width):
 
     if (trmin[-1] <= t[-1]) or (trmax[-1] <= t[-1]):
         msg = 'Flipping end again - last min: {0}, last max: {1}, t[-1]: {2}'
-        logger.debug(msg.format(trmin[-1], trmax[-1], t[-1]))
+        # loggerdebug(msg.format(trmin[-1], trmax[-1], t[-1]))
         if rsym == indmax[-1]:
             rmax = np.flipud(indmax[-pad_width-1:-1])
         else:
@@ -358,10 +358,10 @@ def _pad_extrema_rilling(indmin, indmax, X, pad_width):
 
     # Quick check that interpolation won't explode
     if np.all(np.diff(ret_tmin) > 0) is False:
-        logger.warning('Minima locations not strictly ascending - interpolation will break')
+        # loggerwarning('Minima locations not strictly ascending - interpolation will break')
         raise ValueError('Extrema locations not strictly ascending!!')
     if np.all(np.diff(ret_tmax) > 0) is False:
-        logger.warning('Maxima locations not strictly ascending - interpolation will break')
+        # loggerwarning('Maxima locations not strictly ascending - interpolation will break')
         raise ValueError('Extrema locations not strictly ascending!!')
 
     return ret_tmin, ret_xmin, ret_tmax, ret_xmax
@@ -481,7 +481,7 @@ def interp_envelope(X, mode='both', interp_method='splrep', extrema_opts=None,
     else:
         extrema_opts = extrema_opts.copy()  # Don't work in place...
 
-    logger.debug("Interpolating '{0}' with method '{1}'".format(mode, interp_method))
+    # loggerdebug("Interpolating '{0}' with method '{1}'".format(mode, interp_method))
 
     if interp_method not in ['splrep', 'mono_pchip', 'pchip']:
         raise ValueError("Invalid interp_method value")
@@ -642,31 +642,31 @@ def get_padded_extrema(X, pad_width=2, mode='peaks', parabolic_extrema=False,
         max_locs, max_ext = _find_extrema(X, parabolic_extrema=parabolic_extrema)
         min_locs, min_ext = _find_extrema(-X, parabolic_extrema=parabolic_extrema)
         min_ext = -min_ext
-        logger.debug('found {0} minima and {1} maxima on mode {2}'.format(len(min_locs),
-                                                                          len(max_locs),
-                                                                          mode))
+        # loggerdebug('found {0} minima and {1} maxima on mode {2}'.format(len(min_locs),
+        #                                                                   len(max_locs),
+        #                                                                    mode))
     elif mode == 'peaks':
         max_locs, max_ext = _find_extrema(X, parabolic_extrema=parabolic_extrema)
-        logger.debug('found {0} maxima on mode {1}'.format(len(max_locs),
-                                                           mode))
+        # loggerdebug('found {0} maxima on mode {1}'.format(len(max_locs),
+        #                                                     mode))
     elif mode == 'troughs':
         max_locs, max_ext = _find_extrema(-X, parabolic_extrema=parabolic_extrema)
         max_ext = -max_ext
-        logger.debug('found {0} minima on mode {1}'.format(len(max_locs),
-                                                           mode))
+        # loggerdebug('found {0} minima on mode {1}'.format(len(max_locs),
+        #                                                    mode))
     elif mode == 'abs_peaks':
         max_locs, max_ext = _find_extrema(np.abs(X), parabolic_extrema=parabolic_extrema)
-        logger.debug('found {0} extrema on mode {1}'.format(len(max_locs),
-                                                            mode))
+        # loggerdebug('found {0} extrema on mode {1}'.format(len(max_locs),
+        #                                                     mode))
     else:
         raise ValueError('Mode {0} not recognised by get_padded_extrema'.format(mode))
 
     # Return nothing if we don't have enough extrema
     if (len(max_locs) == 0) or (max_locs.size <= 1):
-        logger.debug('Not enough extrema to pad.')
+        # loggerdebug('Not enough extrema to pad.')
         return None, None
     elif (mode == 'both' or method == 'rilling') and len(min_locs) <= 1:
-        logger.debug('Not enough extrema to pad 2.')
+        # loggerdebug('Not enough extrema to pad 2.')
         return None, None
 
     # Run the padding by requested method
@@ -727,9 +727,9 @@ def _pad_extrema_numpy(locs, mags, lenx, pad_width, loc_pad_opts, mag_pad_opts):
         magnitude of each extrema (including padded and original points)
 
     """
-    logger.verbose("Padding {0} extrema in signal X {1} using method '{2}'".format(pad_width,
-                                                                                   lenx,
-                                                                                   'numpypad'))
+    # loggerverbose("Padding {0} extrema in signal X {1} using method '{2}'".format(pad_width,
+    #                                                                                lenx,
+    #                                                                                'numpypad'))
 
     if not loc_pad_opts:  # Empty dict evaluates to False
         loc_pad_opts = {'mode': 'reflect', 'reflect_type': 'odd'}
@@ -760,8 +760,8 @@ def _pad_extrema_numpy(locs, mags, lenx, pad_width, loc_pad_opts, mag_pad_opts):
     # Keep padding if the locations don't stretch to the edge
     count = 0
     while np.max(ret_locs) < lenx or np.min(ret_locs) >= 0:
-        logger.debug('Padding again - first ext {0}, last ext {1}'.format(np.min(ret_locs), np.max(ret_locs)))
-        logger.debug(ret_locs)
+        # loggerdebug('Padding again - first ext {0}, last ext {1}'.format(np.min(ret_locs), np.max(ret_locs)))
+        # loggerdebug(ret_locs)
         ret_locs = np.pad(ret_locs, pad_width, loc_pad_mode, **loc_pad_opts)
         ret_mag = np.pad(ret_mag, pad_width, mag_pad_mode, **mag_pad_opts)
         count += 1
@@ -803,9 +803,9 @@ def _pad_extrema_rilling(indmin, indmax, X, pad_width):
         magnitude of each maxima (including padded and original points)
 
     """
-    logger.debug("Padding {0} extrema in signal X {1} using method '{2}'".format(pad_width,
-                                                                                 X.shape,
-                                                                                 'rilling'))
+    # loggerdebug("Padding {0} extrema in signal X {1} using method '{2}'".format(pad_width,
+    #                                                                              X.shape,
+    #                                                                              'rilling'))
 
     t = np.arange(len(X))
 
@@ -814,13 +814,13 @@ def _pad_extrema_rilling(indmin, indmax, X, pad_width):
         # First maxima is before first minima
         if X[0] > X[indmin[0]]:
             # First value is larger than first minima - reflect about first MAXIMA
-            logger.debug('L: max earlier than min, first val larger than first min')
+            # loggerdebug('L: max earlier than min, first val larger than first min')
             lmax = np.flipud(indmax[1:pad_width+1])
             lmin = np.flipud(indmin[:pad_width])
             lsym = indmax[0]
         else:
             # First value is smaller than first minima - reflect about first MINIMA
-            logger.debug('L: max earlier than min, first val smaller than first min')
+            # loggerdebug('L: max earlier than min, first val smaller than first min')
             lmax = np.flipud(indmax[:pad_width])
             lmin = np.r_[np.flipud(indmin[:pad_width-1]), 0]
             lsym = 0
@@ -829,13 +829,13 @@ def _pad_extrema_rilling(indmin, indmax, X, pad_width):
         # First minima is before first maxima
         if X[0] > X[indmax[0]]:
             # First value is larger than first minima - reflect about first MINIMA
-            logger.debug('L: max later than min, first val larger than first max')
+            # loggerdebug('L: max later than min, first val larger than first max')
             lmax = np.flipud(indmax[:pad_width])
             lmin = np.flipud(indmin[1:pad_width+1])
             lsym = indmin[0]
         else:
             # First value is smaller than first minima - reflect about first MAXIMA
-            logger.debug('L: max later than min, first val smaller than first max')
+            # loggerdebug('L: max later than min, first val smaller than first max')
             lmin = np.flipud(indmin[:pad_width])
             lmax = np.r_[np.flipud(indmax[:pad_width-1]), 0]
             lsym = 0
@@ -845,13 +845,13 @@ def _pad_extrema_rilling(indmin, indmax, X, pad_width):
         # Last maxima is before last minima
         if X[-1] < X[indmax[-1]]:
             # Last value is larger than last minima - reflect about first MAXIMA
-            logger.debug('R: max earlier than min, last val smaller than last max')
+            # loggerdebug('R: max earlier than min, last val smaller than last max')
             rmax = np.flipud(indmax[-pad_width:])
             rmin = np.flipud(indmin[-pad_width-1:-1])
             rsym = indmin[-1]
         else:
             # First value is smaller than first minima - reflect about first MINIMA
-            logger.debug('R: max earlier than min, last val larger than last max')
+            # loggerdebug('R: max earlier than min, last val larger than last max')
             rmax = np.r_[X.shape[0] - 1, np.flipud(indmax[-(pad_width-2):])]
             rmin = np.flipud(indmin[-(pad_width-1):])
             rsym = X.shape[0] - 1
@@ -859,13 +859,13 @@ def _pad_extrema_rilling(indmin, indmax, X, pad_width):
     else:
         if X[-1] > X[indmin[-1]]:
             # Last value is larger than last minima - reflect about first MAXIMA
-            logger.debug('R: max later than min, last val larger than last min')
+            # loggerdebug('R: max later than min, last val larger than last min')
             rmax = np.flipud(indmax[-pad_width-1:-1])
             rmin = np.flipud(indmin[-pad_width:])
             rsym = indmax[-1]
         else:
             # First value is smaller than first minima - reflect about first MINIMA
-            logger.debug('R: max later than min, last val smaller than last min')
+            # loggerdebug('R: max later than min, last val smaller than last min')
             rmax = np.flipud(indmax[-(pad_width-1):])
             rmin = np.r_[X.shape[0] - 1, np.flipud(indmin[-(pad_width-2):])]
             rsym = X.shape[0] - 1
@@ -886,7 +886,7 @@ def _pad_extrema_rilling(indmin, indmax, X, pad_width):
     # Flip again if needed - don't really get what this is doing, will trust the source...
     if (tlmin[0] >= t[0]) or (tlmax[0] >= t[0]):
         msg = 'Flipping start again - first min: {0}, first max: {1}, t[0]: {2}'
-        logger.debug(msg.format(tlmin[0], tlmax[0], t[0]))
+        # loggerdebug(msg.format(tlmin[0], tlmax[0], t[0]))
         if lsym == indmax[0]:
             lmax = np.flipud(indmax[:pad_width])
         else:
@@ -902,7 +902,7 @@ def _pad_extrema_rilling(indmin, indmax, X, pad_width):
 
     if (trmin[-1] <= t[-1]) or (trmax[-1] <= t[-1]):
         msg = 'Flipping end again - last min: {0}, last max: {1}, t[-1]: {2}'
-        logger.debug(msg.format(trmin[-1], trmax[-1], t[-1]))
+        # loggerdebug(msg.format(trmin[-1], trmax[-1], t[-1]))
         if rsym == indmax[-1]:
             rmax = np.flipud(indmax[-pad_width-1:-1])
         else:
@@ -925,10 +925,10 @@ def _pad_extrema_rilling(indmin, indmax, X, pad_width):
 
     # Quick check that interpolation won't explode
     if np.all(np.diff(ret_tmin) > 0) is False:
-        logger.warning('Minima locations not strictly ascending - interpolation will break')
+        # loggerwarning('Minima locations not strictly ascending - interpolation will break')
         raise ValueError('Extrema locations not strictly ascending!!')
     if np.all(np.diff(ret_tmax) > 0) is False:
-        logger.warning('Maxima locations not strictly ascending - interpolation will break')
+        # loggerwarning('Maxima locations not strictly ascending - interpolation will break')
         raise ValueError('Extrema locations not strictly ascending!!')
 
     return ret_tmin, ret_xmin, ret_tmax, ret_xmax
@@ -1048,7 +1048,7 @@ def interp_envelope(X, mode='both', interp_method='splrep', extrema_opts=None,
     else:
         extrema_opts = extrema_opts.copy()  # Don't work in place...
 
-    logger.debug("Interpolating '{0}' with method '{1}'".format(mode, interp_method))
+    # loggerdebug("Interpolating '{0}' with method '{1}'".format(mode, interp_method))
 
     if interp_method not in ['splrep', 'mono_pchip', 'pchip']:
         raise ValueError("Invalid interp_method value")
@@ -1233,7 +1233,7 @@ def sift(X, sift_thresh=1e-8, energy_thresh=50, rilling_thresh=None,
 
     while continue_sift:
 
-        logger.info('sifting IMF : {0}'.format(layer))
+        # loggerinfo('sifting IMF : {0}'.format(layer))
 
         next_imf, continue_sift = get_next_imf(proto_imf,
                                                envelope_opts=envelope_opts,
@@ -1304,8 +1304,8 @@ def ensure_1d_with_singleton(to_check, names, func_name):
 
         if (xx.ndim >= 2) and np.all(xx.shape[1:] == np.ones_like(xx.shape[1:])):
             # nd input where all trailing are ones
-            msg = "Checking {0} inputs - Trimming trailing singletons from input '{1}' (input size {2})"
-            logger.debug(msg.format(func_name, names[idx], xx.shape))
+            # msg = "Checking {0} inputs - Trimming trailing singletons from input '{1}' (input size {2})"
+            # loggerdebug(msg.format(func_name, names[idx], xx.shape))
             out_args[idx] = np.squeeze(xx)[:, np.newaxis]
         elif (xx.ndim >= 2) and np.all(xx.shape[1:] == np.ones_like(xx.shape[1:])) == False:  # noqa: E712
             assert False, "Should never get here"
@@ -1315,8 +1315,8 @@ def ensure_1d_with_singleton(to_check, names, func_name):
             raise ValueError(msg)
         elif xx.ndim == 1:
             # Vector input - add a dummy dimension
-            msg = "Checking {0} inputs - Adding dummy dimension to input '{1}'"
-            print(msg.format(func_name, names[idx]))
+            # msg = "Checking {0} inputs - Adding dummy dimension to input '{1}'"
+            # print(msg.format(func_name, names[idx]))
             out_args[idx] = out_args[idx][:, np.newaxis]
 
     if len(out_args) == 1:
@@ -1330,7 +1330,7 @@ def _nsamples_warn(N, max_imfs):
     if N < 2**(max_imfs+1):
         msg = 'Inputs samples ({0}) is small for specified max_imfs ({1})'
         msg += ' very likely that {2} or fewer imfs are returned'
-        logger.warning(msg.format(N, max_imfs, np.floor(np.log2(N)).astype(int)-1))
+        # loggerwarning(msg.format(N, max_imfs, np.floor(np.log2(N)).astype(int)-1))
 
 
 def check_sift_continue(X, residual, layer, max_imfs=None, sift_thresh=1e-8, energy_thresh=50,
@@ -1375,7 +1375,7 @@ def check_sift_continue(X, residual, layer, max_imfs=None, sift_thresh=1e-8, ene
 
     # Check if we've reached the pre-specified number of IMFs
     if max_imfs is not None and layer == max_imfs:
-        logger.info('Finishing sift: reached max number of imfs ({0})'.format(layer))
+        # logger.info('Finishing sift: reached max number of imfs ({0})'.format(layer))
         continue_sift[0] = False
     else:
         continue_sift[0] = True
@@ -1384,7 +1384,7 @@ def check_sift_continue(X, residual, layer, max_imfs=None, sift_thresh=1e-8, ene
     pks, _ = _find_extrema(residual)
     trs, _ = _find_extrema(-residual)
     if len(pks) < 2 or len(trs) < 2:
-        logger.info('Finishing sift: {0} peaks {1} trough in residual'.format(len(pks), len(trs)))
+        # logger.info('Finishing sift: {0} peaks {1} trough in residual'.format(len(pks), len(trs)))
         continue_sift[1] = False
     else:
         continue_sift[1] = True
@@ -1392,7 +1392,7 @@ def check_sift_continue(X, residual, layer, max_imfs=None, sift_thresh=1e-8, ene
     # Optional: Check if the sum-sqr of the resduals is below the sift_thresh
     sumsq_resid = np.abs(residual).sum()
     if sift_thresh is not None and sumsq_resid < sift_thresh:
-        logger.info('Finishing sift: reached threshold {0}'.format(sumsq_resid))
+        # logger.info('Finishing sift: reached threshold {0}'.format(sumsq_resid))
         continue_sift[2] = False
     else:
         continue_sift[2] = True
@@ -1400,7 +1400,7 @@ def check_sift_continue(X, residual, layer, max_imfs=None, sift_thresh=1e-8, ene
     # Optional: Check if energy_ratio of residual to original signal is below thresh
     energy_ratio = _energy_difference(X, residual)
     if energy_thresh is not None and energy_ratio > energy_thresh:
-        logger.info('Finishing sift: reached energy ratio {0}'.format(energy_ratio))
+        # logger.info('Finishing sift: reached energy ratio {0}'.format(energy_ratio))
         continue_sift[3] = False
     else:
         continue_sift[3] = True
@@ -1412,7 +1412,7 @@ def check_sift_continue(X, residual, layer, max_imfs=None, sift_thresh=1e-8, ene
                                        **envelope_opts, extrema_opts=extrema_opts)
         rilling_continue_sift, rilling_metric = stop_imf_rilling(upper, lower, niters=-1)
         if rilling_continue_sift is False:
-            logger.info('Finishing sift: reached rilling {0}'.format(rilling_metric))
+            # logger.info('Finishing sift: reached rilling {0}'.format(rilling_metric))
             continue_sift[4] = False
         else:
             continue_sift[4] = True
@@ -1521,7 +1521,8 @@ def get_next_imf(X, env_step_size=1, max_iters=1000, energy_thresh=50,
 
         if stop_method != 'fixed':
             if niters == 3*max_iters//4:
-                logger.debug('Sift reached {0} iterations, taking a long time to coverge'.format(niters))
+                pass
+                # logger.debug('Sift reached {0} iterations, taking a long time to coverge'.format(niters))
             elif niters > max_iters:
                 msg = 'Sift failed. No covergence after {0} iterations'.format(niters)
                 raise EMDSiftCovergeError(msg)
@@ -1535,7 +1536,7 @@ def get_next_imf(X, env_step_size=1, max_iters=1000, energy_thresh=50,
         if upper is None or lower is None:
             continue_flag = False
             continue_imf = False
-            logger.debug('Finishing sift: IMF has no extrema')
+            # logger.debug('Finishing sift: IMF has no extrema')
             continue
 
         # Find local mean
@@ -1608,10 +1609,10 @@ def stop_imf_sd(proto_imf, prev_imf, sd=0.2, niters=None):
 
     stop = metric < sd
 
-    if stop:
-        logger.verbose('Sift stopped by SD-thresh in {0} iters with sd {1}'.format(niters, metric))
-    else:
-        logger.debug('SD-thresh stop metric evaluated at iter {0} is : {1}'.format(niters, metric))
+    # if stop:
+        # logger.debug('Sift stopped by SD-thresh in {0} iters with sd {1}'.format(niters, metric))
+    # else:
+        # logger.debug('SD-thresh stop metric evaluated at iter {0} is : {1}'.format(niters, metric))
 
     return stop, metric
 
