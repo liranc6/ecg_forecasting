@@ -113,10 +113,10 @@ class BaseMapping(nn.Module):
     def test_forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         if self.args.training.analysis.use_window_normalization:
             x_enc_i = self.rev(x_enc, 'norm')  
-            x_dec_i = self.rev(x_dec[:,-self.pred_len:,:], 'test_norm')
+            # x_dec_i = self.rev(x_dec[:,-self.pred_len:,:], 'test_norm')
         else:
             x_enc_i = x_enc
-            x_dec_i = x_dec
+            # x_dec_i = x_dec
 
         x = x_enc_i
 
@@ -216,10 +216,10 @@ class Model(nn.Module):
         self.smoothed_factors = args.training.smoothing.smoothed_factors 
         self.linear_history_len = 0 #args.training.sequence.context_len # args.linear_history_lens
         
-        self.num_bridges = len(self.smoothed_factors) + 1 if not self.args.emd.use_emd else self.args.emd.num_sifts
+        self.num_bridges = len(self.smoothed_factors) + 1 if not self.args.emd.use_emd else self.args.emd.num_sifts + 1
         
         self.base_models = nn.ModuleList([BaseMapping(args, seq_len=self.seq_len, pred_len=self.pred_len) for i in range(self.num_bridges)])
-        self.decompsitions = nn.ModuleList([series_decomp(i) for i in self.smoothed_factors])
+        # self.decompsitions = nn.ModuleList([series_decomp(i) for i in self.smoothed_factors])
         
         if args.training.model_info.u_net_type == "v0":
             self.u_nets = nn.ModuleList([My_DiffusionUnet_v0(args, self.num_vars, self.seq_len, self.pred_len, net_id=i) for i in range(self.num_bridges)])
@@ -239,7 +239,7 @@ class Model(nn.Module):
     def obatin_multi_trends(self, batch_x):
         # batch_x: (B, N, L)
         batch_x_trends = []
-        
+        avg_layer = None
         if self.args.emd.use_emd:
             batch_x = batch_x.squeeze().to(self.device)
             batch_x_np = batch_x.cpu().numpy()
@@ -249,7 +249,7 @@ class Model(nn.Module):
                 imfs_tensor = torch.tensor(imfs).float().to(self.device)
                 sample_components = []
                 for n in range(imfs_tensor.shape[1]-1, 0, -1):
-                    comp = sample_tensor - torch.sum(imfs_tensor[:, :n], dim=1) 
+                    comp = sample_tensor - torch.sum(imfs_tensor[:, n:], dim=1) 
                     comp = comp.unsqueeze(0)
                     sample_components.append(comp)
                     
@@ -273,7 +273,21 @@ class Model(nn.Module):
             
             batch_x_trend_0 = batch_x
             for i in range(self.num_bridges-1):
-                _, batch_x_trend = self.decompsitions[i](batch_x_trend_0)
+                kernel_size = self.smoothed_factors[i]
+                avg_layer = nn.AvgPool1d(kernel_size=kernel_size, stride=1, padding=0)
+                front = batch_x_trend_0[:, 0:1, :].repeat(1, (kernel_size - 1) // 2, 1)
+                end = batch_x_trend_0[:, -1:, :].repeat(1, (kernel_size - 1) // 2, 1)
+                batch_x_trend_0 = torch.cat([front, batch_x_trend_0, end], dim=1)
+                batch_x_trend_0 = avg_layer(batch_x_trend_0.permute(0, 2, 1)).permute(0, 2, 1)
+                # moving_mean = batch_x_trend_0
+                # res = x - moving_mean
+                batch_x_trend = batch_x_trend_0
+                
+                
+                
+                
+                
+                # _, batch_x_trend = self.decompsitions[i](batch_x_trend_0)
                 # print("batch_x_trend", np.shape(batch_x_trend))
                 
                 # plt.plot(batch_x_trend[0,0,:].cpu().numpy())
@@ -285,6 +299,7 @@ class Model(nn.Module):
             batch_x_trends.reverse()
             
         del batch_x
+        del avg_layer
         torch.cuda.empty_cache()
         # plt.savefig("demo_haha.png")
         return batch_x_trends
@@ -358,7 +373,7 @@ class Model(nn.Module):
             
         # print(">>>>>", np.shape(x_past), np.shape(x_future))
 
-        future_trends = self.obatin_multi_trends(x_future.permute(0,2,1))
+        future_trends = self.obatin_multi_trends(x_future.permute(0,2,1))  # from finest to coarsest
         # each trend: B, N, L
         future_trends = [trend_i.permute(0,2,1) for trend_i in future_trends]
         # each trend: B, L, N
@@ -367,7 +382,7 @@ class Model(nn.Module):
 
         # ==================================
         # history trends
-        past_trends = self.obatin_multi_trends(x_past.permute(0,2,1))
+        past_trends = self.obatin_multi_trends(x_past.permute(0,2,1))  # from finest to coarsest
         past_trends = [trend_i.permute(0,2,1) for trend_i in past_trends]
         
         if check_gpu_memory_usage is not None:
@@ -377,7 +392,7 @@ class Model(nn.Module):
             gpu_prints += 1
 
         # ==================================
-        # ar-init trends
+        # ar-init trends from finest to coarsest
         ar_init_trends = []
         linear_guess, ar_init_trends = self._compute_trends_and_guesses(x_past, x_future, future_trends, past_trends, x_mark_enc, x_mark_dec)
         
@@ -549,14 +564,14 @@ class Model(nn.Module):
             list: List of loss values for each bridge.
         """
         total_loss = []
-        for i in range(self.num_bridges):
+        for i in range(self.num_bridges):  # from finest to coarsest (from label to noise)
             
             # X0 clean
             # X1: occupied [bsz, fea, seq_len]    
             
             if i == 0:
                 # For the first bridge, use the first future trend and the future input
-                X1 = future_trends[0].permute(0, 2, 1)
+                X1 = future_trends[0].permute(0, 2, 1)  # most fined
                 X0 = x_future.permute(0, 2, 1)
                 
                 # Concatenate the past input with the first future trend

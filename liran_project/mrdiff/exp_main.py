@@ -108,7 +108,7 @@ class Exp_Main(Exp_Basic):
             shuffle_flag = False 
             drop_last = False
             batch_size = self.args.optimization.test_batch_size
-            sampler = self._get_nth_sampler(dataset, n=8)
+            sampler = self._get_nth_sampler(dataset, n=1)
         elif flag=='pred':
             shuffle_flag = False 
             drop_last = False 
@@ -123,7 +123,7 @@ class Exp_Main(Exp_Basic):
             shuffle_flag = False
             drop_last = False
             batch_size = self.args.optimization.test_batch_size
-            sampler = self._get_nth_sampler(dataset, n=8)
+            sampler = self._get_nth_sampler(dataset, n=1)
         else:
             raise ValueError("Invalid flag")
         
@@ -145,7 +145,7 @@ class Exp_Main(Exp_Basic):
     
     def _get_nth_sampler(self, dataset, n=1, seed=None):
         
-        random.seed(seed)
+        # random.seed(seed)
         
         # Calculate indices of every nth batch
         indices = list(range(0, len(dataset), 1))
@@ -286,7 +286,7 @@ class Exp_Main(Exp_Basic):
             epoch_time = time.time()
             results = Metrics("train")
             
-            train_loader_pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc='train_loader_pbar', position=1, leave=True)
+            train_loader_pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc='train_loader_pbar', position=1, leave=True, dynamic_ncols=True)
 
             start_time = time.time()
             
@@ -305,7 +305,6 @@ class Exp_Main(Exp_Basic):
                 # batch_x_mark = batch_x_mark.float().to(self.device)
                 # batch_y_mark = batch_y_mark.float().to(self.device)
 
-                self.model_optim.zero_grad(set_to_none=True)
                 if epoch < 2 and batch_idx < 2 and self.args.hardware.print_gpu_memory_usage:
                     loss = self.model.train_forward(batch_x_without_RR, None, batch_y_without_RR, None)
                 else:
@@ -322,6 +321,14 @@ class Exp_Main(Exp_Basic):
 
                 loss.backward()
                 self.model_optim.step()
+                self.model_optim.zero_grad(set_to_none=True)
+                
+                # if ((batch_idx + 1) % self.args.optimization.accum_iter == 0) or (batch_idx + 1 == len(train_loader)):
+                #     loss.backward()
+                #     self.model_optim.step()
+                #     self.model_optim.zero_grad(set_to_none=True)
+                # else:
+                #     loss /= self.args.optimization.accum_iter
 
                 # elapsed_time_ms = (end_time - start_time) * 1000 / np.shape(batch_x)[0]
 
@@ -383,8 +390,9 @@ class Exp_Main(Exp_Basic):
                     for filename in filenames_to_save:
                         if filename in ["best_checkpoint.pth",
                                         "best_checkp_dtw_dist.pth", 
-                                        "best_checkp_modified_chamfer_distance.pth",
-                                        "best_checkp_mean_extra_r_beats.pth"]:
+                                        "best_checkp_modified_chamfer_distance.pth", 
+                                        # "best_checkp_mean_extra_r_beats.pth",
+                                        ]:
                             filtered_filenames.append(filename)
 
                     # Assign the filtered list back to filenames_to_save

@@ -216,8 +216,8 @@ $$
 where \(B\) is the batch size, \(N\) is the number of variables (features), and \(L\) is the sequence length.
 
 #### Sequence Lengths:
-- \( \text{context\_len} \): Number of timesteps from the past used for prediction.
-- \( \text{pred\_len} \): Number of timesteps predicted into the future.
+- $ \text{context\_len} $: Number of timesteps from the past used for prediction.
+- $ \text{pred\_len} $: Number of timesteps predicted into the future.
 
 The model has multiple "bridges" \(K\), which control the number of intermediate transformations applied to the input series, where each bridge works on a different smoothed version of the input.
 
@@ -230,9 +230,9 @@ X = T + S + R
 $$
 
 where:
-- \(T\) represents the trend component,
-- \(S\) represents the seasonal component,
-- \(R\) is the residual (noise).
+- $T$ represents the trend component,
+- $S$ represents the seasonal component,
+- $R$ is the residual (noise).
 
 In this model, the focus is on obtaining the trend components:
 
@@ -240,11 +240,11 @@ $$
 X \longrightarrow T_i, \quad i = 1, 2, \ldots, K
 $$
 
-Here, \(T_i\) represents the trends obtained from \(K\) different levels of smoothing. Each smoothed trend corresponds to a different degree of factor-based smoothing (determined by \(\text{smoothed\_factors}\)).
+Here, $T_i$ represents the trends obtained from $K$ different levels of smoothing. Each smoothed trend corresponds to a different degree of factor-based smoothing (determined by $\text{smoothed\_factors}$).
 
 ### Multi-Trend Generation
 
-The model iterates over the decomposition step to extract multiple trends from the input sequence. For each trend \(T_i\), the process is recursive:
+The model iterates over the decomposition step to extract multiple trends from the input sequence. For each trend $T_i$, the process is recursive:
 
 $$
 T_0 = X, \quad T_{i+1} = \text{decomp}(T_i)
@@ -264,7 +264,7 @@ $$
 X_{t-1} \longleftarrow X_t + \epsilon
 $$
 
-where \(X_t\) represents the trend at timestep \(t\), and \(\epsilon\) is a Gaussian noise term.
+where $X_t$ represents the trend at timestep $t$, and $\epsilon$ is a Gaussian noise term.
 
 For the sampling process, reverse diffusion is applied to progressively reconstruct the sequence, starting from random noise:
 
@@ -278,7 +278,7 @@ $$
 X_t = f_{\text{diff}}(X_t, \text{cond}(T_{\text{past}}))
 $$
 
-where \(\text{cond}(T_{\text{past}})\) refers to the conditions generated from past trends.
+where $\text{cond}(T_{\text{past}})$ refers to the conditions generated from past trends.
 
 ### Loss Computation
 

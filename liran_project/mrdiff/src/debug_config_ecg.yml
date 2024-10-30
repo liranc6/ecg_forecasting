@@ -10,21 +10,21 @@ wandb:
   id: 'None'  # wandb run id
 
 optimization:
-  batch_size: 16  # batch size of train input data
-  test_batch_size: 32  # batch size of test input data
+  batch_size: 2  # batch size of train input data
+  test_batch_size: 2  # batch size of test input data
 
 resume_exp:
   resume: False
   
 data:
-  norm_method: 'None'  # ['None', 'z_score', 'min_max']
+  norm_method: 'min_max'  # ['None', 'z_score', 'min_max']
 
 training:
 
-  sequence:
-    seq_len: 112500 # input_length; window size
-    label_len: 109500  # I think its context len # in minutes # start token length of Informer decoder
-    pred_len: 3000  # I think its label/forecast len # prediction sequence length, horizon
+  # sequence:
+  #   seq_len: 112500 # input_length; window size
+  #   label_len: 109500  # I think its context len # in minutes # start token length of Informer decoder
+  #   pred_len: 3000  # I think its label/forecast len # prediction sequence length, horizon
 
   iterations:
     train_epochs: 2  # train epochs
@@ -32,16 +32,17 @@ training:
 
   patients:
     start_patient: 0
-    end_patient: 25
+    end_patient: -1
 
   logging:
     log_start_epoch: 0
-  # sequence:
+
+  sequence:
     # len = minutes * seconds * fs
-    # context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
-    # seq_len: 112500 # input_length; window size
-    # label_len: 105000  # I think its context len # in minutes # start token length of Informer decoder
-    # pred_len: 7500  # I think its label/forecast len # prediction sequence length, horizon
+    context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
+    seq_len: 7000 # input_length; window size
+    label_len: 4000  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 3000  # I think its label/forecast len # prediction sequence length, horizon
 
   # logging:
   #   sample: false
@@ -53,7 +54,7 @@ training:
 validation:
   patients:
     start_patient: 0
-    end_patient: 2
+    end_patient: -1
 
 testing:
   patients:

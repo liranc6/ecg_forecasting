@@ -949,6 +949,8 @@ def update_nested_dict(old, new):
         Result: {'a': 1, 'b': {'c': 4, 'd': 3, 'e': 5}}
     """
     for key, value in new.items():
+        if key == 'emd':
+            print(f"{key=}, {value=}")
         if key in old:
             if isinstance(old[key], dict) and isinstance(value, dict):
                 value = update_nested_dict(old[key], value)
