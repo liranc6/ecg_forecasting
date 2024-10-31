@@ -7,7 +7,7 @@ debug: False  # debug mode
   # debug_config_path: "/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/debug_config_ecg.yml"
 
 emd:
-  use_emd: True
+  use_emd: False
   num_sifts: 2
   max_iter: 1000
   tol: 1e-6

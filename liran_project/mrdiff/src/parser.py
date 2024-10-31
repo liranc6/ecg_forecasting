@@ -139,7 +139,7 @@ class Args:
                                                 
 def parse_args(config_filename):
     # Load the YAML configuration
-    with open('/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/config_ecg.yml', 'r') as file:
+    with open(config_filename, 'r') as file:
         config = yaml.load(file)
 
     # Initialize the argument parser
@@ -152,6 +152,10 @@ def parse_args(config_filename):
                 add_arguments(parser, value, prefix + key + '.')
             else:
                 arg_name = '--' + prefix + key
+                if value == 'False':
+                    value = False
+                elif value == 'True':
+                    value = True
                 if isinstance(value, bool):
                     parser.add_argument(arg_name, type=bool, default=value, help=key)
                 elif isinstance(value, int):
