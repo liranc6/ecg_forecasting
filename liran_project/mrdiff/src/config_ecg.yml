@@ -7,8 +7,8 @@ debug: False  # debug mode
   # debug_config_path: "/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/debug_config_ecg.yml"
 
 emd:
-  use_emd: False
-  num_sifts: 2
+  use_emd: True
+  num_sifts: 4
   max_iter: 1000
   tol: 1e-6
 
@@ -62,9 +62,9 @@ hardware:
   devices: '0'  # device ids of multiple gpus
 
 paths:
-  train_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes/train/p0_to_p32.h5'  # location of training data
-  val_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes/val/p33_to_p39.h5'  # location of validation data
-  test_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/10minutes/test/p40_to_p46.h5'  # location of test data
+  train_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/15minutes/train/p0_to_p32.h5'  # location of training data
+  val_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/15minutes/val/p33_to_p39.h5'  # location of validation data
+  test_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/15minutes/test/p40_to_p46.h5'  # location of test data
   output_dir: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff"
   checkpoints: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff"
   model_path: "None" # "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl10_ll105000_pl30000_lr0.001_bs8_invFalse_itr0/05_10_2024_1202/checkpoint.pth"
@@ -112,9 +112,9 @@ training:
   sequence:
     # len = minutes * seconds * fs
     context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
-    seq_len: 97500 # input_length; window size
-    label_len: 80000  # I think its context len # in minutes # start token length of Informer decoder
-    pred_len: 7000  # I think its label/forecast len # prediction sequence length, horizon
+    seq_len: 76300 # input_length; window size
+    label_len: 70000  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 7500  # I think its label/forecast len # prediction sequence length, horizon
 
   model_info:
     opt_loss_type: 'mse'

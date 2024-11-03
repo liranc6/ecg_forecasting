@@ -7,7 +7,7 @@
     "project_path": "/home/liranc6/ecg_forecasting/",
     "data_preprocess":{
         "data_path": "/home/liranc6/data/",
-        "raw_data_dir": "/home/liranc6/data/physionet.org/files/icentia11k-continuous-ecg/1.0"
+        "raw_data_dir": "/datasets/Icentia11k/physionet.org/files/icentia11k-continuous-ecg/1.0"
                     }
     },
     "rambo":{

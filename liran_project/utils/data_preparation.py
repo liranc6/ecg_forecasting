@@ -10,6 +10,7 @@ import numpy as np
 import glob
 import h5py
 import sys
+from multiprocessing import Pool
 
 server = "newton"
 server_config_path = os.path.join("/home/liranc6/ecg_forecasting/liran_project/utils/server_config.json")
@@ -19,7 +20,7 @@ with open(server_config_path) as f:
     server_config = json.load(f)
     server_config = server_config[server]
     project_path = server_config['project_path']
-    data_path = server_config['data_preprocess']['data_path']
+    my_data_dir = server_config['data_preprocess']['data_path']
     raw_data_dir = server_config['data_preprocess']['raw_data_dir']
 
 sys.path.append(project_path)
@@ -30,20 +31,16 @@ from liran_project.utils.util import find_beat_indices
 # ProjectPath = os.path.dirname(os.path.abspath(os.getcwd()))
 # data_path = '/mnt/qnap/liranc6/data/'
 
-def split_to_train_val_test(input_h5_file, output_directory, idx_start_val, idx_start_test, idx_end_test):
+def copy_and_count(args):
+    input_h5_file, output_file, indices = args
+    copy_datasets(input_h5_file, output_file, indices)
+    count_items(output_file)
 
+def split_to_train_val_test(input_h5_file, output_directory, idx_start_val, idx_start_test, idx_end_test):
     # Paths to your source and destination files
-    train_file = os.path.join(output_directory,
-                               "train",
-                               f'p0_to_p{idx_start_val-1}.h5')
-    
-    val_file = os.path.join(output_directory,
-                                "val",
-                                f'p{idx_start_val}_to_p{idx_start_test-1}.h5')
-    
-    test_file = os.path.join(output_directory,
-                                "test",
-                                f'p{idx_start_test}_to_p{idx_end_test}.h5')
+    train_file = os.path.join(output_directory, "train", f'p0_to_p{idx_start_val-1}.h5')
+    val_file = os.path.join(output_directory, "val", f'p{idx_start_val}_to_p{idx_start_test-1}.h5')
+    test_file = os.path.join(output_directory, "test", f'p{idx_start_test}_to_p{idx_end_test}.h5')
     
     os.makedirs(os.path.dirname(train_file), exist_ok=True)
     os.makedirs(os.path.dirname(val_file), exist_ok=True)
@@ -54,22 +51,16 @@ def split_to_train_val_test(input_h5_file, output_directory, idx_start_val, idx_
     indices_2 = list(range(idx_start_val-1, idx_start_test))   # 00026-00040
     indices_3 = list(range(idx_start_test, idx_end_test))   # 00040-00046
 
-    pbar = tqdm(total=3, desc="Splitting datasets")
-    # Copy datasets to the new files
-    copy_datasets(input_h5_file, train_file, indices_1)
-    count_items(train_file)
-    pbar.update(1)
-    copy_datasets(input_h5_file, val_file, indices_2)
-    count_items(val_file)
-    pbar.update(1)
-    copy_datasets(input_h5_file, test_file, indices_3)
-    count_items(test_file)
-    pbar.update(1)
+    tasks = [
+        (input_h5_file, train_file, indices_1),
+        (input_h5_file, val_file, indices_2),
+        (input_h5_file, test_file, indices_3)
+    ]
 
-    pbar.close()
+    with Pool() as pool:
+        list(tqdm(pool.imap(copy_and_count, tasks), total=3, desc="Splitting datasets"))
 
     print("Datasets split into three HDF5 files successfully.")
-
     
 # Function to copy datasets from source to destination HDF5 file
 def copy_datasets(src_file, dest_file, dataset_indices):
@@ -191,7 +182,7 @@ def create_subset_directory(filename):
     Returns:
     - Directory path for the subset file.
     """
-    subset_dir = os.path.join(data_path,
+    subset_dir = os.path.join(my_data_dir,
                               'icentia11k-continuous-ecg_normal_sinus_subset'
                               )
     # Extract the patient ID and segment ID from the filename
@@ -286,7 +277,7 @@ def timestamps_of_rhythm_type_in_all_segments(filename, rhythm_type):
     return timestamps
 
 
-def extract_sinus_rhythms_to_new_subset(data_dir, min_window_size, num_of_patients=10):
+def extract_sinus_rhythms_to_new_subset(data_dir, min_window_size, start_patient_id=0, end_patient_id=10):
     """
         Iterate through patients and segments, extract NSR, and create new subset files.
 
@@ -297,9 +288,9 @@ def extract_sinus_rhythms_to_new_subset(data_dir, min_window_size, num_of_patien
         Returns:
         - None
         """
-    iterator = itertools.product(range(7, num_of_patients + 1), range(0, 50))
+    iterator = itertools.product(range(start_patient_id, end_patient_id), range(0, 50))
     num_of_new_files = 0
-    for patient_id, segment_id in tqdm(iterator, desc='extract_sinus_rhythms_to_new_subset', total=num_of_patients * 50):
+    for patient_id, segment_id in tqdm(iterator, desc='extract_sinus_rhythms_to_new_subset', total=(end_patient_id-start_patient_id+1) * 50):
         # print(f"patient_id: {patient_id}, segment_id: {segment_id}")
         filename = os.path.join(data_dir,
                                 f'p{patient_id:05d}'[:3],
@@ -564,43 +555,175 @@ def arrays_to_fixed_size_windows(input_h5_file, window_size, output_h5_file):
     merge_datasets(input_h5_file, output_h5_file)
     os.remove(temp_filename)
 
+def extract_sinus_rhythms_to_p_signal_array(data_dir, output_file, min_window_size, start_patient_id=0, end_patient_id=10):
+    """
+        Iterate through patients and segments, extract NSR, and create new subset files.
 
+        Parameters:
+        - data_dir: Directory containing ECG data.
+        - min_window_size: Minimum window size for NSR.
 
+        Returns:
+        - None
+        """
+    iterator = itertools.product(range(start_patient_id, end_patient_id), range(0, 50))
+    num_of_new_files = 0
+    # Define beat types for annotation plotting
+    beat_types = ['N', 'Q', '+', 'V', 'S']
+    with h5py.File(output_file, 'w') as h5_file:
+        for patient_id, segment_id in tqdm(iterator, desc='extract_sinus_rhythms_to_new_subset', total=(end_patient_id-start_patient_id+1) * 50):
+            add_to_dataset = np.array([])
+            # print(f"patient_id: {patient_id}, segment_id: {segment_id}")
+            filename = os.path.join(data_dir,
+                                    f'p{patient_id:05d}'[:3],
+                                    f'p{patient_id:05d}',
+                                    f'p{patient_id:05d}_s{segment_id:02d}')
+
+            if not os.path.exists(f'{filename}.atr'):
+                pass
+                # print(f"File {filename} not found.")
+            else:
+                dataset_name = f'/{patient_id:05d}'
+                timestamps = timestamps_of_rhythm_type_in_all_segments(filename, 'normal')
+                for timestamp in timestamps:
+                    start_time, end_time = timestamp
+                    duration = end_time - start_time
+                    if duration >= min_window_size:  # Check if NSR is longer than 10 minutes (600 seconds)
+                        num_of_new_files += 1
+                        signals, _ = wfdb.rdsamp(filename, sampfrom=start_time, sampto=end_time)
+                        ann = wfdb.rdann(filename, "atr", sampfrom=start_time, sampto=end_time, shift_samps=True)
+                        indices = [item for sublist in find_beat_indices(ann, beat_types).values() for item in sublist]
+                        indices = np.array(indices) - 1
+                        # create np array of the same size as the signal and fill it with zeros (default value), put 1 in the indices
+                        # of the beats
+                        beats = np.zeros(signals.shape[0])
+                        beats[indices] = 1
+                        
+                        # create np array with dims [2, len(signals)] to store the signal and the beats
+                        data_sample = np.vstack((signals[:, 0], beats))
+                        
+                        # add to the patient dataset
+                        add_to_dataset = np.concatenate((add_to_dataset, data_sample), axis=0)
+                        
+                        
+            # check if dataset with the name of the patient_id already exists, if so, add the new data to the existing dataset, if not create a new dataset and add the data
+            if dataset_name in h5_file:
+                # add to the existing dataset
+                h5_file[dataset_name].resize(h5_file[dataset_name].shape[0] + add_to_dataset.shape[0], axis=0)
+                h5_file[dataset_name][-add_to_dataset.shape[0]:] = add_to_dataset
+            else:
+                # create a new dataset
+                h5_file.create_dataset(dataset_name, data=add_to_dataset)
+
+    print(f"Number of new files: {num_of_new_files}")
+
+def split_signal_to_windows(signal, window_size):
+    """
+    Split a signal into windows of the specified size.
+
+    Parameters:
+    - signal: The input signal to split.
+    - window_size: The size of each window.
+
+    Returns:
+    - windows: A list of windows.
+    """
+    windows = np.array([signal[:, i:i + window_size] for i in range(0, signal.shape[1]-window_size, window_size)])
+    return windows
+    
+
+def process_segment(args):
+    data_dir, patient_id, segment_id, min_window_size, beat_types = args
+    add_to_dataset = np.array([])
+    filename = os.path.join(data_dir,
+                            f'p{patient_id:05d}'[:3],
+                            f'p{patient_id:05d}',
+                            f'p{patient_id:05d}_s{segment_id:02d}')
+
+    if not os.path.exists(f'{filename}.atr'):
+        # print(f"File {filename} not found.")
+        return None, None
+    else:
+        dataset_name = f'/{patient_id:05d}'
+        timestamps = timestamps_of_rhythm_type_in_all_segments(filename, 'normal')
+        for timestamp in timestamps:
+            start_time, end_time = timestamp
+            duration = end_time - start_time
+            if duration >= min_window_size:
+                signals, _ = wfdb.rdsamp(filename, sampfrom=start_time, sampto=end_time)
+                ann = wfdb.rdann(filename, "atr", sampfrom=start_time, sampto=end_time, shift_samps=True)
+                indices = [item for sublist in find_beat_indices(ann, beat_types).values() for item in sublist]
+                indices = np.array(indices) - 1
+                beats = np.zeros(signals.shape[0])
+                beats[indices] = 1
+                data_sample = np.vstack((signals[:, 0], beats))
+                windows = split_signal_to_windows(data_sample, min_window_size) # windows is a np.array of shape (n, 2, window_size)
+                add_to_dataset = np.vstack((add_to_dataset, windows)) if add_to_dataset.size else windows
+        return dataset_name, add_to_dataset
+
+def parallel_extract_sinus_rhythms_to_p_signal_array(data_dir, output_file, min_window_size, start_patient_id=0, end_patient_id=10):
+    iterator = itertools.product(range(start_patient_id, end_patient_id+1), range(0, 150))
+    beat_types = ['N', 'Q', '+', 'V', 'S']
+    num_of_new_files = 0
+
+    with h5py.File(output_file, 'w') as h5_file:
+        with Pool() as pool:
+            p_bar = tqdm(pool.imap(process_segment, [(data_dir, patient_id, segment_id, min_window_size, beat_types) for patient_id, segment_id in iterator]), 
+                                desc='extract_sinus_rhythms_to_new_subset', total=(end_patient_id-start_patient_id) * 50)
+            for dataset_name, add_to_dataset in p_bar:
+                # if dataset_name is not None:
+                #     tqdm.write(f"{dataset_name=}, {add_to_dataset.shape=}")
+                if dataset_name and add_to_dataset.size > 0:
+                    if dataset_name in h5_file:
+                        h5_file[dataset_name].resize(h5_file[dataset_name].shape[0] + add_to_dataset.shape[0], axis=0)
+                        h5_file[dataset_name][-add_to_dataset.shape[0]:] = add_to_dataset
+                    else:
+                        maxshape = (None,) + add_to_dataset.shape[1:]
+                        h5_file.create_dataset(dataset_name, data=add_to_dataset, maxshape=maxshape, chunks=True)
+                      
 if __name__ == "__main__":
     # raw_data_dir = "/mnt/qnap/liranc6/data/icentia11k-continuous-ecg/static/published-projects/icentia11k-continuous-ecg/1.0"
 
     fs = 250 #sampling rate
     SECONDS_IN_MINUTE = 60
+    # split the arrays to fixed size windows
+    context_window_size = 10*SECONDS_IN_MINUTE*fs  # minutes * seconds * fs
+    label_window_size = 5*SECONDS_IN_MINUTE*fs  # minutes * seconds * fs
+    window_size = context_window_size+label_window_size
+    total_num_minutes = window_size//fs//SECONDS_IN_MINUTE
+    start_patient_id = 0
+    end_patient_id = 500
 
     # creating subset of normal sinus rhythms (NSR) from the raw data
-    min_window_size = 10 * SECONDS_IN_MINUTE * fs  # minutes * seconds * sampling rate
+    min_window_size = window_size  # minutes * seconds * sampling rate
     # the reason for min_window_size is that I hope to forecast 1-5 minutes ahead.
     # and I dont know if a smaller window will give me enough context data
-    # on top of that, I think I have enough data so I can fiter out the shorter NSR.
+    # on top of that, I think I have enough data so I can fiter out the shorter NSR.'
 
-    # extract_sinus_rhythms_to_new_subset(raw_data_dir, min_window_size, num_of_patients=46)
+    # extract_sinus_rhythms_to_new_subset(raw_data_dir, min_window_size, start_patient_id=46, end_patient_id=480)
 
     # after creating the subset, with 10 first patients I have more than 10 hours of NSR data
     # divided to 62 files of at least 10 minutes each.
     # I know its small but I dont need more for now. when I will, I will add more patients. (I used 10/11000 patients)
-    subset_data_dir = os.path.join(data_path, 'icentia11k-continuous-ecg_normal_sinus_subset')
+    # subset_data_dir = os.path.join(my_data_dir, 'icentia11k-continuous-ecg_normal_sinus_subset')
 
-    pSignal_npArray_data_dir_h5 = os.path.join(data_path, "with_R_beats", 'icentia11k-continuous-ecg_normal_sinus_subset_npArrays.h5')
+    # pSignal_npArray_data_dir_h5 = os.path.join(my_data_dir, "with_R_beats", 'icentia11k-continuous-ecg_normal_sinus_subset_npArrays.h5')
 
     # extract_and_save_p_signal_to_HDF5(subset_data_dir, pSignal_npArray_data_dir_h5, with_R_beats=True)
 
-    # split the arrays to fixed size windows
-    context_window_size = 9*SECONDS_IN_MINUTE*fs  # minutes * seconds * fs
-    label_window_size = 1*SECONDS_IN_MINUTE*fs  # minutes * seconds * fs
-    window_size = context_window_size+label_window_size
-
-    split_pSignal_file = os.path.join(data_path,
+    split_pSignal_file = os.path.join(my_data_dir,
                                       "with_R_beats",
                                       'icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits',
-                                      '10minutes_window_p0_to_p46.h5')
+                                      f'{total_num_minutes}_minutes_window_p{start_patient_id}_to_p{end_patient_id}.h5')
+    
+    parallel_extract_sinus_rhythms_to_p_signal_array(raw_data_dir,
+                                                     split_pSignal_file,
+                                                     min_window_size,
+                                                     start_patient_id=start_patient_id,
+                                                     end_patient_id=end_patient_id)
 
-    base_name, extension = os.path.splitext(os.path.basename(split_pSignal_file))
-    new_base_name = f"{base_name}_temp{extension}"
+    # base_name, extension = os.path.splitext(os.path.basename(split_pSignal_file))
+    # new_base_name = f"{base_name}_temp{extension}"
     # split_and_save_data(pSignal_npArray_data_dir_h5, window_size, split_pSignal_file)
 
     print("split_pSignal_file:")
@@ -613,14 +736,18 @@ if __name__ == "__main__":
     count_items(split_pSignal_file)
 
 
-    idx_start_val = 33
-    idx_start_test = 40
-    idx_end_test = 46
+    val_perc = 0.1
+    test_perc = 0.1
+    idx_end_test = end_patient_id
+    idx_start_test = end_patient_id - int(test_perc * end_patient_id)
+    idx_start_val = idx_start_test - int(val_perc * end_patient_id)
+    
+    print("splitting to train, val, test")
     split_to_train_val_test(input_h5_file=split_pSignal_file,
-                            output_directory=os.path.join(data_path,
+                            output_directory=os.path.join(my_data_dir,
                                                           "with_R_beats",
                                                           'icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits',
-                                                          '10minutes'
+                                                          f'{total_num_minutes}_minutes'
                                                           ),
                             idx_start_val=idx_start_val,
                             idx_start_test=idx_start_test,
