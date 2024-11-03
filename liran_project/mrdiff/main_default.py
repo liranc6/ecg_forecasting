@@ -116,7 +116,8 @@ def main():
         commit_id = subprocess.check_output(["git", "rev-parse", "HEAD"]).strip().decode('utf-8')
 
         # Log the current Git commit ID
-        wandb.config.update({"git_commit_id": commit_id}, allow_val_change=True)
+        wandb.config.update({"git_commit_id": commit_id})
+        print(f"Git commit ID: {commit_id}")
         
     if args.wandb.resume != "None" or args.wandb.resume_from != "None":
         def log_config_diffs(old_config, new_config, step):

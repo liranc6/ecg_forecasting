@@ -34,7 +34,7 @@ from liran_project.utils.util import find_beat_indices
 def copy_and_count(args):
     input_h5_file, output_file, indices = args
     copy_datasets(input_h5_file, output_file, indices)
-    count_items(output_file)
+    # count_items(output_file)
 
 def split_to_train_val_test(input_h5_file, output_directory, idx_start_val, idx_start_test, idx_end_test):
     # Paths to your source and destination files
@@ -65,11 +65,10 @@ def split_to_train_val_test(input_h5_file, output_directory, idx_start_val, idx_
 # Function to copy datasets from source to destination HDF5 file
 def copy_datasets(src_file, dest_file, dataset_indices):
     with h5py.File(src_file, 'r') as src, h5py.File(dest_file, 'w') as dest:
-        for index in tqdm(dataset_indices, total=len(dataset_indices), desc="Copying datasets"):
+        for index in dataset_indices:
             dataset_name = f'/{index:05d}'
             if dataset_name in src:
-                data = src[dataset_name][:]
-                dest.create_dataset(dataset_name, data=data)
+                src.copy(dataset_name, dest)
 
 def print_first_n_datasets_in_HDF5(hdf5_file, n=10):
     """
@@ -661,12 +660,27 @@ def process_segment(args):
                 add_to_dataset = np.vstack((add_to_dataset, windows)) if add_to_dataset.size else windows
         return dataset_name, add_to_dataset
 
-def parallel_extract_sinus_rhythms_to_p_signal_array(data_dir, output_file, min_window_size, start_patient_id=0, end_patient_id=10):
+def parallel_extract_sinus_rhythms_to_p_signal_array(data_dir, output_file, min_window_size, start_patient_id=0, end_patient_id=10, val_perc = 0.1, test_perc = 0.1, TVT_output_dir=None):
     iterator = itertools.product(range(start_patient_id, end_patient_id+1), range(0, 150))
     beat_types = ['N', 'Q', '+', 'V', 'S']
-    num_of_new_files = 0
+    idx_end_test = end_patient_id
+    idx_start_test = end_patient_id - int(test_perc * end_patient_id)
+    idx_start_val = idx_start_test - int(val_perc * end_patient_id)
+    
+    # Paths to your source and destination files
+    train_file = os.path.join(TVT_output_dir, "train", f'p0_to_p{idx_start_val-1}.h5')
+    val_file = os.path.join(TVT_output_dir, "val", f'p{idx_start_val}_to_p{idx_start_test-1}.h5')
+    test_file = os.path.join(TVT_output_dir, "test", f'p{idx_start_test}_to_p{idx_end_test}.h5')
+    
+    os.makedirs(os.path.dirname(train_file), exist_ok=True)
+    os.makedirs(os.path.dirname(val_file), exist_ok=True)
+    os.makedirs(os.path.dirname(test_file), exist_ok=True)
+    
 
-    with h5py.File(output_file, 'w') as h5_file:
+    with h5py.File(output_file, 'w') as h5_file, \
+         h5py.File(train_file, 'w') as train_h5, \
+         h5py.File(val_file, 'w') as val_h5, \
+         h5py.File(test_file, 'w') as test_h5:
         with Pool() as pool:
             p_bar = tqdm(pool.imap(process_segment, [(data_dir, patient_id, segment_id, min_window_size, beat_types) for patient_id, segment_id in iterator]), 
                                 desc='extract_sinus_rhythms_to_new_subset', total=(end_patient_id-start_patient_id) * 50)
@@ -674,13 +688,29 @@ def parallel_extract_sinus_rhythms_to_p_signal_array(data_dir, output_file, min_
                 # if dataset_name is not None:
                 #     tqdm.write(f"{dataset_name=}, {add_to_dataset.shape=}")
                 if dataset_name and add_to_dataset.size > 0:
-                    if dataset_name in h5_file:
-                        h5_file[dataset_name].resize(h5_file[dataset_name].shape[0] + add_to_dataset.shape[0], axis=0)
-                        h5_file[dataset_name][-add_to_dataset.shape[0]:] = add_to_dataset
+                    # if dataset_name in h5_file:
+                    #     h5_file[dataset_name].resize(h5_file[dataset_name].shape[0] + add_to_dataset.shape[0], axis=0)
+                    #     h5_file[dataset_name][-add_to_dataset.shape[0]:] = add_to_dataset
+                    # else:
+                    #     maxshape = (None,) + add_to_dataset.shape[1:]
+                    #     h5_file.create_dataset(dataset_name, data=add_to_dataset, maxshape=maxshape, chunks=True)
+                    
+                    # Determine which file to write to based on patient_id
+                    patient_id = int(dataset_name)  # int(dataset_name.split('_')[1])
+                    if patient_id < idx_start_val:
+                        target_h5 = train_h5
+                    elif patient_id < idx_start_test:
+                        target_h5 = val_h5
+                    else:
+                        target_h5 = test_h5
+
+                    if dataset_name in target_h5:
+                        target_h5[dataset_name].resize(target_h5[dataset_name].shape[0] + add_to_dataset.shape[0], axis=0)
+                        target_h5[dataset_name][-add_to_dataset.shape[0]:] = add_to_dataset
                     else:
                         maxshape = (None,) + add_to_dataset.shape[1:]
-                        h5_file.create_dataset(dataset_name, data=add_to_dataset, maxshape=maxshape, chunks=True)
-                      
+                        target_h5.create_dataset(dataset_name, data=add_to_dataset, maxshape=maxshape, chunks=True)
+                        
 if __name__ == "__main__":
     # raw_data_dir = "/mnt/qnap/liranc6/data/icentia11k-continuous-ecg/static/published-projects/icentia11k-continuous-ecg/1.0"
 
@@ -715,47 +745,51 @@ if __name__ == "__main__":
                                       "with_R_beats",
                                       'icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits',
                                       f'{total_num_minutes}_minutes_window_p{start_patient_id}_to_p{end_patient_id}.h5')
+    val_perc = 0.1
+    test_perc = 0.1
     
     parallel_extract_sinus_rhythms_to_p_signal_array(raw_data_dir,
                                                      split_pSignal_file,
                                                      min_window_size,
                                                      start_patient_id=start_patient_id,
-                                                     end_patient_id=end_patient_id)
+                                                     end_patient_id=end_patient_id,
+                                                     val_perc=val_perc,
+                                                     test_perc=test_perc,
+                                                     TVT_output_dir=os.path.join(my_data_dir,
+                                                                    "with_R_beats",
+                                                                    'icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits',
+                                                                    f'{total_num_minutes}_minutes'
+                                                                    ),
+                                                                )
 
     # base_name, extension = os.path.splitext(os.path.basename(split_pSignal_file))
     # new_base_name = f"{base_name}_temp{extension}"
     # split_and_save_data(pSignal_npArray_data_dir_h5, window_size, split_pSignal_file)
 
     print("split_pSignal_file:")
-    print_first_n_datasets_in_HDF5(split_pSignal_file, 5)
+    # print_first_n_datasets_in_HDF5(split_pSignal_file, 5)
     # print("temp_filename")
     # print_first_n_datasets_in_HDF5(temp_filename, 5)
     # merge_datasets(temp_filename, split_pSignal_file)
     # os.remove(temp_filename)
-    print_h5_hierarchy(split_pSignal_file)
+    # print_h5_hierarchy(split_pSignal_file)
     count_items(split_pSignal_file)
 
-
-    val_perc = 0.1
-    test_perc = 0.1
     idx_end_test = end_patient_id
     idx_start_test = end_patient_id - int(test_perc * end_patient_id)
     idx_start_val = idx_start_test - int(val_perc * end_patient_id)
     
     print("splitting to train, val, test")
-    split_to_train_val_test(input_h5_file=split_pSignal_file,
-                            output_directory=os.path.join(my_data_dir,
-                                                          "with_R_beats",
-                                                          'icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits',
-                                                          f'{total_num_minutes}_minutes'
-                                                          ),
-                            idx_start_val=idx_start_val,
-                            idx_start_test=idx_start_test,
-                            idx_end_test=idx_end_test
-                            )
-    
-
-
+    # split_to_train_val_test(input_h5_file=split_pSignal_file,
+    #                         output_directory=os.path.join(my_data_dir,
+    #                                                       "with_R_beats",
+    #                                                       'icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits',
+    #                                                       f'{total_num_minutes}_minutes'
+    #                                                       ),
+    #                         idx_start_val=idx_start_val,
+    #                         idx_start_test=idx_start_test,
+    #                         idx_end_test=idx_end_test
+    #                         )
 
     print("file finished")
 
