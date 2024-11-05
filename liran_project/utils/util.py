@@ -832,32 +832,42 @@ def get_mask_bm(sample, k):
 
     return mask
 
-def check_gpu_memory_usage(device_id=0):
+def check_gpu_memory_usage(device_ids=None):
     if torch.cuda.is_available():
-        device_properties = torch.cuda.get_device_properties(device_id)
-        gpu_name = device_properties.name
-        total_memory = device_properties.total_memory / (1024 ** 3)  # Convert from bytes to GB
-        reserved_memory = torch.cuda.memory_reserved(device_id) / (1024 ** 3)  # Convert from bytes to GB
-        allocated_memory = torch.cuda.memory_allocated(device_id) / (1024 ** 3)  # Convert from bytes to GB
-        free_memory = reserved_memory - allocated_memory  # Memory that is currently free
+        if device_ids is None:
+            device_ids = list(range(torch.cuda.device_count()))
+        elif not isinstance(device_ids, list):
+            device_ids = [device_ids]
 
-        print(f"GPU {device_id} ({gpu_name}) Memory Usage:")
-        print(f"  Total Memory: {total_memory:.2f} GB")
-        print(f"  Reserved Memory: {reserved_memory:.2f} GB")
-        print(f"  Allocated Memory: {allocated_memory:.2f} GB")
-        print(f"  Free Memory: {free_memory:.2f} GB")
+        results = []
+        for device_id in device_ids:
+            device_properties = torch.cuda.get_device_properties(device_id)
+            gpu_name = device_properties.name
+            total_memory = device_properties.total_memory / (1024 ** 3)  # Convert from bytes to GB
+            reserved_memory = torch.cuda.memory_reserved(device_id) / (1024 ** 3)  # Convert from bytes to GB
+            allocated_memory = torch.cuda.memory_allocated(device_id) / (1024 ** 3)  # Convert from bytes to GB
+            free_memory = reserved_memory - allocated_memory  # Memory that is currently free
 
-        return {
-            'gpu_name': gpu_name,
-            'total_memory_gb': total_memory,
-            'reserved_memory_gb': reserved_memory,
-            'allocated_memory_gb': allocated_memory,
-            'free_memory_gb': free_memory
-        }
+            print(f"GPU {device_id} ({gpu_name}) Memory Usage:")
+            print(f"  Total Memory: {total_memory:.2f} GB")
+            print(f"  Reserved Memory: {reserved_memory:.2f} GB")
+            print(f"  Allocated Memory: {allocated_memory:.2f} GB")
+            print(f"  Free Memory: {free_memory:.2f} GB")
+
+            results.append({
+                'gpu_id': device_id,
+                'gpu_name': gpu_name,
+                'total_memory_gb': total_memory,
+                'reserved_memory_gb': reserved_memory,
+                'allocated_memory_gb': allocated_memory,
+                'free_memory_gb': free_memory
+            })
+
+        return results
     else:
         print("CUDA is not available.")
         return None
-
+    
 # Function to display the stopwatch
 # Event to signal the stopwatch to stop
 class stopwatch:

@@ -17,7 +17,7 @@ class Exp_Basic(object):
     def _acquire_device(self):
         if self.args.hardware.use_gpu:
             os.environ["CUDA_VISIBLE_DEVICES"] = str(
-                self.args.hardware.gpu) if not self.args.hardware.use_multi_gpu else self.args.hardware.devices
+                self.args.hardware.gpu) if not self.args.hardware.use_multi_gpu else ','.join(map(str, self.args.hardware.device_ids))
             device = torch.device('cuda:{}'.format(self.args.hardware.gpu))
             print('Use GPU: cuda:{}'.format(self.args.hardware.gpu))
         else:

@@ -72,8 +72,8 @@ class Args:
 
             # Handle multi-GPU settings
             if self.configs['use_gpu'] and self.configs['hardware']['use_multi_gpu']:
-                self.configs['hardware']['devices'] = self.configs['hardware']['devices'].replace(' ', '')
-                device_ids = self.configs['hardware']['devices'].split(',')
+                self.configs['hardware']['device_ids'] = self.configs['hardware']['device_ids'].replace(' ', '')
+                device_ids = self.configs['hardware']['device_ids'].split(',')
                 self.configs['hardware']['device_ids'] = [int(id_) for id_ in device_ids]
                 self.configs['hardware']['gpu'] = self.configs['hardware']['device_ids'][0]
                 self.configs['optimization']['patience'] = 30

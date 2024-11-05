@@ -209,12 +209,13 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
             
             dataset = h5_file[str_dataset_idx]
 
-            end_idx = min(start_idx + self.cache_size, len(dataset)) 
+            end_idx = min(start_idx + self.cache_size, len(dataset))
 
             to_cache = dataset[start_idx: end_idx]  # This is a list of windows, each window is a numpy array with shape (window_size) if no RR data,
                                                     # or (2, window_size) if there is RR data
-
-
+                                                    
+            to_cache = to_cache[:self.cache_size]  # Ensure that the cache size is not exceeded
+            
         self._add_to_cache(to_cache, idx, advance)
 
         x, y = self.cache[idx]
@@ -231,9 +232,11 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
         if len(self.cache) + len(to_cache) >= self.cache_size:
             #clean the cache
             for i in range(len(to_cache)):
-                self.cache.popitem(last=True)
+                if len(self.cache) > 0:
+                    self.cache.popitem(last=False)
+                else:
+                    break
 
-        
         if self.data_with_RR:
             to_cache[:, 0, :] = normalized(to_cache[:, 0, :], self.normalize_method, self.norm_statistics)
             for i in range(len(to_cache)):

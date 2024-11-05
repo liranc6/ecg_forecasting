@@ -672,9 +672,9 @@ def parallel_extract_sinus_rhythms_to_p_signal_array(data_dir, output_file, min_
     val_file = os.path.join(TVT_output_dir, "val", f'p{idx_start_val}_to_p{idx_start_test-1}.h5')
     test_file = os.path.join(TVT_output_dir, "test", f'p{idx_start_test}_to_p{idx_end_test}.h5')
     
-    os.makedirs(os.path.dirname(train_file), exist_ok=True)
-    os.makedirs(os.path.dirname(val_file), exist_ok=True)
-    os.makedirs(os.path.dirname(test_file), exist_ok=True)
+    os.makedirs(os.path.dirname(train_file))
+    os.makedirs(os.path.dirname(val_file))
+    os.makedirs(os.path.dirname(test_file))
     
 
     with h5py.File(output_file, 'w') as h5_file, \
@@ -696,7 +696,7 @@ def parallel_extract_sinus_rhythms_to_p_signal_array(data_dir, output_file, min_
                     #     h5_file.create_dataset(dataset_name, data=add_to_dataset, maxshape=maxshape, chunks=True)
                     
                     # Determine which file to write to based on patient_id
-                    patient_id = int(dataset_name)  # int(dataset_name.split('_')[1])
+                    patient_id = int(dataset_name[1:])  # int(dataset_name.split('_')[1])
                     if patient_id < idx_start_val:
                         target_h5 = train_h5
                     elif patient_id < idx_start_test:
@@ -773,7 +773,7 @@ if __name__ == "__main__":
     # merge_datasets(temp_filename, split_pSignal_file)
     # os.remove(temp_filename)
     # print_h5_hierarchy(split_pSignal_file)
-    count_items(split_pSignal_file)
+    # count_items(split_pSignal_file)
 
     idx_end_test = end_patient_id
     idx_start_test = end_patient_id - int(test_perc * end_patient_id)

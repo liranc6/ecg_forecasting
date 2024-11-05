@@ -1,5 +1,5 @@
 emd:
-  use_emd: True
+  use_emd: False
   num_sifts: 3
   max_iter: 1000
   tol: 1e-6
@@ -10,14 +10,17 @@ wandb:
   id: 'None'  # wandb run id
 
 optimization:
-  batch_size: 2  # batch size of train input data
+  batch_size: 16  # batch size of train input data
   test_batch_size: 2  # batch size of test input data
 
 resume_exp:
   resume: False
   
 data:
-  norm_method: 'min_max'  # ['None', 'z_score', 'min_max']
+  norm_method: 'None'  # ['None', 'z_score', 'min_max']
+
+hardware:   
+  print_gpu_memory_usage: True
 
 training:
 
@@ -32,7 +35,7 @@ training:
 
   patients:
     start_patient: 0
-    end_patient: -1
+    end_patient: 1
 
   logging:
     log_start_epoch: 0
@@ -40,8 +43,8 @@ training:
   sequence:
     # len = minutes * seconds * fs
     context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
-    seq_len: 7000 # input_length; window size
-    label_len: 4000  # I think its context len # in minutes # start token length of Informer decoder
+    seq_len: 6000 # input_length; window size
+    label_len: 3000  # I think its context len # in minutes # start token length of Informer decoder
     pred_len: 3000  # I think its label/forecast len # prediction sequence length, horizon
 
   # logging:
@@ -54,7 +57,7 @@ training:
 validation:
   patients:
     start_patient: 0
-    end_patient: -1
+    end_patient: 1
 
 testing:
   patients:

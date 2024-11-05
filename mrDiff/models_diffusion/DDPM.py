@@ -112,26 +112,27 @@ class BaseMapping(nn.Module):
 
     def test_forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         if self.args.training.analysis.use_window_normalization:
-            x_enc_i = self.rev(x_enc, 'norm')  
-            # x_dec_i = self.rev(x_dec[:,-self.pred_len:,:], 'test_norm')
+            x_enc_i = self.rev(x_enc, 'norm')
         else:
             x_enc_i = x_enc
-            # x_dec_i = x_dec
 
         x = x_enc_i
 
         trend_init = x
-        trend_init = trend_init.permute(0,2,1)
+        trend_init = trend_init.permute(0, 2, 1)
         if self.individual:
-            
-            trend_output = torch.zeros([trend_init.size(0),trend_init.size(1),self.pred_len],dtype=trend_init.dtype).to(trend_init.device)
+            # Create new tensor instead of modifying in-place
+            trend_output = torch.zeros([trend_init.size(0), trend_init.size(1), self.pred_len], 
+                                    dtype=trend_init.dtype, 
+                                    device=trend_init.device)
             for i in range(self.channels):
-                trend_output[:,i,:] = self.Linear_Trend[i](trend_init[:,i,:])
+                # Create a new view and assign the result
+                trend_output[:, i, :] = self.Linear_Trend(trend_init[:, i, :])
         else:
             trend_output = self.Linear_Trend(trend_init)
         
         x = trend_output
-        outputs = x.permute(0,2,1)
+        outputs = x.permute(0, 2, 1)
         
         outputs = self.rev(outputs, 'denorm') if self.args.training.analysis.use_window_normalization else outputs
 
@@ -357,8 +358,8 @@ class Model(nn.Module):
         gpu_prints = 0
         if check_gpu_memory_usage is not None:
             print(f"{gpu_prints=}\n"\
-                  f"check_gpu_memory_usage(self.device):\n" \
-                  f"{check_gpu_memory_usage(self.device)}")
+                  f"check_gpu_memory_usage():\n" \
+                  f"{check_gpu_memory_usage()}")
             gpu_prints += 1
             
         if self.args.training.analysis.use_window_normalization:
@@ -387,8 +388,8 @@ class Model(nn.Module):
         
         if check_gpu_memory_usage is not None:
             print(f"{gpu_prints=}\n"\
-                  f"check_gpu_memory_usage(self.device):\n" \
-                  f"{check_gpu_memory_usage(self.device)}")
+                  f"check_gpu_memory_usage():\n" \
+                  f"{check_gpu_memory_usage()}")
             gpu_prints += 1
 
         # ==================================
@@ -398,8 +399,8 @@ class Model(nn.Module):
         
         if check_gpu_memory_usage is not None:
             print(f"linear_guess, ar_init_trends = self._compute_trends_and_guesses(: \n {gpu_prints=}\n"\
-                  f"check_gpu_memory_usage(self.device):\n" \
-                  f"{check_gpu_memory_usage(self.device)}")
+                  f"check_gpu_memory_usage():\n" \
+                  f"{check_gpu_memory_usage()}")
             gpu_prints += 1
             
         total_loss = self._compute_total_loss(x_past, x_future, future_trends, past_trends, linear_guess, ar_init_trends, return_mean=return_mean)
@@ -415,8 +416,8 @@ class Model(nn.Module):
                 
         if check_gpu_memory_usage is not None:
             print(f"{gpu_prints=}\n"\
-                  f"check_gpu_memory_usage(self.device):\n" \
-                  f"{check_gpu_memory_usage(self.device)}")
+                  f"check_gpu_memory_usage():\n" \
+                  f"{check_gpu_memory_usage()}")
             gpu_prints += 1
 
         return total_loss

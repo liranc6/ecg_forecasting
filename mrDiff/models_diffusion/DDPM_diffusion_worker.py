@@ -201,7 +201,7 @@ class Diffusion_Worker(nn.Module):
         
         if self.args.hardware.print_gpu_memory_usage:
             print(f"after 'x_k = self.q_sample(x_start=x, t=t, noise=noise)"\
-                    f"{check_gpu_memory_usage(self.device)}"
+                    f"{check_gpu_memory_usage()}"
                     )
             
        

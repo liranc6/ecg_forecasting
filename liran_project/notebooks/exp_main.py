@@ -297,7 +297,7 @@ class Exp_Main(Exp_Basic):
                 
                 if epoch < 2 and batch_idx < 2 and self.args.hardware.print_gpu_memory_usage:
                     tqdm.write(  f"epoch: {epoch}, i: {batch_idx}"\
-                            f"{check_gpu_memory_usage(self.device)}"
+                            f"{check_gpu_memory_usage()}"
                             )
                 
                 batch_x_without_RR = batch_x[:, 0, :].unsqueeze(-1)

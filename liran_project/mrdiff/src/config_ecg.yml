@@ -3,11 +3,11 @@ project_path: '/home/liranc6/ecg_forecasting'
 tqdm: "terminal" # ["terminal", "notebook"]
 print_tqdm: False
 
-debug: False  # debug mode
+debug: True  # debug mode
   # debug_config_path: "/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/debug_config_ecg.yml"
 
 emd:
-  use_emd: True
+  use_emd: False
   num_sifts: 4
   max_iter: 1000
   tol: 1e-6
@@ -53,18 +53,23 @@ optimization:
   pct_start: 0.3  # Percentage of training where learning rate increases
   accum_iter: 4
 
-hardware:
+hardware:   
   print_gpu_memory_usage: False  # print gpu memory usage
   num_workers: 0  # data loader num workers
   use_gpu: true  # use gpu
   gpu: 0  # gpu
-  use_multi_gpu: false  # use multiple gpus
-  devices: '0'  # device ids of multiple gpus
+  use_multi_gpu: True  # use multiple gpus
+  device_ids: '0,1'  # device ids of multiple gpus
+  parallelism_preference: 'memory' # ['memory', 'balanced', 'speed']
+  world_size: 2  # number of GPUs you want to use
+  rank: 0  # rank of the current process (this will vary if you are running multiple processes)
+  dist_backend: 'nccl'
+  dist_url: "tcp://127.0.0.1:23456"  # note the correction in the address
 
 paths:
-  train_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/15minutes/train/p0_to_p32.h5'  # location of training data
-  val_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/15minutes/val/p33_to_p39.h5'  # location of validation data
-  test_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/15minutes/test/p40_to_p46.h5'  # location of test data
+  train_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/15_minutes/train/p0_to_p399.h5'  # location of training data
+  val_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/15_minutes/val/p400_to_p449.h5'  # location of validation data
+  test_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/15_minutes/test/p450_to_p500.h5'  # location of test data
   output_dir: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff"
   checkpoints: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff"
   model_path: "None" # "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl10_ll105000_pl30000_lr0.001_bs8_invFalse_itr0/05_10_2024_1202/checkpoint.pth"
@@ -97,7 +102,7 @@ training:
 
   patients:
     start_patient: 0
-    end_patient: -1
+    end_patient: 150
 
   iterations:
     itr: 1  # experiments times
@@ -112,9 +117,9 @@ training:
   sequence:
     # len = minutes * seconds * fs
     context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
-    seq_len: 76300 # input_length; window size
-    label_len: 70000  # I think its context len # in minutes # start token length of Informer decoder
-    pred_len: 7500  # I think its label/forecast len # prediction sequence length, horizon
+    seq_len: 87000 # input_length; window size
+    label_len: 80000  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 7000  # I think its label/forecast len # prediction sequence length, horizon
 
   model_info:
     opt_loss_type: 'mse'
@@ -131,7 +136,7 @@ training:
 
   smoothing:
     reverse_order: False  # reverse order of the smoothed factors
-    smoothed_factors: [5, 25, 51] #[11, 19, 27, 35]  # mast be odd (non-even) numbers. List of smoothed factors, [5, 25, 51] are the kernel sizes for the smoothing
+    smoothed_factors: [1] #[11, 19, 27, 35]  # mast be odd (non-even) numbers. List of smoothed factors, [5, 25, 51] are the kernel sizes for the smoothing
 
   ode:
     ot_ode: true  # use OT-ODE model
@@ -176,7 +181,7 @@ training:
 validation:
   patients:
     start_patient: 0
-    end_patient: -1
+    end_patient: 15
 
 testing:
   patients:
