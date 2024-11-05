@@ -268,11 +268,14 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
         # try:
         with h5py.File(filename, 'r') as h5_file:
             num_keys = len(self.keys)
-            pbar_keys = tqdm(self.keys, total=num_keys)
+            early_stop = 50
+            pbar_keys = tqdm(self.keys, total=min(num_keys, early_stop))
             
             start_time = time.time()
             pbar_keys.set_description(f"creating_stats")
-            for key in pbar_keys:
+            for idx, key in enumerate(pbar_keys):
+                if idx > early_stop:
+                    break
                 data = h5_file[key][()][:, 0, :] if self.data_with_RR else h5_file[key][()]
                     
                 curr_num_samples = data.shape[0]
