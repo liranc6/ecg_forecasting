@@ -20,7 +20,7 @@ data:
   norm_method: 'None'  # ['None', 'z_score', 'min_max']
 
 hardware:   
-  print_gpu_memory_usage: True
+  print_gpu_memory_usage: False
 
 training:
 
@@ -30,7 +30,7 @@ training:
   #   pred_len: 3000  # I think its label/forecast len # prediction sequence length, horizon
 
   iterations:
-    train_epochs: 2  # train epochs
+    train_epochs: 3  # train epochs
     sample_times: 1
 
   patients:

@@ -934,10 +934,12 @@ class ExpMainLightning(pl.LightningModule):
         
     def training_step(self, batch, batch_idx):
         batch_x, batch_y, _, _ = batch
-        batch_x = batch_x.float().to(self.device).permute(0, 2, 1)
-        batch_y = batch_y.float().to(self.device).permute(0, 2, 1)
-        outputs = self.model.train_forward(batch_x, None, batch_y, None)
-        loss = self.criterion(outputs, batch_y)
+        batch_x_without_RR = batch_x[:, 0, :].unsqueeze(-1)
+        batch_y_without_RR = batch_y[:, 0, :].unsqueeze(-1)
+        batch_x_without_RR = batch_x_without_RR.float().to(self.device)
+        batch_y_without_RR = batch_y_without_RR.float().to(self.device)
+        loss = self.model.train_forward(batch_x_without_RR, None, batch_y_without_RR, None)
+        # loss = self.criterion(outputs, batch_y)
         self.log('train_loss', loss)
         return loss
     
@@ -947,8 +949,8 @@ class ExpMainLightning(pl.LightningModule):
         
     def validation_step(self, batch, batch_idx):
         batch_x, batch_y, _, _ = batch
-        batch_x_without_RR = batch_x[:, 0, :].unsqueeze(-1).to(self.device)
-        batch_y_without_RR = batch_y[:, 0, :].unsqueeze(-1).to(self.device)
+        batch_x_without_RR = batch_x[:, 0, :].unsqueeze(-1)
+        batch_y_without_RR = batch_y[:, 0, :].unsqueeze(-1)
         batch_x_without_RR = batch_x_without_RR.float()
         batch_y_without_RR = batch_y_without_RR.float()
         if self.args.training.model_info.model in ["DDPM", "PDSB"]:
@@ -981,9 +983,12 @@ class ExpMainLightning(pl.LightningModule):
         self.val_metrics = Metrics("val")
         
     def test_step(self, batch, batch_idx):
-        batch_x, batch_y = batch
-        batch_x = batch_x.float().to(self.device)
-        batch_y = batch_y.float().to(self.device)
+        batch_x, batch_y, _, _ = batch
+        batch_x, batch_y, _, _ = batch
+        batch_x_without_RR = batch_x[:, 0, :].unsqueeze(-1)
+        batch_y_without_RR = batch_y[:, 0, :].unsqueeze(-1)
+        batch_x_without_RR = batch_x_without_RR.float()
+        batch_y_without_RR = batch_y_without_RR.float()
         outputs = self.model.test_forward(batch_x, None, batch_y, None)
         loss = self.criterion(outputs, batch_y)
         self.log('test_loss', loss)

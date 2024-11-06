@@ -3,6 +3,7 @@ import sys
 import subprocess
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, ModelSummary
+from pytorch_lightning.strategies import DDPStrategy
 
 CONFIG_FILENAME = '/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/config_ecg.yml'
 
@@ -182,7 +183,8 @@ def main():
                         mode='min'
                     ),
                     ModelSummary(max_depth=-1)
-                ]
+                ],
+                strategy=DDPStrategy(find_unused_parameters=True)
             )
             trainer.fit(exp)
 
@@ -195,3 +197,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
+    

@@ -343,7 +343,8 @@ def ecg_signal_difference(ecg_batch, ecg_pred_batch, sampling_rate):
         diffs_by_r_indices_dict = differences_by_R_indices(ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices, ecg_len=ecg_signals_batch.shape[1])
         diffs.update(diffs_by_r_indices_dict)
     except Exception as e:
-        print(f"Error: {e}")
+        # print(f"Error: {e}")
+        pass
 
     return diffs
 
