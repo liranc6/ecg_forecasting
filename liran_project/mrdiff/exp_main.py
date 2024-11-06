@@ -773,13 +773,15 @@ class Metrics:
             'nrmse': 0,
         })
         self.tmp_metrics = defaultdict(lambda: [])
+        self.num_samples = defaultdict(lambda: int(0))
         
         self.mode = mode
         
     def calc_mean(self):
         for key, value in self.tmp_metrics.items():
             self.metrics[key] = np.mean(value)
-            
+            self.num_samples[key] += len(value)
+                        
         # Clear the tmp_metrics
         self.tmp_metrics = defaultdict(lambda: [])
             
@@ -814,3 +816,305 @@ class Metrics:
     
     def __repr__(self):
         return str(self.metrics)
+    
+
+
+
+
+
+
+
+import pytorch_lightning as pl
+import torch
+import torch.nn.functional as F
+from torch.utils.data import DataLoader, SubsetRandomSampler
+from torch.optim import Adam, lr_scheduler
+import yaml
+import os
+import sys
+import random
+import numpy as np
+from collections import defaultdict
+from tqdm import tqdm
+from datetime import timedelta
+import time
+import threading
+import warnings
+
+CONFIG_FILENAME = '/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/config_ecg.yml'
+
+assert CONFIG_FILENAME.endswith('.yml')
+
+with open(CONFIG_FILENAME, 'r') as file:
+    config = yaml.safe_load(file)
+
+# Add the parent directory to the sys.path
+ProjectPath = config['project_path']
+sys.path.append(ProjectPath)
+
+from liran_project.mrdiff.src.parser import parse_args
+from liran_project.utils.dataset_loader import SingleLeadECGDatasetCrops_mrDiff as DataSet
+from liran_project.utils.dataset_loader import de_normalized
+from liran_project.utils.util import ecg_signal_difference, check_gpu_memory_usage, stopwatch, update_nested_dict
+from liran_project.utils.common import *
+from mrDiff.models_diffusion import DDPM
+from mrDiff.utils.tools import EarlyStopping, adjust_learning_rate, visual
+from mrDiff.utils.metrics import metric
+
+warnings.filterwarnings('ignore')
+
+class ExpMainLightning(pl.LightningModule):
+    #check_val_every_n_epoch = 1
+    def __init__(self, args):
+        super(ExpMainLightning, self).__init__()
+        self.args = args
+        self.model = self._build_model()
+        self.criterion = F.mse_loss
+        self.datasets = {}
+        self.dataloaders = {}
+        self.model_start_training_time = None
+        self.train_metrics = Metrics("train")
+        self.val_metrics = Metrics("val")
+        self.test_metrics = Metrics("test")
+        
+        if self.args.resume_exp.resume:
+            chpt_path = self.args.resume_exp.specific_chpt_path
+            if chpt_path is None or chpt_path == "None":
+                raise ValueError("specific_chpt_path is None")
+            # Extract the part '21_10_2024_1424'
+            model_starting_time = os.path.basename(os.path.dirname(os.path.dirname(chpt_path)))
+            self.model_start_training_time = model_starting_time
+        else:
+            time_now = time.time()
+            
+            str_time_now = time.strftime("%d_%m_%Y_%H%M", time.localtime(time_now))
+            self.model_start_training_time = str_time_now
+        
+        os.makedirs(self.args.paths.checkpoints, exist_ok=True)  
+        
+        if self.args.resume_exp.resume:
+            self.resume_epoch = self.load_checkpoint(self.args.resume_exp.specific_chpt_path)    
+
+        self.early_stopping = EarlyStopping(patience=self.args.optimization.patience, verbose=True)
+        
+        self.update_stat_interval = 100
+
+    def _build_model(self):
+        model_dict = {
+            'DDPM': DDPM,
+        }
+        self.args.device = self.device
+        model = model_dict[self.args.training.model_info.model].Model(self.args).float()
+
+        # if self.args.hardware.use_multi_gpu and self.args.hardware.use_gpu:
+        #     model = torch.nn.DataParallel(model, device_ids=self.args.device_ids)
+        return model
+
+
+    def on_fit_start(self):
+        self.model.device = self.device
+    
+    def forward(self, x):
+        return self.model(x)
+
+    def configure_optimizers(self):
+        optimizer = Adam(self.model.parameters(), lr=self.args.optimization.learning_rate, weight_decay=self.args.optimization.weight_decay)
+        scheduler = lr_scheduler.OneCycleLR(optimizer,
+                                            steps_per_epoch=len(self.train_dataloader()),
+                                            pct_start=self.args.optimization.pct_start,
+                                            epochs=self.args.training.iterations.train_epochs,
+                                            max_lr=self.args.optimization.learning_rate,
+                                            )
+        return [optimizer], [scheduler]
+
+    def on_train_epoch_start(self):
+        self.args.device = self.device
+        self.model.to(self.device)
+        self.model.train()
+        
+    def training_step(self, batch, batch_idx):
+        batch_x, batch_y, _, _ = batch
+        batch_x = batch_x.float().to(self.device).permute(0, 2, 1)
+        batch_y = batch_y.float().to(self.device).permute(0, 2, 1)
+        outputs = self.model.train_forward(batch_x, None, batch_y, None)
+        loss = self.criterion(outputs, batch_y)
+        self.log('train_loss', loss)
+        return loss
+    
+    def on_train_epoch_end(self):
+        # save checkpoints if got better results
+        pass
+        
+    def validation_step(self, batch, batch_idx):
+        batch_x, batch_y, _, _ = batch
+        batch_x_without_RR = batch_x[:, 0, :].unsqueeze(-1).to(self.device)
+        batch_y_without_RR = batch_y[:, 0, :].unsqueeze(-1).to(self.device)
+        batch_x_without_RR = batch_x_without_RR.float()
+        batch_y_without_RR = batch_y_without_RR.float()
+        if self.args.training.model_info.model in ["DDPM", "PDSB"]:
+            outputs_without_RR = self.model.test_forward(batch_x_without_RR, None, batch_y_without_RR, None)
+            f_dim = -1 if self.args.general.features == 'MS' else 0
+            outputs_without_RR = outputs_without_RR[:, -self.args.training.sequence.pred_len:, f_dim:].permute(0, 2, 1)
+            batch_y = batch_y[:, :, -self.args.training.sequence.pred_len:].to(self.device)
+        loss = self.criterion(outputs_without_RR, batch_y_without_RR)
+        self.log('val_loss', loss)
+        
+        # Metrics
+        self.val_metrics.append_loss(loss.detach().cpu())
+        self.val_metrics.append_ecg_signal_difference(batch_y.detach().cpu(), outputs_without_RR.detach().cpu(), self.args.data.fs)
+        
+        return {'loss': loss.item(), 'batch_y': batch_y, 'outputs': outputs_without_RR}
+    
+    def validation_step_end(self, batch_parts):
+        self.val_metrics.append_loss([x['loss'] for x in batch_parts])
+        for x in batch_parts:
+            batch_y, outputs = x['batch_y'], x['outputs']
+            self.val_metrics.append_ecg_signal_difference(batch_y.detach().cpu(), outputs.detach().cpu(), self.args.data.fs)
+        total_loss = torch.stack([x['loss'] for x in batch_parts]).mean()
+        return total_loss
+    
+    def on_validation_epoch_end(self, validation_step_outputs=None):
+        for key, value in self.val_metrics.calc_mean().items():
+            if value != 0:
+                self.log(f'val_{key}', value)
+        
+        self.val_metrics = Metrics("val")
+        
+    def test_step(self, batch, batch_idx):
+        batch_x, batch_y = batch
+        batch_x = batch_x.float().to(self.device)
+        batch_y = batch_y.float().to(self.device)
+        outputs = self.model.test_forward(batch_x, None, batch_y, None)
+        loss = self.criterion(outputs, batch_y)
+        self.log('test_loss', loss)
+        return loss
+
+    def train_dataloader(self):
+        dataset_args, data_loader_args = self._get_dataset_and_dataloader_args('train')
+        dataset = DataSet(**dataset_args)
+        return DataLoader(dataset, **data_loader_args)
+
+    def val_dataloader(self):
+        dataset_args, data_loader_args = self._get_dataset_and_dataloader_args('val')
+        dataset = DataSet(**dataset_args)
+        return DataLoader(dataset, **data_loader_args)
+
+    def test_dataloader(self):
+        dataset_args, data_loader_args = self._get_dataset_and_dataloader_args('train')
+        dataset = DataSet(**dataset_args)
+        return DataLoader(dataset, **data_loader_args)
+    
+    def _get_dataset_and_dataloader_args(self, flag):
+        
+        config_dict = self.args.configs.to_dict()
+        # split the windows to fixed size context and label windows
+        fs = config_dict['data']['fs']
+        context_window_size = config_dict['training']['sequence']['label_len']  # minutes * seconds * fs
+        label_window_size = config_dict['training']['sequence']['pred_len']  # minutes * seconds * fs
+        window_size = context_window_size+label_window_size
+        
+        if flag == 'train':
+            data_path = self.args.paths.train_data
+            start_patiant = self.args.training.patients.start_patient
+            end_patiant = self.args.training.patients.end_patient
+        elif flag == 'val':
+            data_path = self.args.paths.val_data
+            start_patiant = self.args.validation.patients.start_patient
+            end_patiant = self.args.validation.patients.end_patient
+        elif flag == 'test':
+            data_path = self.args.paths.test_data
+            start_patiant = self.args.testing.patients.start_patient
+            end_patiant = self.args.testing.patients.end_patient
+            
+        dataset_args = {
+                            'context_window_size': context_window_size,
+                            'label_window_size': label_window_size,
+                            'h5_filename': data_path,
+                            'start_patiant': start_patiant,
+                            'end_patiant': end_patiant,
+                            'data_with_RR': True,
+                            'return_with_RR': True,
+                            'normalize_method': self.args.data.norm_method,
+                        }
+
+        # dataset = DataSet(context_window_size,
+        #                         label_window_size,
+        #                         data_path,
+        #                         start_patiant=start_patiant,
+        #                         end_patiant=end_patiant,
+        #                         data_with_RR=True,
+        #                         return_with_RR=True,
+        #                         normalize_method = self.args.data.norm_method,
+        #                         )
+        
+        if flag == 'test':
+            shuffle_flag = False 
+            drop_last = False
+            batch_size = self.args.optimization.test_batch_size
+            # sampler = self._get_nth_sampler(dataset, n=1)
+        elif flag=='pred':
+            shuffle_flag = False 
+            drop_last = False 
+            batch_size = 1
+            # sampler = None
+        elif flag == 'train':
+            shuffle_flag = True
+            drop_last = True
+            batch_size = self.args.optimization.batch_size
+            # sampler = None
+        elif flag == 'val':
+            shuffle_flag = False
+            drop_last = False
+            batch_size = self.args.optimization.test_batch_size
+            # sampler = self._get_nth_sampler(dataset, n=1)
+        else:
+            raise ValueError("Invalid flag")
+        
+        data_loader_args = {
+                            'batch_size': batch_size,
+                            'shuffle': shuffle_flag,
+                            'num_workers': self.args.hardware.num_workers,
+                            'drop_last': drop_last,
+                            # 'sampler': sampler
+                        }
+        
+        # data_loader = DataLoader(
+        #     dataset,
+        #     batch_size=batch_size,
+        #     shuffle=shuffle_flag,
+        #     num_workers=self.args.hardware.num_workers,
+        #     drop_last=drop_last,
+        #     sampler=sampler
+        # )
+        
+        # self.datasets[flag] = dataset
+        # self.dataloaders[flag] = data_loader
+        
+        
+        return dataset_args, data_loader_args
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    

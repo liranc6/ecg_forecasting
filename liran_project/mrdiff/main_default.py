@@ -1,6 +1,8 @@
 import yaml
 import sys
 import subprocess
+from pytorch_lightning import Trainer
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, ModelSummary
 
 CONFIG_FILENAME = '/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/config_ecg.yml'
 
@@ -15,7 +17,7 @@ sys.path.append(ProjectPath)
 
 from liran_project.mrdiff.src.parser import parse_args
 from liran_project.utils.util import Debbuger
-from liran_project.mrdiff.exp_main import Exp_Main
+from liran_project.mrdiff.exp_main import Exp_Main, ExpMainLightning
 from liran_project.utils.common import *
 
 
@@ -154,14 +156,38 @@ def main():
         if tag is not None:
             setting += f"_{tag}"
 
-        exp = Exp_Main(args)
+        time_now = time.time()
+            
+        str_time_now = time.strftime("%d_%m_%Y_%H%M", time.localtime(time_now))
+        model_start_training_time = str_time_now
+        args.paths.checkpoints = os.path.join(args.paths.checkpoints, setting, model_start_training_time)
+        exp = ExpMainLightning(args)
         
         print(f'>>>>>>>start training : {setting}>>>>>>>>>>>>>>>>>>>>>>>>>')
         with Debbuger(debug=args.debug):
-            exp.train(setting)
+            trainer = Trainer(
+                devices=1,
+                max_epochs=args.training.iterations.train_epochs,
+                callbacks=[
+                    ModelCheckpoint(
+                        dirpath=args.paths.checkpoints,
+                        filename='{epoch}-{val_loss:.2f}',
+                        save_top_k=1,
+                        monitor='val_loss',
+                        mode='min'
+                    ),
+                    EarlyStopping(
+                        monitor='val_loss',
+                        patience=args.optimization.patience,
+                        mode='min'
+                    ),
+                    ModelSummary(max_depth=-1)
+                ]
+            )
+            trainer.fit(exp)
 
         print(f'>>>>>>>testing : {setting}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<')
-        exp.test(setting, test=1)
+        trainer.test(exp)
         
         torch.cuda.empty_cache()
         

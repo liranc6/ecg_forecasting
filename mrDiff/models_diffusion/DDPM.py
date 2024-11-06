@@ -127,7 +127,7 @@ class BaseMapping(nn.Module):
                                     device=trend_init.device)
             for i in range(self.channels):
                 # Create a new view and assign the result
-                trend_output[:, i, :] = self.Linear_Trend(trend_init[:, i, :])
+                trend_output[:, i, :] = self.Linear_Trend[i](trend_init[:, i, :])
         else:
             trend_output = self.Linear_Trend(trend_init)
         
@@ -374,10 +374,10 @@ class Model(nn.Module):
             
         # print(">>>>>", np.shape(x_past), np.shape(x_future))
 
-        future_trends = self.obatin_multi_trends(x_future.permute(0,2,1))  # from finest to coarsest
-        # each trend: B, N, L
-        future_trends = [trend_i.permute(0,2,1) for trend_i in future_trends]
-        # each trend: B, L, N
+        future_trends = self.obatin_multi_trends(x_future.permute(0,2,1))  # from finest to coarsest # each trend: B, N, L
+        
+        future_trends = [trend_i.permute(0,2,1) for trend_i in future_trends] # each trend: B, L, N
+        
         future_xT = torch.randn_like(x_future)
         future_trends.append(future_xT)
 

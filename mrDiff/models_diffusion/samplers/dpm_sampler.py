@@ -102,7 +102,7 @@ class DPMSolverSampler(object):
         if x_T is None:
             img = torch.randn(size, device=device)
         else:
-            img = x_T
+            img = x_T.to(device)
 
         ns = NoiseScheduleVP('discrete', alphas_cumprod=self.alphas_cumprod)
 
