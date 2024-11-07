@@ -1,9 +1,10 @@
 import yaml
 import sys
 import subprocess
+import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, ModelSummary
-from pytorch_lightning.strategies import DDPStrategy
+from pytorch_lightning.strategies import DDPStrategy, FSDPStrategy
 
 CONFIG_FILENAME = '/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/config_ecg.yml'
 
@@ -141,10 +142,7 @@ def main():
         log_config_diffs(old_config, new_config, step="update_args")
         
         
-    fix_seed = random_seed
-    random.seed(fix_seed)
-    torch.manual_seed(fix_seed)
-    np.random.seed(fix_seed)
+    pl.seed_everything(random_seed)
     
     for iteration in range(iterations):
         # setting record of experiments
@@ -168,7 +166,10 @@ def main():
         with Debbuger(debug=args.debug):
             trainer = Trainer(
                 devices=1,
+                accelerator="cuda",
                 max_epochs=args.training.iterations.train_epochs,
+                num_sanity_val_steps=0,  # Disable sanity check
+                use_distributed_sampler = True,
                 callbacks=[
                     ModelCheckpoint(
                         dirpath=args.paths.checkpoints,
@@ -182,9 +183,12 @@ def main():
                         patience=args.optimization.patience,
                         mode='min'
                     ),
-                    ModelSummary(max_depth=-1)
+                    ModelSummary(max_depth=2)
                 ],
-                strategy=DDPStrategy(find_unused_parameters=True)
+                strategy=FSDPStrategy(
+                                        sharding_strategy="FULL_SHARD",
+                                        # cpu_offload=True,
+                                      ), #DDPStrategy(find_unused_parameters=True)
             )
             trainer.fit(exp)
 

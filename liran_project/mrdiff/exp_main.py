@@ -867,8 +867,8 @@ class ExpMainLightning(pl.LightningModule):
     #check_val_every_n_epoch = 1
     def __init__(self, args):
         super(ExpMainLightning, self).__init__()
+        self.model = None
         self.args = args
-        self.model = self._build_model()
         self.criterion = F.mse_loss
         self.datasets = {}
         self.dataloaders = {}
@@ -899,6 +899,12 @@ class ExpMainLightning(pl.LightningModule):
         
         self.update_stat_interval = 100
 
+    def configure_model(self):
+        if self.model is not None:
+            return
+        
+        self.model = self._build_model()
+        
     def _build_model(self):
         model_dict = {
             'DDPM': DDPM,
@@ -910,9 +916,23 @@ class ExpMainLightning(pl.LightningModule):
         #     model = torch.nn.DataParallel(model, device_ids=self.args.device_ids)
         return model
 
+    def print_layer_devices(self, max_depth=-1):
+        from tabulate import tabulate
 
+        def get_depth(name):
+            return name.count('.')
+
+        table = []
+        for name, param in self.model.named_parameters():
+            if (max_depth == -1 or get_depth(name) <= max_depth):# and param.numel() > 0:
+                table.append([name, type(param).__name__, param.numel(), param.device])
+
+        headers = ["Name", "Type", "Params", "Device"]
+        print(tabulate(table, headers=headers, tablefmt="pipe"))
+            
     def on_fit_start(self):
         self.model.device = self.device
+        # self.print_layer_devices(max_depth=4)  # Print the device of each layer
     
     def forward(self, x):
         return self.model(x)
