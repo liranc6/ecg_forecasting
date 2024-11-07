@@ -960,12 +960,34 @@ class ExpMainLightning(pl.LightningModule):
         batch_y_without_RR = batch_y_without_RR.float().to(self.device)
         loss = self.model.train_forward(batch_x_without_RR, None, batch_y_without_RR, None)
         # loss = self.criterion(outputs, batch_y)
-        self.log('train_loss', loss)
-        return loss
+        return {'loss': loss}
     
+    def training_step_end(self, batch_parts):
+        # Aggregate the losses from the individual training steps
+        total_loss = torch.stack([x['loss'] for x in batch_parts]).mean()
+        
+        # Update the training metrics
+        self.train_metrics.append_loss(total_loss.item())
+                
+        return total_loss
+        
     def on_train_epoch_end(self):
-        # save checkpoints if got better results
-        pass
+        # Calculate and log training metrics
+        train_loss = self.train_metrics.calc_mean()
+        log = {
+            "epoch": self.current_epoch + 1,
+        }
+        
+        for key, value in train_loss.items():
+            if value != 0:
+                log["train_" + key] = value
+                self.log("train_" + key, value)  # Log the metric for the custom callbacks
+        
+        # Log metrics to wandb
+        wandb.log(log)
+                
+        # Reset train metrics for the next epoch
+        self.train_metrics = Metrics("train")
         
     def validation_step(self, batch, batch_idx):
         batch_x, batch_y, _, _ = batch
@@ -979,28 +1001,45 @@ class ExpMainLightning(pl.LightningModule):
             outputs_without_RR = outputs_without_RR[:, -self.args.training.sequence.pred_len:, f_dim:].permute(0, 2, 1)
             batch_y = batch_y[:, :, -self.args.training.sequence.pred_len:].to(self.device)
         loss = self.criterion(outputs_without_RR, batch_y_without_RR)
-        self.log('val_loss', loss)
+        self.log('val_loss', loss.item())
         
         # Metrics
-        self.val_metrics.append_loss(loss.detach().cpu())
-        self.val_metrics.append_ecg_signal_difference(batch_y.detach().cpu(), outputs_without_RR.detach().cpu(), self.args.data.fs)
+        # self.val_metrics.append_loss(loss.detach().cpu())
+        # self.val_metrics.append_ecg_signal_difference(batch_y.detach().cpu(), outputs_without_RR.detach().cpu(), self.args.data.fs)
         
-        return {'loss': loss.item(), 'batch_y': batch_y, 'outputs': outputs_without_RR}
+        return {'loss': loss, 'batch_y': batch_y, 'outputs': outputs_without_RR}
     
     def validation_step_end(self, batch_parts):
-        self.val_metrics.append_loss([x['loss'] for x in batch_parts])
+        # Aggregate the losses from the individual validation steps
+        total_loss = torch.stack([x['loss'] for x in batch_parts]).mean()
+        
+        # Update the validation metrics
+        self.val_metrics.append_loss(total_loss.item())
         for x in batch_parts:
             batch_y, outputs = x['batch_y'], x['outputs']
             self.val_metrics.append_ecg_signal_difference(batch_y.detach().cpu(), outputs.detach().cpu(), self.args.data.fs)
-        total_loss = torch.stack([x['loss'] for x in batch_parts]).mean()
+        
         return total_loss
     
-    def on_validation_epoch_end(self, validation_step_outputs=None):
-        for key, value in self.val_metrics.calc_mean().items():
-            if value != 0:
-                self.log(f'val_{key}', value)
+    def on_validation_epoch_end(self):
+        # Calculate and log validation metrics
+        val_loss = self.val_metrics.calc_mean()
+        log = {
+            "epoch": self.current_epoch + 1,
+        }
         
+        for key, value in val_loss.items():
+            if value != 0:
+                log["vali_" + key] = value
+                self.log("vali_" + key, value)  # Log the metric for the custom callbacks
+            
+                
+        # Log metrics to wandb
+        wandb.log(log)
+        
+        # Reset validation metrics for the next epoch
         self.val_metrics = Metrics("val")
+        
         
     def test_step(self, batch, batch_idx):
         batch_x, batch_y, _, _ = batch

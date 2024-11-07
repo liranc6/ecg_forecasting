@@ -5,7 +5,7 @@ emd:
   tol: 1e-6
 
 wandb:
-  mode: 'disabled'  # [online, disabled, offline]
+  mode: 'online'  # [online, disabled, offline]
   resume: 'None'  # ["allow", "must", "never", "auto", "None"]
   id: 'None'  # wandb run id
 
@@ -30,7 +30,7 @@ training:
   #   pred_len: 3000  # I think its label/forecast len # prediction sequence length, horizon
 
   iterations:
-    train_epochs: 3  # train epochs
+    train_epochs: 4  # train epochs
     sample_times: 1
 
   patients:
@@ -44,8 +44,8 @@ training:
     # len = minutes * seconds * fs
     context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
     seq_len: 6000 # input_length; window size
-    label_len: 80000  # I think its context len # in minutes # start token length of Informer decoder
-    pred_len: 7500  # I think its label/forecast len # prediction sequence length, horizon
+    label_len: 3000  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 3000  # I think its label/forecast len # prediction sequence length, horizon
 
   # logging:
   #   sample: false

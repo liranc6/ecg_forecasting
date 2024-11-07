@@ -2,6 +2,7 @@ import yaml
 import sys
 import subprocess
 import pytorch_lightning as pl
+from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, ModelSummary
 from pytorch_lightning.strategies import DDPStrategy, FSDPStrategy
@@ -27,7 +28,47 @@ from liran_project.utils.common import *
 exp_module_path = os.path.join(ProjectPath, 'mrDiff')
 sys.path.append(exp_module_path)
 
+class CustomModelCheckpoint(ModelCheckpoint):
+    def __init__(self, start_epoch=10, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.start_epoch = start_epoch
+        self.best_metrics = {}
 
+    def on_validation_end(self, trainer, pl_module):
+        if trainer.current_epoch >= self.start_epoch:
+            metrics = trainer.callback_metrics
+            for metric_name, metric_value in metrics.items():
+                if metric_name.startswith('val_'):
+                    if metric_name not in self.best_metrics or metric_value < self.best_metrics[metric_name]:
+                        self.best_metrics[metric_name] = metric_value
+                        print(f"Improved {metric_name}: {metric_value:.4f}")
+                        if metric_name in ["val_loss", "val_mean_extra_r_beats", "val_dtw_dist"]:
+                            save_path = os.path.join(self.dirpath, f"{metric_name}.ckpt")
+                            print(f"Saving checkpoint for {metric_name} to file {save_path}")
+                            self.save_checkpoint(trainer, pl_module, save_path)
+
+    def save_checkpoint(self, trainer, pl_module, save_path):
+        # Save the checkpoint to the specified path
+        trainer.save_checkpoint(save_path)
+
+
+class CustomEarlyStopping(EarlyStopping):
+    def __init__(self, start_epoch=10, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.start_epoch = start_epoch
+        self.best_metrics = {}
+
+    def on_validation_end(self, trainer, pl_module):
+        if trainer.current_epoch >= self.start_epoch:
+            metrics = trainer.callback_metrics
+            for metric_name, metric_value in metrics.items():
+                if metric_name.startswith('val_'):
+                    if metric_name not in self.best_metrics or metric_value < self.best_metrics[metric_name]:
+                        self.best_metrics[metric_name] = metric_value
+                        print(f"Improved {metric_name}: {metric_value:.4f}")
+            super(CustomEarlyStopping, self).on_validation_end(trainer, pl_module)       
+        
+                                
 def main():
     args = parse_args(CONFIG_FILENAME)
     
@@ -66,16 +107,6 @@ def main():
     wandb_mode = args.wandb.mode if args.wandb.mode != "None" else "online"
     wandb_resume = args.wandb.resume if args.wandb.resume != "None" else None
     
-    # if args.wandb.resume != "None":
-    #     wandb_id = args.wandb.id
-    #     wandb_mode = args.wandb.mode
-    #     wandb_resume = args.wandb.resume
-    #     # wandb.init(project=project_name, id=wandb_id, resume="must", mode=wandb_mode)
-    #     # wandb_init_config.update({
-    #     #                         "id": args.wandb.resume,
-    #     #                         "resume": args.wandb.resume
-    #     #                         })
-        
     if args.wandb.resume_from != "None":
         wandb_init_config ={
             "mode": args.wandb.mode,
@@ -98,6 +129,7 @@ def main():
                 
         print(f"Resuming wandb run id: {wandb.run.id}")   
     else:
+        wandb_logger = WandbLogger(project=wandb_project_name, id = wandb_id,)
         wandb.init(project=wandb_project_name,
                    id = wandb_id,
                    mode = wandb_mode,
@@ -165,25 +197,27 @@ def main():
         print(f'>>>>>>>start training : {setting}>>>>>>>>>>>>>>>>>>>>>>>>>')
         with Debbuger(debug=args.debug):
             trainer = Trainer(
-                devices=1,
+                devices=2,
                 accelerator="cuda",
                 max_epochs=args.training.iterations.train_epochs,
                 num_sanity_val_steps=0,  # Disable sanity check
-                use_distributed_sampler = True,
+                # use_distributed_sampler = True,
                 callbacks=[
-                    ModelCheckpoint(
+                    CustomModelCheckpoint(
                         dirpath=args.paths.checkpoints,
                         filename='{epoch}-{val_loss:.2f}',
                         save_top_k=1,
                         monitor='val_loss',
-                        mode='min'
+                        mode='min',
+                        start_epoch=2
                     ),
-                    EarlyStopping(
+                    CustomEarlyStopping(
                         monitor='val_loss',
                         patience=args.optimization.patience,
-                        mode='min'
+                        mode='min',
+                        start_epoch=2,
                     ),
-                    ModelSummary(max_depth=2)
+                    ModelSummary(max_depth=3)
                 ],
                 strategy=FSDPStrategy(
                                         sharding_strategy="FULL_SHARD",
@@ -201,5 +235,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
     
     
