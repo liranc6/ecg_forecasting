@@ -107,38 +107,32 @@ def main():
     wandb_mode = args.wandb.mode if args.wandb.mode != "None" else "online"
     wandb_resume = args.wandb.resume if args.wandb.resume != "None" else None
     
+    wandb_logger = WandbLogger(project=wandb_project_name, id=wandb_id, mode=wandb_mode, resume=wandb_resume)
+    
     if args.wandb.resume_from != "None":
-        wandb_init_config ={
+        wandb_init_config = {
             "mode": args.wandb.mode,
             "project": args.wandb.project,
             "save_code": args.wandb.save_code,
+            "resume": args.wandb.resume_from
         }
-        
-        wandb_init_config = {
-                                "fork_from": args.wandb.resume_from
-                            }
 
-        wandb.init(resume_from = args.wandb.resume_from)
+        wandb_logger.experiment(**wandb_init_config)
 
         # Extract the expected step from args.wandb.resume_from
         resume_from_parts = args.wandb.resume_from.split("?_step=")
         expected_step = int(resume_from_parts[1])  # Extract the step part and convert to integer
 
         # Assert that the run started from the specified step
-        assert wandb.run.step == expected_step, f"Expected step {expected_step}, but got {wandb.run.step}"
+        assert wandb_logger.experiment.step == expected_step, f"Expected step {expected_step}, but got {wandb_logger.experiment.step}"
                 
-        print(f"Resuming wandb run id: {wandb.run.id}")   
+        print(f"Resuming wandb run id: {wandb_logger.experiment.id}")   
     else:
-        wandb_logger = WandbLogger(project=wandb_project_name, id = wandb_id,)
-        wandb.init(project=wandb_project_name,
-                   id = wandb_id,
-                   mode = wandb_mode,
-                   resume = wandb_resume,
-                   config=args)
-        print(f"New wandb run id: {wandb.run.id}")
+        wandb.init(project=wandb_project_name, id=wandb_id, mode=wandb_mode, resume=wandb_resume, config=args)
+        print(f"New wandb run id: {wandb_logger.experiment.id}")
     
     if args.wandb.save_code:
-        wandb.save("main_default.py")
+        wandb_logger.experiment.save("main_default.py")
         # Get the directory of the current file
         current_dir = os.path.dirname(__file__)
 
@@ -146,13 +140,13 @@ def main():
         relative_path = os.path.join(current_dir, "exp_main.py")
 
         # Save the file using the relative path
-        wandb.save(relative_path)
+        wandb_logger.experiment.save(relative_path)
     
         # Get the current Git commit ID
         commit_id = subprocess.check_output(["git", "rev-parse", "HEAD"]).strip().decode('utf-8')
 
         # Log the current Git commit ID
-        wandb.config.update({"git_commit_id": commit_id})
+        wandb_logger.experiment.config.update({"git_commit_id": commit_id})
         print(f"Git commit ID: {commit_id}")
         
     if args.wandb.resume != "None" or args.wandb.resume_from != "None":
@@ -166,11 +160,11 @@ def main():
                 note = f"Config changes at step {step}:\n"
                 for key, value in diffs.items():
                     note += f"{key}: {value['old']} -> {value['new']}\n"
-                wandb.run.notes = (wandb.run.notes or "") + note + "\n\nAdditional information added later:\n"
+                wandb_logger.experiment.notes = (wandb_logger.experiment.notes or "") + note + "\n\nAdditional information added later:\n"
         
-        old_config = dict(wandb.config)
-        wandb.config.update(args, allow_val_change=True)
-        new_config = dict(wandb.config)
+        old_config = dict(wandb_logger.experiment.config)
+        wandb_logger.experiment.config.update(args, allow_val_change=True)
+        new_config = dict(wandb_logger.experiment.config)
         log_config_diffs(old_config, new_config, step="update_args")
         
         
@@ -202,6 +196,7 @@ def main():
                 max_epochs=args.training.iterations.train_epochs,
                 num_sanity_val_steps=0,  # Disable sanity check
                 # use_distributed_sampler = True,
+                logger=wandb_logger,
                 callbacks=[
                     CustomModelCheckpoint(
                         dirpath=args.paths.checkpoints,
@@ -235,6 +230,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
-    
-    

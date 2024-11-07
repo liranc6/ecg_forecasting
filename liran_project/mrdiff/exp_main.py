@@ -959,17 +959,9 @@ class ExpMainLightning(pl.LightningModule):
         batch_x_without_RR = batch_x_without_RR.float().to(self.device)
         batch_y_without_RR = batch_y_without_RR.float().to(self.device)
         loss = self.model.train_forward(batch_x_without_RR, None, batch_y_without_RR, None)
+        self.train_metrics.append_loss(loss.item())
         # loss = self.criterion(outputs, batch_y)
         return {'loss': loss}
-    
-    def training_step_end(self, batch_parts):
-        # Aggregate the losses from the individual training steps
-        total_loss = torch.stack([x['loss'] for x in batch_parts]).mean()
-        
-        # Update the training metrics
-        self.train_metrics.append_loss(total_loss.item())
-                
-        return total_loss
         
     def on_train_epoch_end(self):
         # Calculate and log training metrics
@@ -1005,21 +997,14 @@ class ExpMainLightning(pl.LightningModule):
         
         # Metrics
         # self.val_metrics.append_loss(loss.detach().cpu())
-        # self.val_metrics.append_ecg_signal_difference(batch_y.detach().cpu(), outputs_without_RR.detach().cpu(), self.args.data.fs)
+
+        # Update the validation metrics
+        self.val_metrics.append_loss(loss.item())
+        
+        self.val_metrics.append_ecg_signal_difference(batch_y.detach().cpu(), outputs_without_RR.detach().cpu(), self.args.data.fs)
         
         return {'loss': loss, 'batch_y': batch_y, 'outputs': outputs_without_RR}
     
-    def validation_step_end(self, batch_parts):
-        # Aggregate the losses from the individual validation steps
-        total_loss = torch.stack([x['loss'] for x in batch_parts]).mean()
-        
-        # Update the validation metrics
-        self.val_metrics.append_loss(total_loss.item())
-        for x in batch_parts:
-            batch_y, outputs = x['batch_y'], x['outputs']
-            self.val_metrics.append_ecg_signal_difference(batch_y.detach().cpu(), outputs.detach().cpu(), self.args.data.fs)
-        
-        return total_loss
     
     def on_validation_epoch_end(self):
         # Calculate and log validation metrics
