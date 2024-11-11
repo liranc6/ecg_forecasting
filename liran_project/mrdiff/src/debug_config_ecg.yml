@@ -5,12 +5,12 @@ emd:
   tol: 1e-6
 
 wandb:
-  mode: 'online'  # [online, disabled, offline]
+  mode: 'disabled'  # [online, disabled, offline]
   resume: 'None'  # ["allow", "must", "never", "auto", "None"]
   id: 'None'  # wandb run id
 
 optimization:
-  batch_size: 16  # batch size of train input data
+  batch_size: 2  # batch size of train input data
   test_batch_size: 32  # batch size of test input data
 
 resume_exp:

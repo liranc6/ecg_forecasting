@@ -95,7 +95,7 @@ class SingleLeadECGDatasetCrops_SSSD(Dataset):
         if len(self.cache) + len(to_cache) >= self.cache_size:
             #clean the cache
             for i in range(len(to_cache)):
-                self.cache.popitem(last=True)
+                self.cache.popitem(last=False)
 
 
         assert self.data_with_RR, f"{self.data_with_RR=}"

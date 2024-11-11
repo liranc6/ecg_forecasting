@@ -4,6 +4,8 @@ from typing import Any, Dict
 from functools import partial
 from inspect import isfunction
 import math
+
+import torch.cuda
 import torch
 import torch.nn as nn
 from torch import nn, einsum
@@ -16,10 +18,15 @@ import importlib
 from torch import optim
 from utils.losses import mape_loss, mase_loss, smape_loss
 
+import pysdtw
+from tslearn.metrics import soft_dtw_loss_pytorch
+
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))))
 from liran_project.utils.common import *
+
+from liran_project.utils.util import dtw_distance_batch
 
 def exists(x):
     return x is not None
@@ -99,6 +106,10 @@ class Diffusion_Worker(nn.Module):
         self.eps = 1e-5
 
         self.nn = u_net
+        self.alpha = 0.1
+        dtw_dist_fun = pysdtw.distance.pairwise_l2_squared
+        self.dtw_loss = pysdtw.SoftDTW(gamma=1.0, dist_func=dtw_dist_fun, use_cuda=torch.cuda.is_available())
+        self.combined_loss = CombinedLoss()
 
     def set_new_noise_schedule(self, given_betas=None, beta_schedule="linear", diff_steps=1000, beta_start=1e-4, beta_end=2e-2
     ):  
@@ -226,22 +237,30 @@ class Diffusion_Worker(nn.Module):
         target = target.permute(0,2,1)
 
         if return_mean:
-            loss = self.get_loss(model_out[:,:,:], target[:,:,:], mean=False).mean(dim=2).mean(dim=1)
-            loss_simple = loss.mean() * self.l_simple_weight
+            mse_loss = self.get_loss(model_out[:,:,:], target[:,:,:], mean=False).mean(dim=2).mean(dim=1)
+            loss_simple = mse_loss.mean() * self.l_simple_weight
 
-            loss_vlb = (self.lvlb_weights[t] * loss).mean()
-            loss = loss_simple + self.original_elbo_weight * loss_vlb
+            loss_vlb = (self.lvlb_weights[t] * mse_loss).mean()
+            mse_loss = loss_simple + self.original_elbo_weight * loss_vlb
 
         else:
-            # loss = self.get_loss(model_out[:,:,:], target[:,:,:], mean=False).mean(dim=-1).mean(dim=0)
-            # print(">>>", np.shape(loss))
+            mse_loss = self.get_loss(model_out[:,:,:], target[:,:,:], mean=False).mean(dim=-1).mean(dim=0)
+            print(">>>", np.shape(mse_loss))
 
             if self.args.training.model_info.opt_loss_type == "mse":
-                loss = F.mse_loss(model_out[:,:,:], target[:,:,:])
+                mse_loss = F.mse_loss(model_out[:,:,:], target[:,:,:])
             elif self.args.training.model_info.opt_loss_type == "smape":
                 criterion = smape_loss()
-                loss = criterion(model_out[:,:,:], target[:,:,:])
-                
+                mse_loss = criterion(model_out[:,:,:], target[:,:,:])
+            # loss = self.calculate_loss(model_out, target, opt_loss_type=self.args.training.model_info.opt_loss_type)
+        
+        # normalize the loss
+        
+        # dtw = self.dtw_loss(model_out, target)
+        # loss = self.alpha * mse_loss + (1 - self.alpha) * dtw # self.loss_combination(model_out, target, mse_loss)
+        loss = self.combined_loss(model_out, target, mse_loss)
+        # loss = mse_loss
+        
         # Free memory of local variables
         # x = x0 = x1 = mask = condition = ar_init = cond_ts = None
         x = cond_ts = t = noise = x_k = model_out = target = loss_simple = loss_vlb = None
@@ -314,4 +333,31 @@ class Diffusion_Worker(nn.Module):
 
         return outs
 
+    def calculate_loss(self, model_out, target, opt_loss_type="mse"):
+        if opt_loss_type == "mse":
+            loss = F.mse_loss(model_out, target)
+        elif opt_loss_type == "smape":
+            criterion = smape_loss()
+            loss = criterion(model_out, target)
+        else:
+            raise NotImplementedError(f"Loss type {opt_loss_type} not supported")
+        
+        dtw_loss = dtw_distance_batch(model_out.cpu().numpy(), target.cpu().numpy())
+        loss += dtw_loss
+        
+        return loss
+        
+class CombinedLoss(nn.Module):
+    def __init__(self, alpha=0.1, gamma=1.0):
+        super().__init__()
+        self.alpha = alpha
+        # self.mse_loss = nn.MSELoss()
+        # optionally choose a pairwise distance function
+        fun = pysdtw.distance.pairwise_l2_squared
+        # self.dtw_loss = pysdtw.SoftDTW(gamma=gamma, dist_func=fun, use_cuda=True)
+        self.dtw_loss = soft_dtw_loss_pytorch.SoftDTWLossPyTorch(gamma=gamma)
 
+    def forward(self, y_pred, y_true, mse):
+        # mse = self.mse_loss(y_pred, y_true)
+        dtw = self.dtw_loss(y_pred, y_true)
+        return self.alpha * mse + (1 - self.alpha) * dtw

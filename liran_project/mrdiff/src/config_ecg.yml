@@ -3,8 +3,11 @@ project_path: '/home/liranc6/ecg_forecasting'
 tqdm: "terminal" # ["terminal", "notebook"]
 print_tqdm: False
 
-debug: True  # debug mode
+debug: False  # debug mode
   # debug_config_path: "/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/debug_config_ecg.yml"
+
+pytorch_lightning:
+  strategy: 'DDP'  # [FSDP, DDP, DDPSpawn, DataParallel]
 
 emd:
   use_emd: False
@@ -122,6 +125,7 @@ training:
     pred_len: 7000  # I think its label/forecast len # prediction sequence length, horizon
 
   model_info:
+    add_loss: '0.1mse+0.9dtw'
     opt_loss_type: 'mse'
     model: 'DDPM'  # model of the experiment
     base_model: 'Linear'  # model of the experiment  # deprecated? I didn't see it in the code

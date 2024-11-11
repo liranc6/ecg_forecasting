@@ -149,6 +149,16 @@ def main():
     inverse = config_dict['data']['inverse']
     iterations = config_dict['training']['iterations']['itr']
     tag = config_dict['general']['tag']
+    
+    strategy = config_dict['pytorch_lightning']['strategy']
+    if strategy == "DDP":
+        strategy = DDPStrategy(
+            find_unused_parameters=True,
+        )
+    elif strategy == "FSDP":
+        strategy = FSDPStrategy(
+            sharding_strategy="FULL_SHARD",
+        )
 
     for iteration in range(iterations):
         setting = f"{model}_{dataset}_ft{features}_sl{context_len}_ll{label_len}_pl{pred_len}_lr{learning_rate}_bs{batch_size}_inv{inverse}_itr{iteration}"
@@ -164,7 +174,7 @@ def main():
         print(f'>>>>>>>start training : {setting}>>>>>>>>>>>>>>>>>>>>>>>>>')
         with Debbuger(debug=args.debug):
             trainer = Trainer(
-                devices=2,
+                devices=torch.cuda.device_count(),
                 accelerator="cuda",
                 max_epochs=args.training.iterations.train_epochs,
                 num_sanity_val_steps=0,
@@ -186,9 +196,7 @@ def main():
                     ),
                     ModelSummary(max_depth=3)
                 ],
-                strategy=FSDPStrategy(
-                    sharding_strategy="FULL_SHARD",
-                ),
+                strategy= strategy,
             )
             trainer.fit(exp)
 
