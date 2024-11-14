@@ -3,7 +3,7 @@ project_path: '/home/liranc6/ecg_forecasting'
 tqdm: "terminal" # ["terminal", "notebook"]
 print_tqdm: False
 
-debug: False  # debug mode
+debug: True  # debug mode
   # debug_config_path: "/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/debug_config_ecg.yml"
 
 pytorch_lightning:
@@ -63,11 +63,6 @@ hardware:
   gpu: 0  # gpu
   use_multi_gpu: True  # use multiple gpus
   device_ids: '0,1'  # device ids of multiple gpus
-  parallelism_preference: 'memory' # ['memory', 'balanced', 'speed']
-  world_size: 2  # number of GPUs you want to use
-  rank: 0  # rank of the current process (this will vary if you are running multiple processes)
-  dist_backend: 'nccl'
-  dist_url: "tcp://127.0.0.1:23456"  # note the correction in the address
 
 paths:
   train_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/15_minutes/train/p0_to_p399.h5'  # location of training data
@@ -125,7 +120,7 @@ training:
     pred_len: 7000  # I think its label/forecast len # prediction sequence length, horizon
 
   model_info:
-    add_loss: '0.1mse+0.9dtw'
+    add_loss: ['dtw'] # ['dtw', 'ctc']
     opt_loss_type: 'mse'
     model: 'DDPM'  # model of the experiment
     base_model: 'Linear'  # model of the experiment  # deprecated? I didn't see it in the code

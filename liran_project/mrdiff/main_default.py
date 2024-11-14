@@ -76,7 +76,7 @@ def init_wandb_logger(args):
     wandb_mode = args.wandb.mode if args.wandb.mode != "None" else "online"
     wandb_resume = args.wandb.resume if args.wandb.resume != "None" else None
 
-    wandb_logger = WandbLogger(project=wandb_project_name, id=wandb_id, mode=wandb_mode, resume=wandb_resume)
+    wandb_logger = WandbLogger(project=wandb_project_name, id=wandb_id, mode=wandb_mode, resume=wandb_resume, config=args)
 
     if args.wandb.resume_from != "None":
         wandb_init_config = {
@@ -182,14 +182,14 @@ def main():
                 callbacks=[
                     CustomModelCheckpoint(
                         dirpath=args.paths.checkpoints,
-                        filename='{epoch}-{val_loss:.2f}',
+                        filename='{epoch}-{vali_loss:.2f}',
                         save_top_k=1,
-                        monitor='val_loss',
+                        monitor='vali_loss',
                         mode='min',
                         start_epoch=2
                     ),
                     CustomEarlyStopping(
-                        monitor='val_loss',
+                        monitor='vali_loss',
                         patience=args.optimization.patience,
                         mode='min',
                         start_epoch=2,

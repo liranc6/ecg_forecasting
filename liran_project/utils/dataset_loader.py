@@ -313,7 +313,7 @@ def normalized(data, normalize_method, norm_statistics):
     Normalize the given data using the specified normalization method.
 
     Parameters:
-    data (array-like): The data to be normalized. shape=(B, 1, L)
+    data (array-like): The data to be normalized. shape=(B, L)
     normalize_method (str): The normalization method to use. 
                             Options are 'min_max' for Min-Max normalization 
                             and 'z_score' for Z-score normalization.
@@ -325,6 +325,7 @@ def normalized(data, normalize_method, norm_statistics):
     Returns:
     array-like: The normalized data.
     """
+    assert data.ndim == 2, f"{data.shape=}"
     if normalize_method == 'min_max':
         scale = norm_statistics['max'] - norm_statistics['min']
         data = (data - norm_statistics['min']) / scale
@@ -339,7 +340,7 @@ def de_normalized(data, normalize_method, norm_statistics):
     De-normalizes the given data based on the specified normalization method and statistics.
 
     Parameters:
-    data (numpy.ndarray or similar): The normalized data to be de-normalized. shape=(B, 1, L)
+    data (numpy.ndarray or similar): The normalized data to be de-normalized. shape=(B, L)
     normalize_method (str): The normalization method used. Supported methods are 'min_max' and 'z_score'.
     norm_statistics (dict): The statistics used for normalization. For 'min_max', it should contain 'min' and 'max'.
                             For 'z_score', it should contain 'mean' and 'std'.
@@ -347,6 +348,7 @@ def de_normalized(data, normalize_method, norm_statistics):
     Returns:
     numpy.ndarray or similar: The de-normalized data.
     """
+    assert data.ndim == 2, f"{data.shape=}"
     if normalize_method == 'min_max':
         scale = norm_statistics['max'] - norm_statistics['min']
         data = data * scale + norm_statistics['min']
@@ -410,7 +412,9 @@ class WelfordOnline:
         return self.mean
     
     def get_mean_and_stddev(self):
-        return self.mean, self.get_population_stddev()
+        std = self.get_population_stddev()
+        std = np.where(std == 0, 1, std)
+        return self.mean, std
 
     def get_mean(self):
         return self.mean  

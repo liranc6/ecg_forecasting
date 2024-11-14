@@ -16,7 +16,7 @@ sys.path.append(ProjectPath)
 from liran_project.mrdiff.src.parser import parse_args
 from liran_project.utils.dataset_loader import SingleLeadECGDatasetCrops_mrDiff as DataSet
 from liran_project.utils.dataset_loader import de_normalized
-from liran_project.utils.util import ecg_signal_difference, check_gpu_memory_usage, stopwatch, update_nested_dict
+from liran_project.utils.util import *
 from liran_project.utils.common import *
 
 # Add the directory containing the exp module to the sys.path
@@ -774,13 +774,14 @@ class Metrics:
         })
         self.tmp_metrics = defaultdict(lambda: [])
         self.num_samples = defaultdict(lambda: int(0))
+        self.zero_extra_r_beats = defaultdict(lambda: 0)
         
         self.mode = mode
         
     def calc_mean(self):
         for key, value in self.tmp_metrics.items():
             self.metrics[key] = np.mean(value)
-            self.num_samples[key] += len(value)
+            # self.num_samples[key] += len(value)
                         
         # Clear the tmp_metrics
         self.tmp_metrics = defaultdict(lambda: [])
@@ -898,6 +899,10 @@ class ExpMainLightning(pl.LightningModule):
         self.early_stopping = EarlyStopping(patience=self.args.optimization.patience, verbose=True)
         
         self.update_stat_interval = 100
+        
+        self.save_hyperparameters()
+        
+        self.compare_ecgs = ECG_Diffs(self.args.data.fs)
 
     def configure_model(self):
         if self.model is not None:
@@ -932,6 +937,9 @@ class ExpMainLightning(pl.LightningModule):
             
     def on_fit_start(self):
         self.model.device = self.device
+        self.val_normalization_method = self.val_dataloader().dataset.normalize_method
+        self.val_norm_statistics = self.val_dataloader().dataset.norm_statistics
+        
         # self.print_layer_devices(max_depth=4)  # Print the device of each layer
     
     def forward(self, x):
@@ -966,18 +974,12 @@ class ExpMainLightning(pl.LightningModule):
     def on_train_epoch_end(self):
         # Calculate and log training metrics
         train_loss = self.train_metrics.calc_mean()
-        log = {
-            "epoch": self.current_epoch + 1,
-        }
-        
-        for key, value in train_loss.items():
-            if value != 0:
-                log["train_" + key] = value
-                self.log("train_" + key, value)  # Log the metric for the custom callbacks
+
+        self._log_nested_dict(train_loss, "train_")
         
         # Log metrics to wandb
-        wandb.log(log)
-                
+        self.log("epoch", self.current_epoch + 1)
+                    
         # Reset train metrics for the next epoch
         self.train_metrics = Metrics("train")
         
@@ -989,52 +991,63 @@ class ExpMainLightning(pl.LightningModule):
         batch_y_without_RR = batch_y_without_RR.float()
         if self.args.training.model_info.model in ["DDPM", "PDSB"]:
             outputs_without_RR = self.model.test_forward(batch_x_without_RR, None, batch_y_without_RR, None)
-            f_dim = -1 if self.args.general.features == 'MS' else 0
-            outputs_without_RR = outputs_without_RR[:, -self.args.training.sequence.pred_len:, f_dim:].permute(0, 2, 1)
+            outputs_without_RR = outputs_without_RR[:, -self.args.training.sequence.pred_len:, :].permute(0, 2, 1)
             batch_y = batch_y[:, :, -self.args.training.sequence.pred_len:].to(self.device)
+            
+        if self.val_normalization_method != 'None':
+            outputs_without_RR = de_normalized(outputs_without_RR.squeeze(), self.val_normalization_method, self.val_norm_statistics)
+            batch_y_without_RR = de_normalized(batch_y_without_RR.squeeze(), self.val_normalization_method, self.val_norm_statistics)
+            batch_y[:, 0, :] = batch_y_without_RR
+            
+            
         loss = self.criterion(outputs_without_RR, batch_y_without_RR)
-        self.log('val_loss', loss.item())
+        self.log('vali_loss', loss.item())
         
         # Metrics
         # self.val_metrics.append_loss(loss.detach().cpu())
 
         # Update the validation metrics
-        self.val_metrics.append_loss(loss.item())
+        # self.val_metrics.append_loss(loss.item())
         
-        self.val_metrics.append_ecg_signal_difference(batch_y.detach().cpu(), outputs_without_RR.detach().cpu(), self.args.data.fs)
+        self.compare_ecgs(batch_y, outputs_without_RR)
+        # self.val_metrics.append_ecg_signal_difference(batch_y.detach().cpu(), outputs_without_RR.detach().cpu(), self.args.data.fs)
         
         return {'loss': loss, 'batch_y': batch_y, 'outputs': outputs_without_RR}
     
     
     def on_validation_epoch_end(self):
         # Calculate and log validation metrics
-        val_loss = self.val_metrics.calc_mean()
-        log = {
-            "epoch": self.current_epoch + 1,
-        }
+        finals = self.compare_ecgs.get_final()
         
-        for key, value in val_loss.items():
-            if value != 0:
-                log["vali_" + key] = value
-                self.log("vali_" + key, value)  # Log the metric for the custom callbacks
-            
-                
-        # Log metrics to wandb
-        wandb.log(log)
+        self._log_nested_dict(finals, "vali_")
+        
+        # Log the epoch separately
+        self.log("epoch", self.current_epoch + 1)
         
         # Reset validation metrics for the next epoch
-        self.val_metrics = Metrics("val")
+        # self.val_metrics = Metrics("val")
+        self.compare_ecgs.clear()
         
         
     def test_step(self, batch, batch_idx):
-        batch_x, batch_y, _, _ = batch
         batch_x, batch_y, _, _ = batch
         batch_x_without_RR = batch_x[:, 0, :].unsqueeze(-1)
         batch_y_without_RR = batch_y[:, 0, :].unsqueeze(-1)
         batch_x_without_RR = batch_x_without_RR.float()
         batch_y_without_RR = batch_y_without_RR.float()
-        outputs = self.model.test_forward(batch_x, None, batch_y, None)
-        loss = self.criterion(outputs, batch_y)
+        if self.args.training.model_info.model in ["DDPM", "PDSB"]:
+            outputs_without_RR = self.model.test_forward(batch_x_without_RR, None, batch_y_without_RR, None)
+            outputs_without_RR = outputs_without_RR[:, -self.args.training.sequence.pred_len:, :].permute(0, 2, 1)
+            batch_y = batch_y[:, :, -self.args.training.sequence.pred_len:].to(self.device)
+            
+        if self.val_normalization_method != 'None':
+            outputs_without_RR = de_normalized(outputs_without_RR.squeeze(), self.val_normalization_method, self.val_norm_statistics)
+            batch_y_without_RR = de_normalized(batch_y_without_RR.squeeze(), self.val_normalization_method, self.val_norm_statistics)
+            batch_y[:, 0, :] = batch_y_without_RR
+        
+        self.compare_ecgs(batch_y, outputs_without_RR)
+        loss = self.criterion(outputs_without_RR, batch_y_without_RR)
+            
         self.log('test_loss', loss)
         return loss
 
@@ -1142,6 +1155,12 @@ class ExpMainLightning(pl.LightningModule):
         
         return dataset_args, data_loader_args
     
+    def _log_nested_dict(self, nested_dict, prefix=""):
+        for key, value in nested_dict.items():
+            if isinstance(value, dict):
+                self._log_nested_dict(value, prefix + key + "_")
+            elif isinstance(value, (int, float)) and value != 0:
+                self.log(prefix + key, value)
     
     
     

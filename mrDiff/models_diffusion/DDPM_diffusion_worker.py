@@ -3,7 +3,6 @@ from typing import List, Optional, Tuple, Union
 from typing import Any, Dict
 from functools import partial
 from inspect import isfunction
-import math
 
 import torch.cuda
 import torch
@@ -21,10 +20,15 @@ from utils.losses import mape_loss, mase_loss, smape_loss
 import pysdtw
 from tslearn.metrics import soft_dtw_loss_pytorch
 
+#######################
+"""torchaudio.functional.rnnt_loss
+"""
+#######################
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))))
 from liran_project.utils.common import *
+from liran_project.utils.dataset_loader import WelfordOnline
 
 from liran_project.utils.util import dtw_distance_batch
 
@@ -109,7 +113,7 @@ class Diffusion_Worker(nn.Module):
         self.alpha = 0.1
         dtw_dist_fun = pysdtw.distance.pairwise_l2_squared
         self.dtw_loss = pysdtw.SoftDTW(gamma=1.0, dist_func=dtw_dist_fun, use_cuda=torch.cuda.is_available())
-        self.combined_loss = CombinedLoss()
+        self.combined_loss = CombinedLoss(losses=self.args.training.model_info.add_loss, alpha=self.alpha, gamma=1.0)
 
     def set_new_noise_schedule(self, given_betas=None, beta_schedule="linear", diff_steps=1000, beta_start=1e-4, beta_end=2e-2
     ):  
@@ -348,16 +352,48 @@ class Diffusion_Worker(nn.Module):
         return loss
         
 class CombinedLoss(nn.Module):
-    def __init__(self, alpha=0.1, gamma=1.0):
+    def __init__(self, losses: List[Union[str, nn.Module]], alpha=None, gamma=None, **kwargs):
         super().__init__()
         self.alpha = alpha
         # self.mse_loss = nn.MSELoss()
         # optionally choose a pairwise distance function
-        fun = pysdtw.distance.pairwise_l2_squared
+        # fun = pysdtw.distance.pairwise_l2_squared
         # self.dtw_loss = pysdtw.SoftDTW(gamma=gamma, dist_func=fun, use_cuda=True)
-        self.dtw_loss = soft_dtw_loss_pytorch.SoftDTWLossPyTorch(gamma=gamma)
+        self.losses_dict = {}
+        if 'mse' in losses: 
+            pass
+        if 'dtw' in losses:
+            self.losses_dict['dtw'] = soft_dtw_loss_pytorch.SoftDTWLossPyTorch(gamma=gamma)
+        if 'ctc' in losses:
+            self.losses_dict['ctc'] = nn.CTCLoss(**kwargs)
+        
 
     def forward(self, y_pred, y_true, mse):
         # mse = self.mse_loss(y_pred, y_true)
-        dtw = self.dtw_loss(y_pred, y_true)
-        return self.alpha * mse + (1 - self.alpha) * dtw
+        losses = []
+        if 'dtw' in self.losses_dict.keys():
+            dtw = self.losses_dict['dtw'](y_pred, y_true)
+            normed_dtw = self._magnitude_normalizaqtion(dtw)
+        if 'ctc' in self.losses_dict.keys():
+            # Define input_lengths and target_lengths
+            raise NotImplementedError("CTC loss not yet implemented")
+        
+        normed_mse = self._magnitude_normalizaqtion(mse)
+        return self.alpha * normed_mse + (1 - self.alpha) * normed_dtw
+    
+    def _magnitude_normalizaqtion(self, x):
+        """
+        Apply double logarithmic scaling to normalize the magnitude of the input tensor.
+        
+        This method uses a double logarithmic transformation to reduce the range of the input values.
+        By applying log(log(10**5 + x)), we ensure that large values are compressed more significantly
+        than smaller values, bringing different metrics (like dtw and mse) to a similar scale.
+        
+        Args:
+            x (torch.Tensor): The input tensor to be normalized.
+        
+        Returns:
+            torch.Tensor: The normalized tensor.
+        """
+        return torch.log(torch.log(1e5 + x))
+        

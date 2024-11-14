@@ -72,11 +72,12 @@ class Args:
 
             # Handle multi-GPU settings
             if self.configs['use_gpu'] and self.configs['hardware']['use_multi_gpu']:
-                self.configs['hardware']['device_ids'] = self.configs['hardware']['device_ids'].replace(' ', '')
-                device_ids = self.configs['hardware']['device_ids'].split(',')
-                self.configs['hardware']['device_ids'] = [int(id_) for id_ in device_ids]
-                self.configs['hardware']['gpu'] = self.configs['hardware']['device_ids'][0]
-                self.configs['optimization']['patience'] = 30
+                self.configs['hardware']['device_ids'] = [int(d) for d in range(torch.cuda.device_count())]
+                # self.configs['hardware']['gpu'] = self.configs['hardware']['device_ids'][0]
+                # self.configs['hardware']['device_ids'] = self.configs['hardware']['device_ids'].replace(' ', '')
+                # device_ids = self.configs['hardware']['device_ids'].split(',')
+                # self.configs['hardware']['device_ids'] = [int(id_) for id_ in device_ids]
+                # self.configs['hardware']['gpu'] = self.configs['hardware']['device_ids'][0]
             else:
                 self.configs['hardware']['device_ids'] = [0]  # Default to single GPU or CPU
     
