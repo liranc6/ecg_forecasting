@@ -661,7 +661,112 @@ class Model(nn.Module):
 
         return linear_guess, ar_init_trends
 
+    def forward(self, x_enc, x_mark_enc=None):
+        if self.args.training.analysis.use_window_normalization:
+            x_enc_i = self.rev(x_enc, 'norm')
+        else:
+            x_enc_i = x_enc
 
+        x_past = x_enc_i
+
+        # Obtain future trends
+        future_xT = torch.randn_like(x_past)
+        future_trends = self.obatin_multi_trends(future_xT.permute(0, 2, 1))
+        future_trends = [trend_i.permute(0, 2, 1) for trend_i in future_trends]
+        future_trends.append(future_xT)
+
+        # Obtain past trends
+        past_trends = self.obatin_multi_trends(x_past.permute(0, 2, 1))
+        past_trends = [trend_i.permute(0, 2, 1) for trend_i in past_trends]
+
+        # AR-init trends
+        ar_init_trends = []
+        for i in range(self.num_bridges):
+            if i == 0:
+                future_trend_i = future_xT
+                past_trend_i = x_past
+                future_trend_i = self.rev(future_trend_i, 'denorm') if self.args.training.analysis.use_window_normalization else future_trend_i
+                past_trend_i = self.rev(past_trend_i, 'denorm') if self.args.training.analysis.use_window_normalization else past_trend_i
+                linear_guess = self.base_models[i].test_forward(past_trend_i, x_mark_enc, future_trend_i, x_mark_enc)
+                linear_guess = self.rev(linear_guess, 'test_norm') if self.args.training.analysis.use_window_normalization else linear_guess
+            else:
+                future_trend_i = future_trends[i - 1]
+                past_trend_i = past_trends[i - 1]
+                future_trend_i = self.rev(future_trend_i, 'denorm') if self.args.training.analysis.use_window_normalization else future_trend_i
+                past_trend_i = self.rev(past_trend_i, 'denorm') if self.args.training.analysis.use_window_normalization else past_trend_i
+                linear_guess_i = self.base_models[i].test_forward(past_trend_i, x_mark_enc, future_trend_i, x_mark_enc)
+                linear_guess_i = self.rev(linear_guess_i, 'test_norm') if self.args.training.analysis.use_window_normalization else linear_guess_i
+                ar_init_trends.append(linear_guess_i)
+
+        B, nF, nL = x_past.shape[0], self.num_vars, self.pred_len
+        if self.args.general.features in ['MS']:
+            nF = 1
+        shape = [nF, nL]
+
+        all_outs = []
+        for i in range(self.args.training.iterations.sample_times):
+            X1 = future_xT.permute(0, 2, 1)
+            res_out = X1
+
+            for j in reversed(range(0, self.num_bridges)):
+                MASK = torch.ones((x_past.shape[0], self.num_vars, self.pred_len)).to(self.device)
+
+                if self.args.training.sampler.type_sampler == "none":
+                    if j == 0:
+                        cond = torch.cat([x_past.permute(0, 2, 1), X1], dim=-1)
+                        X1 = self.diffusion_workers[j].ddpm_sampling(X1, mask=MASK, cond=cond, ar_init=linear_guess.permute(0, 2, 1))
+                    else:
+                        if j == self.num_bridges - 1:
+                            cond = past_trends[j - 1].permute(0, 2, 1)
+                        else:
+                            if self.args.training.analysis.use_X0_in_THiDi:
+                                cond = torch.cat([x_past.permute(0, 2, 1), X1], dim=-1)
+                            else:
+                                cond = torch.cat([past_trends[j - 1].permute(0, 2, 1), X1], dim=-1)
+                        X1 = self.diffusion_workers[j].ddpm_sampling(X1, mask=MASK, cond=cond, ar_init=ar_init_trends[j - 1].permute(0, 2, 1))
+                else:
+                    start_code = torch.randn((B, nF, nL), device=self.device)
+                    if j == 0:
+                        cond = torch.cat([x_past.permute(0, 2, 1), X1], dim=-1)
+                        cA = cond
+                        cB = linear_guess.permute(0, 2, 1)
+                    else:
+                        if j == self.num_bridges - 1:
+                            cond = past_trends[j - 1].permute(0, 2, 1)
+                        else:
+                            if self.args.training.analysis.use_X0_in_THiDi:
+                                cond = torch.cat([x_past.permute(0, 2, 1), X1], dim=-1)
+                            else:
+                                cond = torch.cat([past_trends[j - 1].permute(0, 2, 1), X1], dim=-1)
+                        cA = cond
+                        cB = ar_init_trends[j - 1].permute(0, 2, 1)
+
+                    S = 50 if self.args.general.dataset == 'lorenz' else 20
+                    samples_ddim, _ = self.samplers[j].sample(S=S,
+                                                            conditioning=torch.cat([cA, cB], dim=-1),
+                                                            batch_size=B,
+                                                            shape=shape,
+                                                            verbose=False,
+                                                            unconditional_guidance_scale=1.0,
+                                                            unconditional_conditioning=None,
+                                                            eta=0.,
+                                                            x_T=start_code)
+                    X1 = samples_ddim
+
+                if j == 0:
+                    res_out = X1
+
+            outs_i = res_out.permute(0, 2, 1).to(self.device)
+            outs_i = self.rev(outs_i, 'denorm') if self.args.training.analysis.use_window_normalization else outs_i
+            all_outs.append(outs_i)
+
+        all_outs = torch.stack(all_outs, dim=0)
+        outputs = all_outs.mean(0)
+
+        f_dim = -1 if self.args.general.features == 'MS' else 0
+        outputs = outputs[:, -self.args.training.sequence.pred_len:, f_dim:]
+
+        return outputs
 
 
 

@@ -3,7 +3,7 @@ project_path: '/home/liranc6/ecg_forecasting'
 tqdm: "terminal" # ["terminal", "notebook"]
 print_tqdm: False
 
-debug: True  # debug mode
+debug: False  # debug mode
   # debug_config_path: "/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/debug_config_ecg.yml"
 
 pytorch_lightning:
@@ -72,7 +72,8 @@ paths:
   checkpoints: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff"
   model_path: "None" # "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl10_ll105000_pl30000_lr0.001_bs8_invFalse_itr0/05_10_2024_1202/checkpoint.pth"
   debug_config_path: "/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/debug_config_ecg.yml"
-  
+  norm_statistics_file: "/home/liranc6/ecg_forecasting/liran_project/utils/data_statistics/icentia11k/0to399.pkl"
+
 data:
   fs: 250
   # freq: 'h'  # Options: [s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly], or more detailed freq like 15min or 3h

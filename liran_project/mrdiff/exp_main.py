@@ -18,6 +18,7 @@ from liran_project.utils.dataset_loader import SingleLeadECGDatasetCrops_mrDiff 
 from liran_project.utils.dataset_loader import de_normalized
 from liran_project.utils.util import *
 from liran_project.utils.common import *
+from liran_project.utils.dataset_loader import normalized, de_normalized
 
 # Add the directory containing the exp module to the sys.path
 exp_module_path = os.path.join(ProjectPath, 'mrDiff')
@@ -903,6 +904,8 @@ class ExpMainLightning(pl.LightningModule):
         self.save_hyperparameters()
         
         self.compare_ecgs = ECG_Diffs(self.args.data.fs)
+        
+        self.initialized = False
 
     def configure_model(self):
         if self.model is not None:
@@ -1027,7 +1030,6 @@ class ExpMainLightning(pl.LightningModule):
         # Reset validation metrics for the next epoch
         # self.val_metrics = Metrics("val")
         self.compare_ecgs.clear()
-        
         
     def test_step(self, batch, batch_idx):
         batch_x, batch_y, _, _ = batch
@@ -1162,7 +1164,80 @@ class ExpMainLightning(pl.LightningModule):
             elif isinstance(value, (int, float)) and value != 0:
                 self.log(prefix + key, value)
     
-    
+    def forward(self, x, checkpoint_path=None, norm_stat=(None, None), y=None, visual_path=False):
+        if not self.initialized:
+            self.configure_model()
+            checkpoint = torch.load(checkpoint_path, map_location='cpu')
+            self.load_state_dict(checkpoint['state_dict'], strict=False)
+            
+            self.initialized = True
+            
+        # Put the model in evaluation mode
+        self.eval()
+        self.freeze()
+        
+        x = torch.tensor(x).float().to(self.device)
+        
+        normalize_method, norm_statistics = norm_stat
+        
+        
+        
+        x = self._fix_input_shape_to_3dim(x)
+        assert x.dim() == 3, f"{x.dim()=}"
+        
+        with torch.no_grad():
+            
+            if normalize_method is not None:
+                window_size = x.shape[1]
+                norm_statistics['mean'] = norm_statistics['mean'][:window_size]
+                norm_statistics['std'] = norm_statistics['std'][:window_size]
+                x_norm = normalized(x.squeeze(-1), normalize_method, norm_statistics).unsqueeze(-1).float()
+            else:
+                x_norm = x.float()
+                
+            output = self.model(x_norm) # shape (B, L, 1)
+            
+            if normalize_method is not None:
+                window_size = output.shape[1]
+                norm_statistics['mean'] = norm_statistics['mean'][:window_size]
+                norm_statistics['std'] = norm_statistics['std'][:window_size]
+                output = de_normalized(output.squeeze(-1), normalize_method, norm_statistics).unsqueeze(-1)
+                
+        
+        if y is not None:
+            y_batch = self._fix_input_shape_to_3dim(y)
+            self.compare_ecgs(y_batch.permute(0, 2 , 1), output.permute(0, 2 , 1))
+            finals = self.compare_ecgs.get_final()
+            self.compare_ecgs.clear()
+            
+        if visual_path is not False:
+            folder_path = visual_path
+            os.makedirs(folder_path, exist_ok=True)
+            his = x.squeeze(-1)
+            pred = output.squeeze(-1)
+            # y_batch = self._fix_input_shape_to_3dim(y)
+            normalize_method, norm_statistics = norm_stat
+            y_batch = y_batch.squeeze(-1)
+            true = y_batch if y_batch is not None else torch.zeros_like(pred)
+            look_back = min(500, his.shape[1])
+            for sample in range(pred.shape[0]): # B, L, D
+                history = his[sample, -look_back:].cpu().numpy()
+                gt = true[sample, :].cpu().numpy()
+                pd = pred[sample, :].cpu().numpy()
+                visual(history, gt, pd, os.path.join(folder_path, str(sample) + '.png'), dpi=200)
+                
+        return output, x, y_batch, finals
+
+    def _fix_input_shape_to_3dim(self, x):
+        # fix to shape (B, L, 1)
+        if x.dim() == 3: # x.shape = (B, L, 1)
+            pass
+        if x.dim() == 2: # x.shape = (B, L)
+            x = x.unsqueeze(-1)
+        if x.dim() == 1: # x.shape = (L)
+            x = x.unsqueeze(0).unsqueeze(-1)
+            
+        return x
     
     
     

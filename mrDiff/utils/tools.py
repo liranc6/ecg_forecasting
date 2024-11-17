@@ -167,7 +167,7 @@ def visual(history, true, preds=None, name='./pic/test.pdf', dpi=300):
     """
     Results visualization
     """
-    plt.figure(figsize=(8,5))
+    plt.figure(figsize=(20,5))
     ind_his = list(np.arange(0,len(history)))
     ind_out = list(np.arange(len(history), len(history)+len(true)))
     
@@ -184,17 +184,17 @@ def visual(history, true, preds=None, name='./pic/test.pdf', dpi=300):
     print(name)
     plt.savefig(name, bbox_inches='tight', dpi=dpi) 
 
-    f = open(name[:-4]+'.pkl', "wb")
-    pickle.dump(preds, f)
-    f.close()
+    # f = open(name[:-4]+'.pkl', "wb")
+    # pickle.dump(preds, f)
+    # f.close()
 
-    f = open(name[:-4]+'_ground_truth.pkl', "wb")
-    pickle.dump(true, f)
-    f.close()
+    # f = open(name[:-4]+'_ground_truth.pkl', "wb")
+    # pickle.dump(true, f)
+    # f.close()
 
-    f = open(name[:-4]+'_history.pkl', "wb")
-    pickle.dump(history, f)
-    f.close()
+    # f = open(name[:-4]+'_history.pkl', "wb")
+    # pickle.dump(history, f)
+    # f.close()
 
 
         

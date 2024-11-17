@@ -991,9 +991,15 @@ class ECG_Diffs:
     def calculate_diffs(self, y_batch, y_pred_batch):
         #expect y_batch to be of shape (batch_size, 2, sequence_length)
         #expect y_pred_batch to be of shape (batch_size, 1, sequence_length)
+        if y_batch.shape[1] == 1:
+            ecg_signals_batch = y_batch
+        else:
+            ecg_signals_batch = y_batch[:, 0, :]
+            ecg_R_beats_batch = y_batch[:, 1, :]
+            
         y_pred_batch = y_pred_batch.squeeze()
-        ecg_signals_batch = y_batch[:, 0, :]
-        ecg_R_beats_batch = y_batch[:, 1, :]
+        ecg_signals_batch = ecg_signals_batch.squeeze()
+        
         
         assert ecg_signals_batch.shape == y_pred_batch.shape, f"{ecg_signals_batch.shape=}, {y_pred_batch.shape=}"
         
@@ -1006,18 +1012,28 @@ class ECG_Diffs:
         dtw_per_sample = [fastdtw(y, y_pred)[0] for y, y_pred in zip(ecg_signals_batch_numpy, ecg_pred_batch_numpy)]
                 
         rows = []
+        
         try:
             # Assuming ecg_batch_pred is a torch tensor with shape (batch_size, channels, sequence_length)
             # and sampling_rate is defined elsewhere.
 
             # Initialize new_ecg_batch_pred tensor
             # new_ecg_pred_batch = torch.zeros(ecg_pred_batch.shape[0], 2, ecg_pred_batch.shape[2])
+            
+            if y_batch.shape[1] == 1:
+                ecg_R_beats_batch_indices = []
+                for y in y_batch:
+                    y = y.squeeze()
+                    info = nk.ecg_process(y, sampling_rate=self.fs)[1]
+                    ecg_R_beats_batch_indices.append(info['ECG_R_Peaks'])
+            else:
+                ecg_R_beats_batch_indices = [torch.nonzero(row == 1).squeeze(1) for row in ecg_R_beats_batch]
 
             ecg_pred_R_beats_batch_indices = []
             ecg_len = ecg_signals_batch.shape[1]
             min_distance, smooth_to_each_side = 50, 50
-
-            ecg_R_beats_batch_indices = [torch.nonzero(row == 1).squeeze(1) for row in ecg_R_beats_batch]
+            
+            
             # Iterate over each prediction in the batch and extract R peaks
             for i, y_pred_numpy in enumerate(ecg_pred_batch_numpy):
                 y_pred_numpy = y_pred_numpy.squeeze()
@@ -1059,7 +1075,6 @@ class ECG_Diffs:
                         "mae_pruned_r_beats_localization": mae_distance
                     }, ignore_index=True)
                     
-            
         except Exception as e:
             # print(f"Error: {e}")
             

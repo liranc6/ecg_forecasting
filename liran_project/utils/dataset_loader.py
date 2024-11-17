@@ -133,7 +133,7 @@ class SingleLeadECGDatasetCrops_SSSD(Dataset):
 
 class SingleLeadECGDatasetCrops_mrDiff(Dataset):
     def __init__(self,context_window_size, label_window_size, h5_filename, start_sample_from=0, data_with_RR=True,
-                cache_size=5000, return_with_RR = False, start_patiant=0, end_patiant=-1, normalize_method=None):
+                cache_size=5000, return_with_RR = False, start_patiant=0, end_patiant=-1, normalize_method=None, get_stats=False, norm_statistics_file="None"):
 
         self.context_window_size = context_window_size
         self.label_window_size = label_window_size
@@ -167,11 +167,23 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
         self.return_with_RR = return_with_RR
         
         self.normalize_method = normalize_method
-        if self.normalize_method != "None":
-            assert self.normalize_method in ['min_max', 'z_score'], f"{self.normalize_method=}"
-            self.norm_statistics = self._get_normalization_statistics(self.h5_filename)
-        else:
-            self.norm_statistics = None
+        self.norm_statistics = None
+        
+        self.window_size = self.context_window_size + self.label_window_size
+        
+        if norm_statistics_file is not None and norm_statistics_file is not "None":
+                # load from file using torch.load
+                self.norm_statistics = torch.load(norm_statistics_file)
+                self.norm_statistics['mean'] = self.norm_statistics['mean'][:self.window_size]
+                self.norm_statistics['std'] = self.norm_statistics['std'][:self.window_size]
+                
+                
+                
+        if get_stats:
+            if self.normalize_method != "None" and self.normalize_method is not None:
+                assert self.normalize_method in ['min_max', 'z_score'], f"{self.normalize_method=}"
+                self.norm_statistics = self._get_normalization_statistics(self.h5_filename)
+            
 
     def __len__(self):
         return self.cumulative_sizes[-1] if self.cumulative_sizes.any() else 0
@@ -211,7 +223,7 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
 
             end_idx = min(start_idx + self.cache_size, len(dataset))
 
-            to_cache = dataset[start_idx: end_idx]  # This is a list of windows, each window is a numpy array with shape (window_size) if no RR data,
+            to_cache = dataset[start_idx: end_idx, :, :self.window_size]  # This is a list of windows, each window is a numpy array with shape (window_size) if no RR data,
                                                     # or (2, window_size) if there is RR data
                                                     
             to_cache = to_cache[:self.cache_size]  # Ensure that the cache size is not exceeded
@@ -271,7 +283,7 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
         # try:
         with h5py.File(filename, 'r') as h5_file:
             num_keys = len(self.keys)
-            early_stop = 50
+            early_stop = np.inf
             pbar_keys = tqdm(self.keys, total=min(num_keys, early_stop))
             
             start_time = time.time()

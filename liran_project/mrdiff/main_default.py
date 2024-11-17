@@ -44,7 +44,7 @@ class CustomModelCheckpoint(ModelCheckpoint):
                         self.best_metrics[metric_name] = metric_value
                         print(f"Improved {metric_name}: {metric_value:.4f}")
                         if metric_name in ["val_loss", "val_mean_extra_r_beats", "val_dtw_dist"]:
-                            save_path = os.path.join(self.dirpath, f"{metric_name}.ckpt")
+                            save_path = os.path.join(self.dirpath, f"{metric_name}")
                             print(f"Saving checkpoint for {metric_name} to file {save_path}")
                             self.save_checkpoint(trainer, pl_module, save_path)
 
