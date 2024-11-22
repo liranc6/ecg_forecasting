@@ -4,7 +4,7 @@ import subprocess
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, ModelSummary
+from pytorch_lightning.callbacks import Callback, ModelCheckpoint, EarlyStopping, ModelSummary
 from pytorch_lightning.strategies import DDPStrategy, FSDPStrategy, DeepSpeedStrategy
 from pytorch_lightning.utilities.rank_zero import rank_zero_only
 from pytorch_lightning.plugins.environments import SLURMEnvironment
@@ -34,29 +34,51 @@ from liran_project.utils.common import *
 exp_module_path = os.path.join(ProjectPath, 'mrDiff')
 sys.path.append(exp_module_path)
 
-class CustomModelCheckpoint(ModelCheckpoint):
-    def __init__(self, start_epoch=10, *args, **kwargs):
+class DelayedModelCheckpoint(ModelCheckpoint):
+    """
+    Custom ModelCheckpoint that delays checkpointing until after a specified start_epoch.
+    """
+    def __init__(self, start_epoch: int=1, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.start_epoch = start_epoch
-        self.best_metrics = {}
 
     def on_validation_end(self, trainer, pl_module):
         if trainer.current_epoch >= self.start_epoch:
-            metrics = trainer.callback_metrics
-            for metric_name, metric_value in metrics.items():
-                if metric_name.startswith('val_'):
-                    if metric_name not in self.best_metrics or metric_value < self.best_metrics[metric_name]:
-                        self.best_metrics[metric_name] = metric_value
-                        print(f"Improved {metric_name}: {metric_value:.4f}")
-                        if metric_name in ["val_loss", "val_mean_extra_r_beats", "val_dtw_dist"]:
-                            save_path = os.path.join(self.dirpath, f"{metric_name}")
-                            print(f"Saving checkpoint for {metric_name} to file {save_path}")
-                            self.save_checkpoint(trainer, pl_module, save_path)
-
-    def save_checkpoint(self, trainer, pl_module, save_path):
-        # Save the checkpoint to the specified path
-        trainer.save_checkpoint(save_path)
-
+            super().on_validation_end(trainer, pl_module)
+        else:
+            if self.verbose:
+                print(f"Skipping checkpointing for epoch {trainer.current_epoch} (start_epoch={self.start_epoch})")
+    
+    def save_checkpoint(self, trainer, pl_module):
+        checkpoint = super().save_checkpoint(trainer, pl_module)
+        wandb_id = trainer.wandb_logger.experiment.id
+        checkpoint['wandb_id'] = wandb_id
+        return checkpoint
+                        
+def multi_checkpoints(dirpath, monitor: list = 'vali_loss', start_epoch=10,):
+    
+    checkpoints = [
+        DelayedModelCheckpoint(
+            start_epoch=start_epoch,
+            
+            dirpath=dirpath,
+            filename="chpt",
+            auto_insert_metric_name=True,
+            
+            save_top_k=1,
+            monitor=m,
+            mode='min',
+            
+            save_weights_only=True,
+            
+            save_last=False,
+            save_on_train_epoch_end=False,
+            every_n_epochs=1,
+        )
+        for m in monitor
+    ]   
+    
+    return checkpoints
 
 class CustomEarlyStopping(EarlyStopping):
     def __init__(self, start_epoch=10, *args, **kwargs):
@@ -66,12 +88,12 @@ class CustomEarlyStopping(EarlyStopping):
 
     def on_validation_end(self, trainer, pl_module):
         if trainer.current_epoch >= self.start_epoch:
-            metrics = trainer.callback_metrics
-            for metric_name, metric_value in metrics.items():
-                if metric_name.startswith('val_'):
-                    if metric_name not in self.best_metrics or metric_value < self.best_metrics[metric_name]:
-                        self.best_metrics[metric_name] = metric_value
-                        print(f"Improved {metric_name}: {metric_value:.4f}")
+            # metrics = trainer.callback_metrics
+            # for metric_name, metric_value in metrics.items():
+            #     if metric_name.startswith('val_'):
+            #         if metric_name not in self.best_metrics or metric_value < self.best_metrics[metric_name]:
+            #             self.best_metrics[metric_name] = metric_value
+            #             print(f"Improved {metric_name}: {metric_value:.4f}")
             super(CustomEarlyStopping, self).on_validation_end(trainer, pl_module)       
  
 class SecPerIterProgressBar(TQDMProgressBar):
@@ -97,7 +119,10 @@ def init_wandb_logger(args):
     wandb_mode = args.wandb.mode if args.wandb.mode != "None" else "online"
     wandb_resume = args.wandb.resume if args.wandb.resume != "None" else None
 
-    wandb_logger = WandbLogger(project=wandb_project_name, id=wandb_id, mode=wandb_mode, resume=wandb_resume, config=args)
+    wandb_logger = WandbLogger(project=wandb_project_name, config=args,
+                               mode=wandb_mode, resume=wandb_resume, id=wandb_id,
+                               log_model=True
+                               )
 
     if args.wandb.resume_from != "None":
         wandb_init_config = {
@@ -143,7 +168,7 @@ def init_wandb_logger(args):
                 wandb_logger.experiment.notes = (wandb_logger.experiment.notes or "") + note + "\n\nAdditional information added later:\n"
         
         old_config = dict(wandb_logger.experiment.config)
-        wandb_logger.experiment.config.update(args, allow_val_change=True)
+        wandb_logger.log_hyperparams(args)
         new_config = dict(wandb_logger.experiment.config)
         log_config_diffs(old_config, new_config, step="update_args")
 
@@ -200,7 +225,8 @@ def main():
         str_time_now = time.strftime("%d_%m_%Y_%H%M", time.localtime(time_now))
         model_start_training_time = str_time_now
         args.paths.checkpoints = os.path.join(args.paths.checkpoints, setting, model_start_training_time)
-        exp = ExpMainLightning(args)
+        checkpoint_path = args.resume_exp.resume_path if args.resume_exp.resume else None
+        exp = ExpMainLightning.load_model(checkpoint_path, args) if checkpoint_path else ExpMainLightning(args)
 
         print(f'>>>>>>>start training : {setting}>>>>>>>>>>>>>>>>>>>>>>>>>')
         with MemorySnapshot(debug=args.hardware.memory_snapshot):
@@ -211,20 +237,10 @@ def main():
                 num_sanity_val_steps=0,
                 logger=wandb_logger,
                 callbacks=[
-                    CustomModelCheckpoint(
-                        dirpath=args.paths.checkpoints,
-                        filename='{epoch}-{vali_loss:.2f}',
-                        save_top_k=1,
-                        monitor='vali_loss',
-                        mode='min',
-                        start_epoch=2
-                    ),
-                    CustomEarlyStopping(
-                        monitor='vali_loss',
-                        patience=args.optimization.patience,
-                        mode='min',
-                        start_epoch=2,
-                    ),
+                    *multi_checkpoints(dirpath=args.paths.checkpoints,
+                                      monitor=['vali_loss', 'vali_extra_r_beats_mean', 'vali_dtw_distance_mean'],
+                                      start_epoch=10,
+                                      ),
                     SecPerIterProgressBar(),
                     ModelSummary(max_depth=3)
                 ],
@@ -237,7 +253,7 @@ def main():
             # tuner = Tuner(trainer)
             # tuner.scale_batch_size(model, mode="binsearch")
             
-            trainer.fit(exp)
+            trainer.fit(exp, ckpt_path=args.resume_exp.resume_path if args.resume_exp.resume else None)
 
         print(f'>>>>>>>testing : {setting}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<')
         trainer.test(exp)

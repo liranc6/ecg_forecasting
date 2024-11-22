@@ -220,7 +220,7 @@ class Exp_Main(Exp_Basic):
         self.model_start_training_time = str_time_now
             
         if self.args.resume_exp.resume:
-            chpt_path = self.args.resume_exp.specific_chpt_path
+            chpt_path = self.args.resume_exp.resume_path
             if chpt_path is None or chpt_path == "None":
                 raise ValueError("specific_chpt_path is None")
                         # Extract the part '21_10_2024_1424'
@@ -268,7 +268,7 @@ class Exp_Main(Exp_Basic):
         
         resume_epoch = 0
         if self.args.resume_exp.resume:
-            resume_epoch = self.load_checkpoint(self.args.resume_exp.specific_chpt_path)
+            resume_epoch = self.load_checkpoint(self.args.resume_exp.resume_path)
 
         
         train_epochs = self.args.training.iterations.train_epochs
@@ -880,7 +880,7 @@ class ExpMainLightning(pl.LightningModule):
         self.test_metrics = Metrics("test")
         
         if self.args.resume_exp.resume:
-            chpt_path = self.args.resume_exp.specific_chpt_path
+            chpt_path = self.args.resume_exp.resume_path
             if chpt_path is None or chpt_path == "None":
                 raise ValueError("specific_chpt_path is None")
             # Extract the part '21_10_2024_1424'
@@ -894,8 +894,8 @@ class ExpMainLightning(pl.LightningModule):
         
         os.makedirs(self.args.paths.checkpoints, exist_ok=True)  
         
-        if self.args.resume_exp.resume:
-            self.resume_epoch = self.load_checkpoint(self.args.resume_exp.specific_chpt_path)    
+        # if self.args.resume_exp.resume:
+        #     self.resume_epoch = self.load_checkpoint(self.args.resume_exp.resume_path)    
 
         self.early_stopping = EarlyStopping(patience=self.args.optimization.patience, verbose=True)
         
@@ -906,7 +906,42 @@ class ExpMainLightning(pl.LightningModule):
         self.compare_ecgs = ECG_Diffs(self.args.data.fs)
         
         self.initialized = False
-        
+    
+    @classmethod
+    def load_model(cls, checkpoint_path, args):
+        return cls.load_from_checkpoint(checkpoint_path=checkpoint_path, args=args, map_location="cpu")
+    
+    def compare_state_dicts(self, model, checkpoint_path):
+        """
+        Compare the state dictionary of the current model with the one from a checkpoint file.
+
+        Args:
+            model (torch.nn.Module): The current model.
+            checkpoint_path (str): Path to the checkpoint file.
+
+        Returns:
+            bool: True if the state dictionaries are equal, False otherwise.
+        """
+        # Load the state dictionary from the checkpoint file
+        checkpoint = torch.load(checkpoint_path, map_location="cuda")
+        checkpoint_state_dict = checkpoint['state_dict']
+        checkpoint_state_dict_keys = list(checkpoint_state_dict.keys())
+
+        # Get the current model's state dictionary
+        current_state_dict = model.state_dict()
+        current_state_dict_keys = list(current_state_dict.keys())
+
+        # Compare the state dictionaries
+        for checkpoint_key in checkpoint_state_dict_keys:
+            key = checkpoint_key.replace("model.", "")  # Remove the 'model.' prefix if it exists
+            if key not in current_state_dict_keys:
+                raise KeyError(f"Key {key} not found in checkpoint state dict.")
+            if not torch.equal(current_state_dict[key], checkpoint_state_dict[checkpoint_key]):
+                raise KeyError(f"Mismatch found at key {checkpoint_key}.")
+
+        print("State dictionaries are equal.")
+        return True
+
     def configure_model(self):
         if self.model is not None:
             return
@@ -915,14 +950,32 @@ class ExpMainLightning(pl.LightningModule):
             'DDPM': DDPM,
         }
         self.args.device = self.device
-        model = model_dict[self.args.training.model_info.model].Model(self.args).float()
-        
+                
         model_path = self.args.paths.model_path
-        if model_path is not "" or model_path is not None:
-            # model.load_state_dict(torch.load(model_path))
-            checkpoint = torch.load(model_path, map_location='cpu')
-            self.load_state_dict(checkpoint['state_dict'], strict=False)
+        # if False and model_path:
+            # self.model = self.load_model(self.args.paths.model_path, self.args).model
             
+            # checkpoint = torch.load(model_path, map_location='cpu')
+            # state_dict = checkpoint['state_dict']
+            # new_state_dict = OrderedDict()
+            # for k, v in state_dict.items():
+            #     if k.startswith('model.'):
+            #         new_state_dict[k[len('model.'):]] = v
+            #     else:
+            #         new_state_dict[k] = v
+            # missing_keys, unexpected_keys = self.load_state_dict(new_state_dict, strict=False)
+            # if missing_keys:
+            #     print(f"Missing keys: {missing_keys}")
+            # if unexpected_keys:
+            #     print(f"Unexpected keys: {unexpected_keys}")
+            
+            # Ensure all model parameters require gradients
+        # else:
+        model = model_dict[self.args.training.model_info.model].Model(self.args).float()
+         
+        for param in model.parameters():
+                param.requires_grad = True   
+        self.model = model
         return model
         
     def _build_model(self):
@@ -967,6 +1020,8 @@ class ExpMainLightning(pl.LightningModule):
         self.args.device = self.device
         self.model.to(self.device)
         self.model.train()
+        are_equal = self.compare_state_dicts(self.model, self.args.paths.model_path)
+        i = 3
         
     def training_step(self, batch, batch_idx):
         batch_x, batch_y, _, _ = batch
@@ -1022,7 +1077,6 @@ class ExpMainLightning(pl.LightningModule):
         
         return {'loss': loss, 'batch_y': batch_y, 'outputs': outputs_without_RR}
     
-    
     def on_validation_epoch_end(self):
         # Calculate and log validation metrics
         finals = self.compare_ecgs.get_final()
@@ -1035,6 +1089,11 @@ class ExpMainLightning(pl.LightningModule):
         # Reset validation metrics for the next epoch
         # self.val_metrics = Metrics("val")
         self.compare_ecgs.clear()
+    
+    def on_save_checkpoint():
+        if self.epoch < 10:
+            return False
+        return True
         
     def test_step(self, batch, batch_idx):
         batch_x, batch_y, _, _ = batch
@@ -1061,25 +1120,16 @@ class ExpMainLightning(pl.LightningModule):
     def train_dataloader(self):
         dataset_args, data_loader_args = self._get_dataset_and_dataloader_args('train')
         dataset = DataSet(**dataset_args)
-        sampler  = self.args.data.sub_sample
-        if sampler > 1:
-            dataset = SubsetRandomSampler(dataset, sampler)
         return DataLoader(dataset, **data_loader_args)
 
     def val_dataloader(self):
         dataset_args, data_loader_args = self._get_dataset_and_dataloader_args('val')
         dataset = DataSet(**dataset_args)
-        sampler  = self.args.data.sub_sample
-        if sampler > 1:
-            dataset = SubsetRandomSampler(dataset, sampler)
         return DataLoader(dataset, **data_loader_args)
 
     def test_dataloader(self):
         dataset_args, data_loader_args = self._get_dataset_and_dataloader_args('train')
         dataset = DataSet(**dataset_args)
-        sampler  = self.args.data.sub_sample
-        if sampler > 1:
-            dataset = SubsetRandomSampler(dataset, sampler)
         return DataLoader(dataset, **data_loader_args)
     
     def _get_dataset_and_dataloader_args(self, flag):

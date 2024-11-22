@@ -107,7 +107,7 @@ class Args:
     
             if self.resume_exp.resume and self.resume_exp.resume_configuration:
                     resume_config = self.resume_exp
-                    checkpoint = torch.load(self.resume_exp.specific_chpt_path, map_location='cpu')
+                    checkpoint = torch.load(self.resume_exp.resume_path, map_location='cpu')
                     self.update_config_from_dict(checkpoint["configuration_parameters"])
                     self.resume_exp = resume_config
 

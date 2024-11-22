@@ -18,14 +18,14 @@ emd:
   tol: 1e-6
 
 resume_exp:
-  resume: False  # resume training
+  resume: True  # resume training
   resume_from: 9  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
   resume_optimizer: True
   resume_epoch: 9
   resume_metrics: True
   resume_scheduler: True
   resume_configuration: False
-  specific_chpt_path: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl105000_ll7500_pl7500_lr0.001_bs16_invFalse_itr0/21_10_2024_1424/logs/1_last_checkpoint.pth"
+  resume_path: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl55000_ll3750_pl3750_lr0.0001_bs40_invTrue_itr0/21_11_2024_1807/epoch=10-vali_loss=0.02.ckpt"
   was_resumed: false
   model_start_training_time: "None"  # "%d_%m_%Y_%H%M" or "None" for example: "15_10_2024_1615"
 
@@ -33,9 +33,9 @@ wandb:
   entity: 'liranc6'  # wandb entity
   mode: 'online'  # [online, disabled, offline]
   project: 'mrdiff'  # wandb project name
-  resume: 'None'  # ["allow", "must", "never", "auto", "None"]
+  resume: 'must'  # ["allow", "must", "never", "auto", "None"]
   run_name: "None" # wandb run name
-  id: 'None'  # wandb run id
+  id: 'x1r8g0kz'  # wandb run id
   save_code: False  # save code to wandb
   resume_from: "None"  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
 
@@ -50,7 +50,7 @@ general:
 
 optimization:
   learning_rate: 0.0001  # optimizer learning rate
-  batch_size: 40  # batch size of train input data
+  batch_size: 10  # batch size of train input data
   test_batch_size: 64  # batch size of test input data
   patience: 35  # early stopping patience
   weight_decay: 0.00001  # weight_decay
@@ -95,7 +95,7 @@ data:
 training:
 
   data:
-    step: 5  # subsample rate
+    step: 4  # subsample rate
 
   logging:
     sample: false
@@ -107,7 +107,7 @@ training:
 
   patients:
     start_patient: 0
-    end_patient: 70
+    end_patient: 11
 
   iterations:
     itr: 1  # experiments times

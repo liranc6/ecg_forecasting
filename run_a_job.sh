@@ -8,7 +8,7 @@
 #SBATCH -o ./mrDiff_runs/%A/out_job_%a.txt       # stdout file with job ID (%A) and task ID (%a)
 #SBATCH -e ./mrDiff_runs/%A/out_job_%a.txt       # stderr file with job ID (%A) and task ID (%a)
 #SBATCH --array=0                              # Array range for 9 jobs (0 to 8)
-#SBATCH --gres=gpu:3                             # Request 1 GPU per job
+#SBATCH --gres=gpu:1                             # Request 1 GPU per job
 #SBATCH --cpus-per-task=96                       # Number of CPU cores per task
 
 module purge                                      # Clean active modules list
@@ -22,7 +22,7 @@ conda activate ecg
 mkdir -p ./mrDiff_runs/${SLURM_ARRAY_JOB_ID}
 
 # Define the base command
-BASE_CMD="srun ./liran_project/mrdiff/main_default.py"
+BASE_CMD="srun python3 ./liran_project/mrdiff/main_default.py"
 
 # "--emd.use_emd True --emd.num_sifts 3"
 #     "--emd.use_emd True --emd.num_sifts 4"
