@@ -906,23 +906,31 @@ class ExpMainLightning(pl.LightningModule):
         self.compare_ecgs = ECG_Diffs(self.args.data.fs)
         
         self.initialized = False
-
+        
     def configure_model(self):
         if self.model is not None:
             return
         
-        self.model = self._build_model()
-        
-    def _build_model(self):
         model_dict = {
             'DDPM': DDPM,
         }
         self.args.device = self.device
         model = model_dict[self.args.training.model_info.model].Model(self.args).float()
+        
+        model_path = self.args.paths.model_path
+        if model_path is not "" or model_path is not None:
+            # model.load_state_dict(torch.load(model_path))
+            checkpoint = torch.load(model_path, map_location='cpu')
+            self.load_state_dict(checkpoint['state_dict'], strict=False)
+            
+        return model
+        
+    def _build_model(self):
+        
 
         # if self.args.hardware.use_multi_gpu and self.args.hardware.use_gpu:
         #     model = torch.nn.DataParallel(model, device_ids=self.args.device_ids)
-        return model
+        pass
 
     def print_layer_devices(self, max_depth=-1):
         from tabulate import tabulate
@@ -941,13 +949,10 @@ class ExpMainLightning(pl.LightningModule):
     def on_fit_start(self):
         self.model.device = self.device
         self.val_normalization_method = self.val_dataloader().dataset.normalize_method
-        self.val_norm_statistics = self.val_dataloader().dataset.norm_statistics
+        self.val_norm_statistics = {k: v.to(self.device) for k, v in self.val_dataloader().dataset.norm_statistics.items()}
         
-        # self.print_layer_devices(max_depth=4)  # Print the device of each layer
+        self.print_layer_devices(max_depth=4)  # Print the device of each layer
     
-    def forward(self, x):
-        return self.model(x)
-
     def configure_optimizers(self):
         optimizer = Adam(self.model.parameters(), lr=self.args.optimization.learning_rate, weight_decay=self.args.optimization.weight_decay)
         scheduler = lr_scheduler.OneCycleLR(optimizer,
@@ -1056,39 +1061,49 @@ class ExpMainLightning(pl.LightningModule):
     def train_dataloader(self):
         dataset_args, data_loader_args = self._get_dataset_and_dataloader_args('train')
         dataset = DataSet(**dataset_args)
+        sampler  = self.args.data.sub_sample
+        if sampler > 1:
+            dataset = SubsetRandomSampler(dataset, sampler)
         return DataLoader(dataset, **data_loader_args)
 
     def val_dataloader(self):
         dataset_args, data_loader_args = self._get_dataset_and_dataloader_args('val')
         dataset = DataSet(**dataset_args)
+        sampler  = self.args.data.sub_sample
+        if sampler > 1:
+            dataset = SubsetRandomSampler(dataset, sampler)
         return DataLoader(dataset, **data_loader_args)
 
     def test_dataloader(self):
         dataset_args, data_loader_args = self._get_dataset_and_dataloader_args('train')
         dataset = DataSet(**dataset_args)
+        sampler  = self.args.data.sub_sample
+        if sampler > 1:
+            dataset = SubsetRandomSampler(dataset, sampler)
         return DataLoader(dataset, **data_loader_args)
     
     def _get_dataset_and_dataloader_args(self, flag):
         
         config_dict = self.args.configs.to_dict()
         # split the windows to fixed size context and label windows
-        fs = config_dict['data']['fs']
         context_window_size = config_dict['training']['sequence']['label_len']  # minutes * seconds * fs
         label_window_size = config_dict['training']['sequence']['pred_len']  # minutes * seconds * fs
-        window_size = context_window_size+label_window_size
         
         if flag == 'train':
             data_path = self.args.paths.train_data
             start_patiant = self.args.training.patients.start_patient
             end_patiant = self.args.training.patients.end_patient
+            step = self.args.training.data.step
         elif flag == 'val':
             data_path = self.args.paths.val_data
             start_patiant = self.args.validation.patients.start_patient
             end_patiant = self.args.validation.patients.end_patient
+            step = self.args.validation.data.step
         elif flag == 'test':
             data_path = self.args.paths.test_data
             start_patiant = self.args.testing.patients.start_patient
             end_patiant = self.args.testing.patients.end_patient
+            step = self.args.testing.data.step
             
         dataset_args = {
                             'context_window_size': context_window_size,
@@ -1099,6 +1114,8 @@ class ExpMainLightning(pl.LightningModule):
                             'data_with_RR': True,
                             'return_with_RR': True,
                             'normalize_method': self.args.data.norm_method,
+                            'norm_statistics_file': self.args.paths.norm_statistics_file,
+                            'step': step,
                         }
 
         # dataset = DataSet(context_window_size,
@@ -1167,9 +1184,6 @@ class ExpMainLightning(pl.LightningModule):
     def forward(self, x, checkpoint_path=None, norm_stat=(None, None), y=None, visual_path=False):
         if not self.initialized:
             self.configure_model()
-            checkpoint = torch.load(checkpoint_path, map_location='cpu')
-            self.load_state_dict(checkpoint['state_dict'], strict=False)
-            
             self.initialized = True
             
         # Put the model in evaluation mode

@@ -5,8 +5,13 @@ import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, ModelSummary
-from pytorch_lightning.strategies import DDPStrategy, FSDPStrategy
+from pytorch_lightning.strategies import DDPStrategy, FSDPStrategy, DeepSpeedStrategy
 from pytorch_lightning.utilities.rank_zero import rank_zero_only
+from pytorch_lightning.plugins.environments import SLURMEnvironment
+from pytorch_lightning.callbacks import TQDMProgressBar
+from pytorch_lightning.tuner import Tuner
+
+import time
 
 CONFIG_FILENAME = '/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/config_ecg.yml'
 
@@ -20,7 +25,7 @@ ProjectPath = config['project_path']
 sys.path.append(ProjectPath)
 
 from liran_project.mrdiff.src.parser import parse_args
-from liran_project.utils.util import Debbuger
+from liran_project.utils.util import MemorySnapshot
 from liran_project.mrdiff.exp_main import Exp_Main, ExpMainLightning
 from liran_project.utils.common import *
 
@@ -68,7 +73,23 @@ class CustomEarlyStopping(EarlyStopping):
                         self.best_metrics[metric_name] = metric_value
                         print(f"Improved {metric_name}: {metric_value:.4f}")
             super(CustomEarlyStopping, self).on_validation_end(trainer, pl_module)       
-        
+ 
+class SecPerIterProgressBar(TQDMProgressBar):
+    def __init__(self):
+        super().__init__()
+        self.start_time = None
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        super().on_train_epoch_start(trainer, pl_module)
+        self.start_time = time.time()
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        super().on_train_batch_end(trainer, pl_module, outputs, batch, batch_idx)
+        current_time = time.time()
+        elapsed = current_time - self.start_time
+        sec_per_iter = elapsed / (batch_idx + 1)
+        self.train_progress_bar.set_postfix({'sec/it': f"{sec_per_iter:.2f}"})
+               
 @rank_zero_only
 def init_wandb_logger(args):
     wandb_project_name = args.wandb.project
@@ -150,15 +171,25 @@ def main():
     iterations = config_dict['training']['iterations']['itr']
     tag = config_dict['general']['tag']
     
+    # if 'SLURM_JOB_ID' in os.environ:
+    #     cluster_environment = SLURMEnvironment()
+        
     strategy = config_dict['pytorch_lightning']['strategy']
+    use_distributed_sampler = True
     if strategy == "DDP":
         strategy = DDPStrategy(
             find_unused_parameters=True,
+            gradient_as_bucket_view=True,
+            static_graph=True,
         )
     elif strategy == "FSDP":
-        strategy = FSDPStrategy(
-            sharding_strategy="FULL_SHARD",
-        )
+        strategy = FSDPStrategy(sharding_strategy="FULL_SHARD",
+                                )
+        use_distributed_sampler = False
+    elif strategy == "DeepSpeed":
+        strategy=DeepSpeedStrategy(offload_optimizer=True, allgather_bucket_size=5e8, reduce_bucket_size=5e8)
+        
+    num_GPUs = torch.cuda.device_count()
 
     for iteration in range(iterations):
         setting = f"{model}_{dataset}_ft{features}_sl{context_len}_ll{label_len}_pl{pred_len}_lr{learning_rate}_bs{batch_size}_inv{inverse}_itr{iteration}"
@@ -172,7 +203,7 @@ def main():
         exp = ExpMainLightning(args)
 
         print(f'>>>>>>>start training : {setting}>>>>>>>>>>>>>>>>>>>>>>>>>')
-        with Debbuger(debug=args.debug):
+        with MemorySnapshot(debug=args.hardware.memory_snapshot):
             trainer = Trainer(
                 devices=torch.cuda.device_count(),
                 accelerator="cuda",
@@ -194,10 +225,18 @@ def main():
                         mode='min',
                         start_epoch=2,
                     ),
+                    SecPerIterProgressBar(),
                     ModelSummary(max_depth=3)
                 ],
                 strategy= strategy,
+                use_distributed_sampler = use_distributed_sampler,
+                enable_progress_bar=True,
+                # plugins=cluster_environment,
+                # fast_dev_run=True,
             )
+            # tuner = Tuner(trainer)
+            # tuner.scale_batch_size(model, mode="binsearch")
+            
             trainer.fit(exp)
 
         print(f'>>>>>>>testing : {setting}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<')

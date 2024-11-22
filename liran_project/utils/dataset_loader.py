@@ -133,7 +133,8 @@ class SingleLeadECGDatasetCrops_SSSD(Dataset):
 
 class SingleLeadECGDatasetCrops_mrDiff(Dataset):
     def __init__(self,context_window_size, label_window_size, h5_filename, start_sample_from=0, data_with_RR=True,
-                cache_size=5000, return_with_RR = False, start_patiant=0, end_patiant=-1, normalize_method=None, get_stats=False, norm_statistics_file="None"):
+                cache_size=5000, return_with_RR = False, start_patiant=0, end_patiant=-1, normalize_method=None,
+                get_stats=False, norm_statistics_file="None", step=1):
 
         self.context_window_size = context_window_size
         self.label_window_size = label_window_size
@@ -174,25 +175,38 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
         if norm_statistics_file is not None and norm_statistics_file is not "None":
                 # load from file using torch.load
                 self.norm_statistics = torch.load(norm_statistics_file)
-                self.norm_statistics['mean'] = self.norm_statistics['mean'][:self.window_size]
-                self.norm_statistics['std'] = self.norm_statistics['std'][:self.window_size]
+        
+        if self.norm_statistics == None:
+            get_stats = True
                 
-                
-                
+
         if get_stats:
             if self.normalize_method != "None" and self.normalize_method is not None:
                 assert self.normalize_method in ['min_max', 'z_score'], f"{self.normalize_method=}"
                 self.norm_statistics = self._get_normalization_statistics(self.h5_filename)
-            
+        
+        if self.norm_statistics:
+            self.norm_statistics['mean'] = self.norm_statistics['mean'][:self.window_size]
+            self.norm_statistics['std'] = self.norm_statistics['std'][:self.window_size]
+            self.norm_statistics = {
+                                        k: torch.as_tensor(v, dtype=torch.float32)
+                                        for k, v in self.norm_statistics.items()
+                                    }
+                
+        self.step = step    
 
     def __len__(self):
-        return self.cumulative_sizes[-1] if self.cumulative_sizes.any() else 0
+        len = self.cumulative_sizes[-1] if self.cumulative_sizes.any() else 0
+        return (len + self.step - 1) // self.step
 
     @property
     def is_empty(self):
         return self.__len__() == 0
 
     def __getitem__(self, idx):
+        
+        idx = idx * self.step
+        
         if idx in self.cache.keys():
             x, y = self.cache[idx]
             if self.data_with_RR and not self.return_with_RR:
@@ -220,8 +234,10 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
         with h5py.File(self.h5_filename, 'r') as h5_file:
             
             dataset = h5_file[str_dataset_idx]
+            
+            dataset = torch.tensor(dataset)
 
-            end_idx = min(start_idx + self.cache_size, len(dataset))
+            end_idx = min(start_idx + self.cache_size, dataset.shape[0])
 
             to_cache = dataset[start_idx: end_idx, :, :self.window_size]  # This is a list of windows, each window is a numpy array with shape (window_size) if no RR data,
                                                     # or (2, window_size) if there is RR data
@@ -243,30 +259,23 @@ class SingleLeadECGDatasetCrops_mrDiff(Dataset):
     def _add_to_cache(self, to_cache, idx, advance):
         if len(self.cache) + len(to_cache) >= self.cache_size:
             #clean the cache
-            for i in range(len(to_cache)):
-                if len(self.cache) > 0:
-                    self.cache.popitem(last=False)
-                else:
-                    break
+            self.cache = OrderedDict()
 
         if self.data_with_RR:
             to_cache[:, 0, :] = normalized(to_cache[:, 0, :], self.normalize_method, self.norm_statistics)
+            
+            x = to_cache[:, :, advance: advance + self.context_window_size]
+            y = to_cache[:, :, advance + self.context_window_size : advance + self.context_window_size + self.label_window_size]
+
             for i in range(len(to_cache)):
-                window = to_cache[i]
-                signal_len = len(window[0])
-                assert advance + self.context_window_size + self.label_window_size <= signal_len, f"{self.context_window_size=} + {self.label_window_size=} > {signal_len=}"
-                x = window[:, advance: advance + self.context_window_size]
-                y = window[:, advance + self.context_window_size : advance + self.context_window_size + self.label_window_size]
-                self.cache[idx + i] = (x, y)
+                self.cache[idx + i] = (x[i], y[i])
         else:
             to_cache = normalized(to_cache, self.normalize_method, self.norm_statistics)
+            x = to_cache[:, advance: advance + self.context_window_size]
+            y = to_cache[:, advance + self.context_window_size : advance + self.context_window_size + self.label_window_size]
+            
             for i in range(len(to_cache)):
-                window = to_cache[i]
-                window = window[0]
-                assert self.context_window_size + self.label_window_size <= len(window), f"{self.context_window_size=} + {self.label_window_size=} > {len(window)=}"
-                x = window[advance: advance + self.context_window_size]
-                y = window[advance + self.context_window_size : advance + self.context_window_size + self.label_window_size]
-                self.cache[idx + i] = (x, y)
+                self.cache[idx + i] = (x[i], y[i])
             
     def _get_normalization_statistics(self, filename):
         mean = 0
@@ -342,8 +351,9 @@ def normalized(data, normalize_method, norm_statistics):
         scale = norm_statistics['max'] - norm_statistics['min']
         data = (data - norm_statistics['min']) / scale
     elif normalize_method == 'z_score':
-        mean = norm_statistics['mean']
-        std = norm_statistics['std']
+        L = data.shape[1]
+        mean = norm_statistics['mean'][:L]
+        std = norm_statistics['std'][:L]
         data = (data - mean) / std
     return data
 
@@ -365,8 +375,9 @@ def de_normalized(data, normalize_method, norm_statistics):
         scale = norm_statistics['max'] - norm_statistics['min']
         data = data * scale + norm_statistics['min']
     elif normalize_method == 'z_score':
-        mean = norm_statistics['mean']
-        std = norm_statistics['std']
+        L = data.shape[1]
+        mean = norm_statistics['mean'][:L]
+        std = norm_statistics['std'][:L]
         data = data * std + mean
     return data
 

@@ -19,6 +19,8 @@ from torchvision import models
 from box import Box
 import pandas as pd
 from tslearn.metrics import soft_dtw
+import concurrent.futures
+import mpld3
 
 SAMPLING_RATE = 250
 MIN_WINDOW_SIZE_FOR_NK_ECG_PROCESS = 10*SAMPLING_RATE
@@ -896,7 +898,7 @@ class stopwatch:
             time.sleep(0.5)
 
 
-class Debbuger:
+class MemorySnapshot:
     def __init__(self, debug=False, filename=None):
         self.debug = debug
         logging.basicConfig(
@@ -950,7 +952,38 @@ class Debbuger:
             self.logger.error(f"Failed to capture memory snapshot {e}")
             return
         
+def plot_signals(x=None, y=None):
+    """
+    Plots the original signal and the reconstructed signal on the same graph.
+    If one of the signals is None, it only plots the other signal.
 
+    Parameters:
+    x (array-like or None): The original signal.
+    y (array-like or None): The reconstructed signal.
+    """
+    width = 0.5  # Width of the bars
+    fig, ax = plt.subplots(figsize=(20, 6), dpi=300)  # Higher resolution with dpi=100
+
+    # Plot the original signal if it is not None
+    if x is not None:
+        ax.plot(x, color='blue', label='X', linewidth=width)
+
+    # Plot the reconstructed signal if it is not None
+    if y is not None:
+        ax.plot(y, color='red', linestyle='--', label='Y', linewidth=width)
+
+    # Add title and labels
+    ax.set_title('X vs Y')
+    ax.set_xlabel('Time')
+    ax.set_ylabel('Amplitude')
+
+    # Add a legend if at least one signal is plotted
+    if x is not None or y is not None:
+        ax.legend()
+
+    # Show the plot with interactive features
+    plt.show()
+            
 def update_nested_dict(old, new):
     """
         Merge two nested dictionaries, updating existing values and adding new keys/values.
@@ -1127,3 +1160,153 @@ class ECG_Diffs:
                                         "extra_r_beats_negligible_length",
                                         "mae_pruned_r_beats_localization"])
         
+        
+
+class ECG_Diffs:
+    def __init__(self, sampling_rate):
+        self.dataframe = pd.DataFrame(columns=["mse",
+                                               "rmse",
+                                               "mae", 
+                                               "dtw_distance", 
+                                               "modified_chamfer_distance", 
+                                               "extra_r_beats",
+                                               "extra_r_beats_negligible_length",
+                                               "mae_pruned_r_beats_localization"])
+        self.fs = sampling_rate
+
+    def __call__(self, y_batch, y_pred_batch):
+        return self.calculate_diffs(y_batch, y_pred_batch)
+    
+    def calculate_diffs(self, y_batch, y_pred_batch):
+        if y_batch.shape[1] == 1:
+            ecg_signals_batch = y_batch
+        else:
+            ecg_signals_batch = y_batch[:, 0, :]
+            ecg_R_beats_batch = y_batch[:, 1, :]
+            
+        y_pred_batch = y_pred_batch.squeeze()
+        ecg_signals_batch = ecg_signals_batch.squeeze()
+        
+        assert ecg_signals_batch.shape == y_pred_batch.shape, f"{ecg_signals_batch.shape=}, {y_pred_batch.shape=}"
+        
+        mae_per_sample = F.l1_loss(ecg_signals_batch.float(), y_pred_batch.float(), reduction='none').mean(dim=1)
+        mse_per_sample = F.mse_loss(ecg_signals_batch.float(), y_pred_batch.float(), reduction='none').mean(dim=1)
+        rmse_per_sample = torch.sqrt(mse_per_sample)
+        
+        ecg_signals_batch_numpy = ecg_signals_batch.cpu().numpy()
+        ecg_pred_batch_numpy = y_pred_batch.cpu().numpy()
+        # Parallelize DTW computation
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            dtw_futures = [executor.submit(self._compute_dtw, y, y_pred) for y, y_pred in zip(ecg_signals_batch_numpy, ecg_pred_batch_numpy)]
+            dtw_per_sample = [future.result() for future in concurrent.futures.as_completed(dtw_futures)]
+                
+        rows = []
+        
+        try:
+            if y_batch.shape[1] == 1:
+                ecg_R_beats_batch_indices = []
+                for y in y_batch:
+                    y = y.squeeze()
+                    info = nk.ecg_process(y, sampling_rate=self.fs)[1]
+                    ecg_R_beats_batch_indices.append(info['ECG_R_Peaks'])
+            else:
+                ecg_R_beats_batch_indices = [torch.nonzero(row == 1).squeeze(1) for row in ecg_R_beats_batch]
+
+            ecg_pred_R_beats_batch_indices = []
+            ecg_len = ecg_signals_batch.shape[1]
+            min_distance, smooth_to_each_side = 50, 50
+            
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures = [executor.submit(self._process_ecg_on_threads, i, y_pred_numpy, ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices, ecg_len, min_distance, smooth_to_each_side, rows, mae_per_sample, mse_per_sample, rmse_per_sample, dtw_per_sample) for i, y_pred_numpy in enumerate(ecg_pred_batch_numpy)]
+                for future in concurrent.futures.as_completed(futures):
+                    future.result()
+                   
+        except Exception as e:
+            for i in range(len(ecg_signals_batch)):
+                rows.append({
+                    "mae": mae_per_sample[i],
+                    "mse": mse_per_sample[i],
+                    "rmse": rmse_per_sample[i],
+                    "dtw_distance": dtw_per_sample[i],
+                    "modified_chamfer_distance": float('nan'),
+                    "extra_r_beats": float('nan'),
+                    "extra_r_beats_negligible_length": float('nan'),
+                    "mae_pruned_r_beats_localization": float('nan'),
+                })
+
+        new_rows_df = pd.DataFrame(rows)
+        self.dataframe = pd.concat([self.dataframe, new_rows_df], ignore_index=True)
+
+        return new_rows_df
+    
+    def get_final(self, df=None):
+        ret_dict = {}
+        if df is None:
+            df = self.dataframe
+            
+        ret_dict.update(df.describe().to_dict())
+        
+        sub_df = df[df['extra_r_beats'] < 2]
+        
+        if not sub_df.empty:
+            sub_dict = sub_df.describe().to_dict()
+            for key, val in sub_dict.items():
+                ret_dict[f'extra_r_beats<2_{key}'] = val
+        
+        return ret_dict
+        
+    def clear(self):
+        self.dataframe = pd.DataFrame(columns=["mse",
+                                               "rmse",
+                                               "mae", 
+                                               "dtw_distance",
+                                               "modified_chamfer_distance", 
+                                               "extra_r_beats",
+                                               "extra_r_beats_negligible_length",
+                                               "mae_pruned_r_beats_localization"])
+    
+    def _compute_dtw(self, y, y_pred):
+        return fastdtw(y, y_pred)[0]
+
+    def _process_ecg_on_threads(self, i, y_pred_numpy, ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices,
+                                ecg_len, min_distance, smooth_to_each_side, rows, mae_per_sample, mse_per_sample,
+                                rmse_per_sample, dtw_per_sample):
+        y_pred_numpy = y_pred_numpy.squeeze()
+        info = nk.ecg_process(y_pred_numpy, sampling_rate=self.fs)[1]
+        ecg_pred_R_beats_indices = info['ECG_R_Peaks']
+        ecg_pred_R_beats_batch_indices.append(ecg_pred_R_beats_indices)
+        y, y_pred = ecg_R_beats_batch_indices[i], ecg_pred_R_beats_indices
+        modified_chamfer_distance_per_element = modified_chamfer_distance(y, y_pred)
+        
+        if y_pred.shape != y.shape:
+            extra_r_beats = abs(y.shape[0] - y_pred.shape[0])
+            extra_r_beats_negligible_length = 2 * extra_r_beats / (y.shape[0] + y_pred.shape[0])
+            
+            if y.shape[0] > y_pred.shape[0]:
+                y, y_pred = prune_to_same_length(y, y_pred, min_distance=min_distance)
+            elif y_pred.shape[0] > y.shape[0]:
+                y_pred, y = prune_to_same_length(y_pred, y, min_distance=min_distance)
+
+            if y.shape[0] > y_pred.shape[0]:
+                y = align_indices(y, y_pred, ecg_len, smooth_to_each_side=smooth_to_each_side)
+            elif y_pred.shape[0] > y.shape[0]:
+                y_pred = align_indices(y_pred, y, ecg_len, smooth_to_each_side=smooth_to_each_side)
+                
+            assert y.shape == y_pred.shape, f"{y.shape=}, {y_pred.shape=}"
+            mae_distance = mae_distance_batch(y, y_pred)
+            
+            rows.append({
+                "mae": mae_per_sample[i],
+                "mse": mse_per_sample[i],
+                "rmse": rmse_per_sample[i],
+                "dtw_distance": dtw_per_sample[i],
+                "modified_chamfer_distance": modified_chamfer_distance_per_element,
+                "extra_r_beats": extra_r_beats,
+                "extra_r_beats_negligible_length": extra_r_beats_negligible_length,
+                "mae_pruned_r_beats_localization": mae_distance
+            })
+            
+            
+            
+            
+            

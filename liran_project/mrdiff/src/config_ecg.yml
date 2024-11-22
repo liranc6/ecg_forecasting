@@ -7,7 +7,9 @@ debug: False  # debug mode
   # debug_config_path: "/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/debug_config_ecg.yml"
 
 pytorch_lightning:
-  strategy: 'DDP'  # [FSDP, DDP, DDPSpawn, DataParallel]
+  # Notes: when using DDP the code currently does not print how many GPUs are being used, it will only print "CUDA_VISIBLE_DEVICES: [0,1,...]"
+        # Though, we can see it used multiple GPUs by reduction in number of batches pre epoch
+  strategy: 'DDP'  # [FSDP, DDP, DeepSpeed, deepspeed_stage_1, deepspeed_stage_2]
 
 emd:
   use_emd: False
@@ -47,10 +49,10 @@ general:
   interval: 1000  # number of diffusion steps?
 
 optimization:
-  learning_rate: 0.001  # optimizer learning rate
-  batch_size: 16  # batch size of train input data
-  test_batch_size: 32  # batch size of test input data
-  patience: 20  # early stopping patience
+  learning_rate: 0.0001  # optimizer learning rate
+  batch_size: 40  # batch size of train input data
+  test_batch_size: 64  # batch size of test input data
+  patience: 35  # early stopping patience
   weight_decay: 0.00001  # weight_decay
   lradj: '3'  # adjust learning rate (Learning Rate ADJustment)  # ['TST', 'type1', 'type2', 'type3', 'constant', '1', '2', '3', '4', '5']
   pct_start: 0.3  # Percentage of training where learning rate increases
@@ -63,6 +65,7 @@ hardware:
   gpu: 0  # gpu
   use_multi_gpu: True  # use multiple gpus
   device_ids: '0,1'  # device ids of multiple gpus
+  memory_snapshot: False
 
 paths:
   train_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/15_minutes/train/p0_to_p399.h5'  # location of training data
@@ -70,7 +73,7 @@ paths:
   test_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/15_minutes/test/p450_to_p500.h5'  # location of test data
   output_dir: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff"
   checkpoints: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff"
-  model_path: "None" # "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl10_ll105000_pl30000_lr0.001_bs8_invFalse_itr0/05_10_2024_1202/checkpoint.pth"
+  model_path: "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl55000_ll3750_pl3750_lr0.0001_bs40_invTrue_itr0/21_11_2024_1807/epoch=10-vali_loss=0.02.ckpt" # "/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff/DDPM_icentia11k_ftS_sl10_ll105000_pl30000_lr0.001_bs8_invFalse_itr0/05_10_2024_1202/checkpoint.pth"
   debug_config_path: "/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/debug_config_ecg.yml"
   norm_statistics_file: "/home/liranc6/ecg_forecasting/liran_project/utils/data_statistics/icentia11k/0to399.pkl"
 
@@ -85,11 +88,14 @@ data:
   use_ar_init: false  # use autoregressive initialization
   use_residual: true
   uncertainty: false
-  norm_method: 'min_max'  # ['None', 'z_score', 'min_max']
+  norm_method: 'z_score'  # ['None', 'z_score', 'min_max']
   normtype: 0
 
 
 training:
+
+  data:
+    step: 5  # subsample rate
 
   logging:
     sample: false
@@ -101,7 +107,7 @@ training:
 
   patients:
     start_patient: 0
-    end_patient: 150
+    end_patient: 70
 
   iterations:
     itr: 1  # experiments times
@@ -116,9 +122,9 @@ training:
   sequence:
     # len = minutes * seconds * fs
     context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
-    seq_len: 87000 # input_length; window size
-    label_len: 80000  # I think its context len # in minutes # start token length of Informer decoder
-    pred_len: 7000  # I think its label/forecast len # prediction sequence length, horizon
+    seq_len: 43750 # input_length; window size
+    label_len: 55000  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 3750  # I think its label/forecast len # prediction sequence length, horizon
 
   model_info:
     add_loss: ['dtw'] # ['dtw', 'ctc']
@@ -181,9 +187,13 @@ training:
 validation:
   patients:
     start_patient: 0
-    end_patient: 15
+    end_patient: 7
+  data:
+    step: 5  # subsample rate
 
 testing:
   patients:
     start_patient: 0
     end_patient: 7
+  data:
+    step: 5  # subsample rate
