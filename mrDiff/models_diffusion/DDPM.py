@@ -42,7 +42,6 @@ class BaseMapping(nn.Module):
         super(BaseMapping, self).__init__()
 
         self.args = args
-        self.device = args.device
         
         if seq_len is None:
             self.seq_len = args.training.sequence.label_len
@@ -65,7 +64,7 @@ class BaseMapping(nn.Module):
         else:
             self.Linear_Trend = nn.Linear(self.seq_len,self.pred_len)
         
-        self.rev = RevIN(args, args.data.num_vars, affine=args.training.misc.affine, subtract_last=args.training.misc.subtract_last).to(args.device) if args.training.analysis.use_window_normalization else None
+        self.rev = RevIN(args, args.data.num_vars, affine=args.training.misc.affine, subtract_last=args.training.misc.subtract_last) if args.training.analysis.use_window_normalization else None
 
     def train_forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, train_val=None):
         """
@@ -101,7 +100,7 @@ class BaseMapping(nn.Module):
 
         f_dim = -1 if self.args.general.features == 'MS' else 0
         outputs = outputs[:, -self.pred_len:, f_dim:]
-        ground_truth = x_dec[:, -self.pred_len:, f_dim:].to(self.device)
+        ground_truth = x_dec[:, -self.pred_len:, f_dim:]
 
         if self.args.training.model_info.opt_loss_type == "mse":
             loss = F.mse_loss(outputs, ground_truth)
@@ -202,11 +201,11 @@ class Model(nn.Module):
     """
     Decomposition-Linear
     """
-    def __init__(self, args):
+    def __init__(self, args, device=None):
         super(Model, self).__init__()
 
         self.args = args
-        self.device = args.device
+        self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.seq_len = args.training.sequence.label_len
         self.label_len = args.training.sequence.label_len
@@ -224,9 +223,9 @@ class Model(nn.Module):
         if args.training.model_info.u_net_type == "v0":
             self.u_nets = nn.ModuleList([My_DiffusionUnet_v0(args, self.num_vars, self.seq_len, self.pred_len, net_id=i) for i in range(self.num_bridges)])
          
-        self.diffusion_workers = nn.ModuleList([Diffusion_Worker(args, self.u_nets[i]) for i in range(self.num_bridges)])
+        self.diffusion_workers = nn.ModuleList([Diffusion_Worker(args, self.device, self.u_nets[i]) for i in range(self.num_bridges)])
 
-        self.rev = RevIN(args, args.data.num_vars, affine=args.training.misc.affine, subtract_last=args.training.misc.subtract_last).to(args.device) if args.training.analysis.use_window_normalization else None
+        self.rev = RevIN(args, args.data.num_vars, affine=args.training.misc.affine, subtract_last=args.training.misc.subtract_last) if args.training.analysis.use_window_normalization else None
          
         if args.training.diffusion.diff_steps < 100:
             args.training.sampler.type_sampler == "none"
@@ -241,12 +240,12 @@ class Model(nn.Module):
         batch_x_trends = []
         avg_layer = None
         if self.args.emd.use_emd:
-            batch_x = batch_x.squeeze().to(self.device)
+            batch_x = batch_x.squeeze()
             batch_x_np = batch_x.cpu().numpy()
             for sample_idx, sample_tensor in enumerate(batch_x):
                 sample_np = batch_x_np[sample_idx]
                 imfs = my_np_sift_file.sift(sample_np, max_imfs=self.args.emd.num_sifts)
-                imfs_tensor = torch.tensor(imfs).float().to(self.device)
+                imfs_tensor = torch.tensor(imfs).float()
                 sample_components = []
                 for n in range(imfs_tensor.shape[1]-1, 0, -1):
                     comp = sample_tensor - torch.sum(imfs_tensor[:, n:], dim=1) 
@@ -357,8 +356,8 @@ class Model(nn.Module):
         gpu_prints = 0
         if check_gpu_memory_usage is not None:
             print(f"{gpu_prints=}\n"\
-                  f"check_gpu_memory_usage(self.device):\n" \
-                  f"{check_gpu_memory_usage(self.device)}")
+                  f"check_gpu_memory_usage():\n" \
+                  f"{check_gpu_memory_usage()}")
             gpu_prints += 1
             
         if self.args.training.analysis.use_window_normalization:
@@ -387,8 +386,8 @@ class Model(nn.Module):
         
         if check_gpu_memory_usage is not None:
             print(f"{gpu_prints=}\n"\
-                  f"check_gpu_memory_usage(self.device):\n" \
-                  f"{check_gpu_memory_usage(self.device)}")
+                  f"check_gpu_memory_usage():\n" \
+                  f"{check_gpu_memory_usage()}")
             gpu_prints += 1
 
         # ==================================
@@ -398,8 +397,8 @@ class Model(nn.Module):
         
         if check_gpu_memory_usage is not None:
             print(f"linear_guess, ar_init_trends = self._compute_trends_and_guesses(: \n {gpu_prints=}\n"\
-                  f"check_gpu_memory_usage(self.device):\n" \
-                  f"{check_gpu_memory_usage(self.device)}")
+                  f"check_gpu_memory_usage():\n" \
+                  f"{check_gpu_memory_usage()}")
             gpu_prints += 1
             
         total_loss = self._compute_total_loss(x_past, x_future, future_trends, past_trends, linear_guess, ar_init_trends, return_mean=return_mean)
@@ -415,8 +414,8 @@ class Model(nn.Module):
                 
         if check_gpu_memory_usage is not None:
             print(f"{gpu_prints=}\n"\
-                  f"check_gpu_memory_usage(self.device):\n" \
-                  f"{check_gpu_memory_usage(self.device)}")
+                  f"check_gpu_memory_usage():\n" \
+                  f"{check_gpu_memory_usage()}")
             gpu_prints += 1
 
         return total_loss
@@ -466,7 +465,7 @@ class Model(nn.Module):
                 ar_init_trends.append(linear_guess_i)
 
         
-        B, nF, nL = np.shape(x_past)[0], self.num_vars, self.pred_len
+        B, nF, nL = x_past.shape[0], self.num_vars, self.pred_len
         if self.args.general.features in ['MS']:
             nF = 1
         shape = [nF, nL]
@@ -482,7 +481,7 @@ class Model(nn.Module):
 
             for j in reversed(range(0, self.num_bridges)):
                 
-                MASK = torch.ones((np.shape(x_past)[0], self.num_vars, self.pred_len)).to(self.device)
+                MASK = torch.ones((x_past.shape[0], self.num_vars, self.pred_len))
                 
                 if self.args.training.sampler.type_sampler == "none":
                     if j == 0:
@@ -501,7 +500,7 @@ class Model(nn.Module):
                         X1 = self.diffusion_workers[j].ddpm_sampling(X1, mask=MASK, cond=cond, ar_init=ar_init_trends[j-1].permute(0,2,1))
                 
                 else:
-                    start_code = torch.randn((B, nF, nL), device=self.device)
+                    start_code = torch.randn((B, nF, nL))
                     if j == 0:
                         cond = torch.cat([x_past.permute(0,2,1), X1], dim=-1)
                         cA = cond
@@ -535,7 +534,7 @@ class Model(nn.Module):
                 if j == 0:
                     res_out = X1
 
-            outs_i = res_out.permute(0,2,1).to(self.device) 
+            outs_i = res_out.permute(0,2,1)
 
             outs_i = self.rev(outs_i, 'denorm') if self.args.training.analysis.use_window_normalization else outs_i
             all_outs.append(outs_i)
@@ -578,7 +577,7 @@ class Model(nn.Module):
                 cond = torch.cat([x_past.permute(0, 2, 1), X1], dim=-1)
 
                 # Create a mask tensor
-                MASK = torch.ones((np.shape(X1)[0], self.num_vars, self.pred_len)).to(self.device)
+                MASK = torch.ones((X1.shape[0], self.num_vars, self.pred_len))
                 
                 # Compute the loss for the first bridge
                 loss_i = self.diffusion_workers[i].train_forward(X0, X1, mask=MASK, condition=cond, ar_init=linear_guess.permute(0, 2, 1), return_mean=return_mean)
@@ -599,7 +598,7 @@ class Model(nn.Module):
                 X0 = future_trends[i-1].permute(0, 2, 1)
 
                 # Create a mask tensor
-                MASK = torch.ones((np.shape(X1)[0], self.num_vars, self.pred_len)).to(self.device)
+                MASK = torch.ones((np.shape(X1)[0], self.num_vars, self.pred_len))
                 
                 # Compute the loss for the current bridge
                 loss_i = self.diffusion_workers[i].train_forward(X0, X1, mask=MASK, condition=cond, ar_init=ar_init_trends[i-1].permute(0, 2, 1), return_mean=return_mean)
@@ -709,7 +708,7 @@ class Model(nn.Module):
             res_out = X1
 
             for j in reversed(range(0, self.num_bridges)):
-                MASK = torch.ones((x_past.shape[0], self.num_vars, self.pred_len)).to(self.device)
+                MASK = torch.ones((x_past.shape[0], self.num_vars, self.pred_len))
 
                 if self.args.training.sampler.type_sampler == "none":
                     if j == 0:
@@ -725,7 +724,7 @@ class Model(nn.Module):
                                 cond = torch.cat([past_trends[j - 1].permute(0, 2, 1), X1], dim=-1)
                         X1 = self.diffusion_workers[j].ddpm_sampling(X1, mask=MASK, cond=cond, ar_init=ar_init_trends[j - 1].permute(0, 2, 1))
                 else:
-                    start_code = torch.randn((B, nF, nL), device=self.device)
+                    start_code = torch.randn((B, nF, nL))
                     if j == 0:
                         cond = torch.cat([x_past.permute(0, 2, 1), X1], dim=-1)
                         cA = cond
@@ -756,7 +755,7 @@ class Model(nn.Module):
                 if j == 0:
                     res_out = X1
 
-            outs_i = res_out.permute(0, 2, 1).to(self.device)
+            outs_i = res_out.permute(0, 2, 1)
             outs_i = self.rev(outs_i, 'denorm') if self.args.training.analysis.use_window_normalization else outs_i
             all_outs.append(outs_i)
 

@@ -18,7 +18,7 @@ def noise_mask(X, masking_ratio=0.15, lm=3, mode='separate', distribution='geome
     """
     Creates a random boolean mask of the same shape as X, with 0s at places where a feature should be masked.
     Args:
-        X: (seq_length, feat_dim) numpy array of features corresponding to a single sample
+        X: (seq_length, feat_dim) tensor of features corresponding to a single sample
         masking_ratio: proportion of seq_length to be masked. At each time step, will also be the proportion of
             feat_dim that will be masked on average
         lm: average length of masking subsequences (streaks of 0s). Used only when `distribution` is 'geometric'.
@@ -26,30 +26,29 @@ def noise_mask(X, masking_ratio=0.15, lm=3, mode='separate', distribution='geome
             should be masked concurrently ('concurrent')
         distribution: whether each mask sequence element is sampled independently at random, or whether
             sampling follows a markov chain (and thus is stateful), resulting in geometric distributions of
-            masked squences of a desired mean length `lm`
+            masked sequences of a desired mean length `lm`
         exclude_feats: iterable of indices corresponding to features to be excluded from masking (i.e. to remain all 1s)
 
     Returns:
-        boolean numpy array with the same shape as X, with 0s at places where a feature should be masked
+        boolean tensor with the same shape as X, with 0s at places where a feature should be masked
     """
     if exclude_feats is not None:
         exclude_feats = set(exclude_feats)
 
     if distribution == 'geometric':  # stateful (Markov chain)
         if mode == 'separate':  # each variable (feature) is independent
-            mask = np.ones(X.shape, dtype=bool)
+            mask = torch.ones(X.shape, dtype=torch.bool)
             for m in range(X.shape[1]):  # feature dimension
                 if exclude_feats is None or m not in exclude_feats:
                     mask[:, m] = geom_noise_mask_single(X.shape[0], lm, masking_ratio)  # time dimension
         else:  # replicate across feature dimension (mask all variables at the same positions concurrently)
-            mask = np.tile(np.expand_dims(geom_noise_mask_single(X.shape[0], lm, masking_ratio), 1), X.shape[1])
+            mask = geom_noise_mask_single(X.shape[0], lm, masking_ratio).unsqueeze(1).repeat(1, X.shape[1])
     else:  # each position is independent Bernoulli with p = 1 - masking_ratio
         if mode == 'separate':
-            mask = np.random.choice(np.array([True, False]), size=X.shape, replace=True,
-                                    p=(1 - masking_ratio, masking_ratio))
+            mask = torch.rand(X.shape) > masking_ratio
         else:
-            mask = np.tile(np.random.choice(np.array([True, False]), size=(X.shape[0], 1), replace=True,
-                                            p=(1 - masking_ratio, masking_ratio)), X.shape[1])
+            mask = torch.rand((X.shape[0], 1)) > masking_ratio
+            mask = mask.repeat(1, X.shape[1])
 
     return mask
 
@@ -64,18 +63,18 @@ def geom_noise_mask_single(L, lm, masking_ratio):
         masking_ratio: proportion of L to be masked
 
     Returns:
-        (L,) boolean numpy array intended to mask ('drop') with 0s a sequence of length L
+        (L,) boolean tensor intended to mask ('drop') with 0s a sequence of length L
     """
-    keep_mask = np.ones(L, dtype=bool)
+    keep_mask = torch.ones(L, dtype=torch.bool)
     p_m = 1 / lm  # probability of each masking sequence stopping. parameter of geometric distribution.
     p_u = p_m * masking_ratio / (1 - masking_ratio)  # probability of each unmasked sequence stopping. parameter of geometric distribution.
     p = [p_m, p_u]
 
     # Start in state 0 with masking_ratio probability
-    state = int(np.random.rand() > masking_ratio)  # state 0 means masking, 1 means not masking
+    state = int(torch.rand(1).item() > masking_ratio)  # state 0 means masking, 1 means not masking
     for i in range(L):
         keep_mask[i] = state  # here it happens that state and masking value corresponding to state are identical
-        if np.random.rand() < p[state]:
+        if torch.rand(1).item() < p[state]:
             state = 1 - state
 
     return keep_mask
@@ -150,10 +149,12 @@ class InputConvNetwork(nn.Module):
             self.channels = ddpm_channels_conv
         self.num_layers = num_layers
 
-        self.net = nn.ModuleList()
+        # self.net = nn.ModuleList()
+        
+        layers = []
 
         if num_layers == 1:
-            self.net.append(Conv1dWithInitialization(
+            layers.append(Conv1dWithInitialization(
                                             in_channels=self.inp_num_channel,
                                             out_channels=self.out_num_channel,
                                             kernel_size=kernel_size,
@@ -167,18 +168,18 @@ class InputConvNetwork(nn.Module):
                     dim_inp = self.inp_num_channel
                 else:
                     dim_inp = self.channels
-                self.net.append(Conv1dWithInitialization(
+                layers.append(Conv1dWithInitialization(
                                             in_channels=dim_inp,
                                             out_channels=self.channels,
                                             kernel_size=kernel_size,
                                             stride=1,
                                             padding=padding, bias=True
                                         ))
-                self.net.append(torch.nn.BatchNorm1d(self.channels)), 
-                self.net.append(torch.nn.LeakyReLU(0.1)),
-                self.net.append(torch.nn.Dropout(0.1, inplace = True))
+                layers.append(torch.nn.BatchNorm1d(self.channels)), 
+                layers.append(torch.nn.LeakyReLU(0.1)),
+                layers.append(torch.nn.Dropout(0.1, inplace = True))
 
-            self.net.append(Conv1dWithInitialization(
+            layers.append(Conv1dWithInitialization(
                                             in_channels=self.channels,
                                             out_channels=self.out_num_channel,
                                             kernel_size=kernel_size,
@@ -186,14 +187,17 @@ class InputConvNetwork(nn.Module):
                                             padding=padding, bias=True
                                         )
                                     )
+            
+            self.net = nn.Sequential(*layers)
 
     def forward(self, x=None):
+        return self.net(x)
+    
+        # out = x
+        # for m in self.net:
+        #     out = m(out)
 
-        out = x
-        for m in self.net:
-            out = m(out)
-
-        return out
+        # return out
 
 class DiffusionEmbedding(nn.Module):
     """Generates embeddings for diffusion steps using sinusoidal functions.
@@ -280,7 +284,7 @@ class My_DiffusionUnet_v0(nn.Module):
         self.label_len = args.training.sequence.label_len
         self.pred_len = pred_len
         
-        self.device = args.device
+        # self.device = args.device
 
         self.net_id = net_id
         self.smoothed_factors = args.training.smoothing.smoothed_factors 
@@ -308,21 +312,25 @@ class My_DiffusionUnet_v0(nn.Module):
         self.enc_conv = InputConvNetwork(args, self.channels+self.dim_diff_step, self.dim_intermediate_enc, num_layers=args.training.diffusion.ddpm_layers_I)
         
         if self.args.data.individual:
-            self.cond_projections = nn.ModuleList()
+            cond_projections_layers = []
+            # self.cond_projections = nn.ModuleList()
 
         if args.training.ablation_study.ablation_study_F_type == "Linear":
+            weights = (1 / self.seq_len) * torch.ones(self.num_vars, self.pred_len, self.seq_len)
+                
             if self.args.data.individual:
                 for i in range(self.num_vars):
-                    self.cond_projections.append(nn.Linear(self.seq_len,self.pred_len))
-                    self.cond_projections[i].weight = nn.Parameter((1/self.seq_len)*torch.ones([self.pred_len,self.seq_len]))
+                    cond_projections_layers.append(nn.Linear(self.seq_len,self.pred_len))
+                    cond_projections_layers[i].weight = nn.Parameter(weights[i])
             else:
                 self.cond_projection = nn.Linear(self.seq_len,self.pred_len)
 
         elif args.training.ablation_study.ablation_study_F_type == "CNN":
             if self.args.data.individual:
+                weights = (1/self.seq_len)*torch.ones(self.num_vars, self.pred_len, self.seq_len)
                 for i in range(self.num_vars):
-                    self.cond_projections.append(nn.Linear(self.seq_len,self.pred_len))
-                    self.cond_projections[i].weight = nn.Parameter((1/self.seq_len)*torch.ones([self.pred_len,self.seq_len]))
+                    cond_projections_layers.append(nn.Linear(self.seq_len,self.pred_len))
+                    cond_projections_layers.weight = nn.Parameter(weights[i])
             else:
                 self.cond_projection = nn.Linear(self.seq_len,self.pred_len)
 
@@ -331,15 +339,34 @@ class My_DiffusionUnet_v0(nn.Module):
         
         if self.net_id == self.num_bridges-1:
             if args.data.use_ar_init:
-                self.combine_conv = InputConvNetwork(args, self.dim_intermediate_enc+2*self.num_vars, self.num_vars, num_layers=args.training.diffusion.ddpm_layers_II, ddpm_channels_conv=args.training.diffusion.dec_channel_nums)
+                self.combine_conv = InputConvNetwork(args, 
+                                                    inp_num_channel=self.dim_intermediate_enc+2*self.num_vars, 
+                                                    out_num_channel=self.num_vars, 
+                                                    num_layers=args.training.diffusion.ddpm_layers_II, 
+                                                    ddpm_channels_conv=args.training.diffusion.dec_channel_nums)
             else:
-                self.combine_conv = InputConvNetwork(args, self.dim_intermediate_enc+1*self.num_vars, self.num_vars, num_layers=args.training.diffusion.ddpm_layers_II, ddpm_channels_conv=args.training.diffusion.dec_channel_nums)
+                self.combine_conv = InputConvNetwork(args, 
+                                                    inp_num_channel=self.dim_intermediate_enc+1*self.num_vars, 
+                                                    out_num_channel=self.num_vars, 
+                                                    num_layers=args.training.diffusion.ddpm_layers_II, 
+                                                    ddpm_channels_conv=args.training.diffusion.dec_channel_nums)
         else:
             if args.data.use_ar_init:
-                self.combine_conv = InputConvNetwork(args, self.dim_intermediate_enc+3*self.num_vars, self.num_vars, num_layers=args.training.diffusion.ddpm_layers_II, ddpm_channels_conv=args.training.diffusion.dec_channel_nums)
+                self.combine_conv = InputConvNetwork(args, 
+                                                    inp_num_channel=self.dim_intermediate_enc+3*self.num_vars, 
+                                                    out_num_channel=self.num_vars, 
+                                                    num_layers=args.training.diffusion.ddpm_layers_II, 
+                                                    ddpm_channels_conv=args.training.diffusion.dec_channel_nums)
             else:
-                self.combine_conv = InputConvNetwork(args, self.dim_intermediate_enc+2*self.num_vars, self.num_vars, num_layers=args.training.diffusion.ddpm_layers_II, ddpm_channels_conv=args.training.diffusion.dec_channel_nums)
-           
+                self.combine_conv = InputConvNetwork(args, 
+                                                    inp_num_channel=self.dim_intermediate_enc+2*self.num_vars, 
+                                                    out_num_channel=self.num_vars, 
+                                                    num_layers=args.training.diffusion.ddpm_layers_II, 
+                                                    ddpm_channels_conv=args.training.diffusion.dec_channel_nums)
+        
+        if self.args.data.individual:
+            self.cond_projections = nn.ModuleList(cond_projections_layers)
+            
         args.modes1 = 10
         args.compression = 0
         args.ratio = 1
@@ -368,7 +395,7 @@ class My_DiffusionUnet_v0(nn.Module):
         ##################this is a good place to minimize the memory usage (below)
         diffusion_emb = self.diffusion_embedding(timesteps.long())
         diffusion_emb = self.act(diffusion_emb)
-        diffusion_emb = diffusion_emb.unsqueeze(-1).repeat(1,1,np.shape(xt)[-1])
+        diffusion_emb = diffusion_emb.unsqueeze(-1).repeat(1, 1, xt.size(-1))
         
         if self.use_features_proj:
             xt = self.feature_projection(xt.permute(0,2,1)).permute(0,2,1)
@@ -396,8 +423,8 @@ class My_DiffusionUnet_v0(nn.Module):
             
             y_clean = future_gt[:,:,-self.pred_len:]
             if self.args.training.ablation_study.beta_dist_alpha > 0:
-                rand_for_mask = np.random.beta(self.args.training.ablation_study.beta_dist_alpha, self.args.training.ablation_study.beta_dist_alpha, size=np.shape(y_clean))
-                rand_for_mask = torch.tensor(rand_for_mask, dtype=torch.long).to(xt.device)
+                beta_dist = torch.distributions.Beta(self.args.training.ablation_study.beta_dist_alpha, self.args.training.ablation_study.beta_dist_alpha)
+                rand_for_mask = beta_dist.sample(y_clean.shape).to(xt.device).long()
             else:
                 rand_for_mask = torch.rand_like(y_clean).to(xt.device)
                 if self.args.training.ablation_study.ablation_study_masking_type == "hard":
@@ -411,7 +438,7 @@ class My_DiffusionUnet_v0(nn.Module):
                     tau = self.args.training.ablation_study.ablation_study_masking_tau
                     segment_mask = torch.from_numpy(noise_mask(pred_out[:,0,:], masking_ratio=tau, lm=24)).to(yn.device)
                     # print("masking_ratio", tau, torch.sum(segment_mask))
-                    segment_mask = segment_mask.unsqueeze(1).repeat(1, np.shape(pred_out)[1], 1)
+                    segment_mask = segment_mask.unsqueeze(1).repeat(1, pred_out.shape[1], 1)
                     rand_for_mask = segment_mask.float()
 
             

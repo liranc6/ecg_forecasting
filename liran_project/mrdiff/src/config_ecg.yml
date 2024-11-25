@@ -3,7 +3,7 @@ project_path: '/home/liranc6/ecg_forecasting'
 tqdm: "terminal" # ["terminal", "notebook"]
 print_tqdm: False
 
-debug: False  # debug mode
+debug: True  # debug mode
   # debug_config_path: "/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/debug_config_ecg.yml"
 
 pytorch_lightning:
@@ -18,7 +18,7 @@ emd:
   tol: 1e-6
 
 resume_exp:
-  resume: True  # resume training
+  resume: False  # resume training
   resume_from: 9  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
   resume_optimizer: True
   resume_epoch: 9
@@ -33,9 +33,9 @@ wandb:
   entity: 'liranc6'  # wandb entity
   mode: 'online'  # [online, disabled, offline]
   project: 'mrdiff'  # wandb project name
-  resume: 'must'  # ["allow", "must", "never", "auto", "None"]
+  resume: 'None'  # ["allow", "must", "never", "auto", "None"]
   run_name: "None" # wandb run name
-  id: 'x1r8g0kz'  # wandb run id
+  id: 'None'  # wandb run id
   save_code: False  # save code to wandb
   resume_from: "None"  # format: {run_id}?_step={step} for example: "o8p8z00y?_step=1000", when you resume a run from a specific step, it will start from that step, meaning it will redo the specified step.
 
@@ -49,9 +49,9 @@ general:
   interval: 1000  # number of diffusion steps?
 
 optimization:
-  learning_rate: 0.0001  # optimizer learning rate
-  batch_size: 10  # batch size of train input data
-  test_batch_size: 64  # batch size of test input data
+  learning_rate: 0.001  # optimizer learning rate
+  batch_size: 24  # batch size of train input data
+  test_batch_size: 32  # batch size of test input data
   patience: 35  # early stopping patience
   weight_decay: 0.00001  # weight_decay
   lradj: '3'  # adjust learning rate (Learning Rate ADJustment)  # ['TST', 'type1', 'type2', 'type3', 'constant', '1', '2', '3', '4', '5']
@@ -65,7 +65,7 @@ hardware:
   gpu: 0  # gpu
   use_multi_gpu: True  # use multiple gpus
   device_ids: '0,1'  # device ids of multiple gpus
-  memory_snapshot: False
+  memory_snapshot: True
 
 paths:
   train_data: '/home/liranc6/data/with_R_beats/icentia11k-continuous-ecg_normal_sinus_subset_npArrays_splits/15_minutes/train/p0_to_p399.h5'  # location of training data
@@ -99,7 +99,7 @@ training:
 
   logging:
     sample: false
-    log_interval: 5  # logging interval
+    log_interval: 2  # logging interval
     save_interval: 1  # save interval
     save_best: true  # save best model
     save_dir: '/home/liranc6/ecg_forecasting/liran_project/results/icentia11k/mrDiff'  # save directory
@@ -107,7 +107,7 @@ training:
 
   patients:
     start_patient: 0
-    end_patient: 11
+    end_patient: 280
 
   iterations:
     itr: 1  # experiments times
@@ -122,9 +122,9 @@ training:
   sequence:
     # len = minutes * seconds * fs
     context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
-    seq_len: 43750 # input_length; window size
-    label_len: 55000  # I think its context len # in minutes # start token length of Informer decoder
-    pred_len: 3750  # I think its label/forecast len # prediction sequence length, horizon
+    seq_len: 87000 # input_length; window size
+    label_len: 80000  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 7000  # I think its label/forecast len # prediction sequence length, horizon
 
   model_info:
     add_loss: ['dtw'] # ['dtw', 'ctc']
@@ -187,13 +187,13 @@ training:
 validation:
   patients:
     start_patient: 0
-    end_patient: 7
+    end_patient: 28
   data:
-    step: 5  # subsample rate
+    step: 4  # subsample rate
 
 testing:
   patients:
     start_patient: 0
     end_patient: 7
   data:
-    step: 5  # subsample rate
+    step: 4  # subsample rate

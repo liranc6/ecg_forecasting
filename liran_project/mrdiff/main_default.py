@@ -43,26 +43,27 @@ class DelayedModelCheckpoint(ModelCheckpoint):
         self.start_epoch = start_epoch
 
     def on_validation_end(self, trainer, pl_module):
-        if trainer.current_epoch >= self.start_epoch:
+        # Check if the monitored metric exists
+        if self.monitor not in trainer.callback_metrics:
+            if self.verbose:
+                print(f"Metric '{self.monitor}' not found. Skipping checkpointing.")
+            return
+
+        if trainer.current_epoch >= self.start_epoch or trainer.current_epoch==0:
             super().on_validation_end(trainer, pl_module)
         else:
             if self.verbose:
                 print(f"Skipping checkpointing for epoch {trainer.current_epoch} (start_epoch={self.start_epoch})")
     
-    def save_checkpoint(self, trainer, pl_module):
-        checkpoint = super().save_checkpoint(trainer, pl_module)
-        wandb_id = trainer.wandb_logger.experiment.id
-        checkpoint['wandb_id'] = wandb_id
-        return checkpoint
-                        
-def multi_checkpoints(dirpath, monitor: list = 'vali_loss', start_epoch=10,):
+                          
+def multi_checkpoints(dirpath, monitors: list = 'vali_loss', start_epoch=10, log_interval=10):
     
     checkpoints = [
         DelayedModelCheckpoint(
             start_epoch=start_epoch,
             
             dirpath=dirpath,
-            filename="chpt",
+            filename="{epoch}_"+m,
             auto_insert_metric_name=True,
             
             save_top_k=1,
@@ -75,8 +76,19 @@ def multi_checkpoints(dirpath, monitor: list = 'vali_loss', start_epoch=10,):
             save_on_train_epoch_end=False,
             every_n_epochs=1,
         )
-        for m in monitor
-    ]   
+        for m in monitors
+    ]
+    
+    checkpoints.append(
+        ModelCheckpoint(
+            dirpath=dirpath,
+            filename="{epoch}-checkpoint",  # Include placeholder for epoch
+            save_top_k=1,  # Keep only the last checkpoint
+            every_n_epochs=log_interval,  # Save every 5 epochs
+            save_last=True,  # Save the most recent checkpoint
+            save_weights_only=True,
+        )
+    )
     
     return checkpoints
 
@@ -238,8 +250,9 @@ def main():
                 logger=wandb_logger,
                 callbacks=[
                     *multi_checkpoints(dirpath=args.paths.checkpoints,
-                                      monitor=['vali_loss', 'vali_extra_r_beats_mean', 'vali_dtw_distance_mean'],
+                                      monitors=['vali_loss', 'vali_extra_r_beats_mean', 'vali_dtw_distance_mean'],
                                       start_epoch=10,
+                                      log_interval=1, #args.training.logging.log_interval,
                                       ),
                     SecPerIterProgressBar(),
                     ModelSummary(max_depth=3)
@@ -247,6 +260,8 @@ def main():
                 strategy= strategy,
                 use_distributed_sampler = use_distributed_sampler,
                 enable_progress_bar=True,
+                limit_train_batches= 3 if args.debug else None,
+                limit_val_batches= 3 if args.debug else None,
                 # plugins=cluster_environment,
                 # fast_dev_run=True,
             )

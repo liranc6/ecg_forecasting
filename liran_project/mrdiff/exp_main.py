@@ -842,6 +842,7 @@ from datetime import timedelta
 import time
 import threading
 import warnings
+from pytorch_lightning.loggers import WandbLogger
 
 CONFIG_FILENAME = '/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/config_ecg.yml'
 
@@ -909,7 +910,10 @@ class ExpMainLightning(pl.LightningModule):
     
     @classmethod
     def load_model(cls, checkpoint_path, args):
-        return cls.load_from_checkpoint(checkpoint_path=checkpoint_path, args=args, map_location="cpu")
+        model = cls.load_from_checkpoint(checkpoint_path=checkpoint_path, args=args)
+        # model.to(args.device)  # Move the model to the specified device
+            
+        return model
     
     def compare_state_dicts(self, model, checkpoint_path):
         """
@@ -971,10 +975,8 @@ class ExpMainLightning(pl.LightningModule):
             
             # Ensure all model parameters require gradients
         # else:
-        model = model_dict[self.args.training.model_info.model].Model(self.args).float()
-         
-        for param in model.parameters():
-                param.requires_grad = True   
+        model = model_dict[self.args.training.model_info.model].Model(self.args, self.device).float()
+            
         self.model = model
         return model
         
@@ -1000,12 +1002,13 @@ class ExpMainLightning(pl.LightningModule):
         print(tabulate(table, headers=headers, tablefmt="pipe"))
             
     def on_fit_start(self):
-        self.model.device = self.device
+        # self.model.device = self.device
+        self.model.to(self.device)
         self.val_normalization_method = self.val_dataloader().dataset.normalize_method
         self.val_norm_statistics = {k: v.to(self.device) for k, v in self.val_dataloader().dataset.norm_statistics.items()}
         
-        self.print_layer_devices(max_depth=4)  # Print the device of each layer
-    
+        self.print_layer_devices(max_depth=3)  # Print the device of each layer
+        
     def configure_optimizers(self):
         optimizer = Adam(self.model.parameters(), lr=self.args.optimization.learning_rate, weight_decay=self.args.optimization.weight_decay)
         scheduler = lr_scheduler.OneCycleLR(optimizer,
@@ -1020,8 +1023,6 @@ class ExpMainLightning(pl.LightningModule):
         self.args.device = self.device
         self.model.to(self.device)
         self.model.train()
-        are_equal = self.compare_state_dicts(self.model, self.args.paths.model_path)
-        i = 3
         
     def training_step(self, batch, batch_idx):
         batch_x, batch_y, _, _ = batch
@@ -1090,11 +1091,11 @@ class ExpMainLightning(pl.LightningModule):
         # self.val_metrics = Metrics("val")
         self.compare_ecgs.clear()
     
-    def on_save_checkpoint():
-        if self.epoch < 10:
-            return False
-        return True
-        
+    def on_save_checkpoint(self, checkpoint):
+        # Add wandb_id to the checkpoint
+        if self.logger and isinstance(self.logger, WandbLogger):
+            checkpoint['wandb_id'] = self.logger.experiment.id
+             
     def test_step(self, batch, batch_idx):
         batch_x, batch_y, _, _ = batch
         batch_x_without_RR = batch_x[:, 0, :].unsqueeze(-1)

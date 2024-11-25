@@ -10,27 +10,32 @@ wandb:
   id: 'None'  # wandb run id
 
 optimization:
-  batch_size: 16  # batch size of train input data
-  test_batch_size: 32  # batch size of test input data
+  batch_size: 20  # batch size of train input data
+  test_batch_size: 3  # batch size of test input data
 
 resume_exp:
   resume: False
   
-data:
-  norm_method: 'None'  # ['None', 'z_score', 'min_max']
+# data:
+#   norm_method: 'None'  # ['None', 'z_score', 'min_max']
 
 hardware:   
   print_gpu_memory_usage: False
 
+paths:
+  output_dir: "/home/liranc6/ecg_forecasting/liran_project/results/debug"
+
 training:
 
-  # sequence:
-  #   seq_len: 112500 # input_length; window size
-  #   label_len: 109500  # I think its context len # in minutes # start token length of Informer decoder
-  #   pred_len: 3000  # I think its label/forecast len # prediction sequence length, horizon
+  sequence:
+    seq_len: 63000 # input_length; window size
+    label_len: 60000  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 3000  # I think its label/forecast len # prediction sequence length, horizon
 
   iterations:
-    train_epochs: 300  # train epochs
+    itr: 1  # experiments times
+    pretrain_epochs: 0  # pretrain epochs
+    train_epochs: 5  # train epochs
     sample_times: 1
 
   patients:
@@ -40,12 +45,12 @@ training:
   logging:
     log_start_epoch: 0
 
-  sequence:
-    # len = minutes * seconds * fs
-    context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
-    seq_len: 80000 # input_length; window size
-    label_len: 3000  # I think its context len # in minutes # start token length of Informer decoder
-    pred_len: 3000  # I think its label/forecast len # prediction sequence length, horizon
+  # sequence:
+  #   # len = minutes * seconds * fs
+  #   context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
+  #   seq_len: 80000 # input_length; window size
+  #   label_len: 3000  # I think its context len # in minutes # start token length of Informer decoder
+  #   pred_len: 3000  # I think its label/forecast len # prediction sequence length, horizon
 
   # logging:
   #   sample: false

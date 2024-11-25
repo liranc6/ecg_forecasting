@@ -902,45 +902,43 @@ class MemorySnapshot:
     def __init__(self, debug=False, filename=None):
         self.debug = debug
         logging.basicConfig(
-                            format="%(levelname)s:%(asctime)s %(message)s",
-                            level=logging.INFO,
-                            datefmt="%Y-%m-%d %H:%M:%S",
-                            )
+            format="%(levelname)s:%(asctime)s %(message)s",
+            level=logging.INFO,
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(level=logging.INFO)
         self.time_format_str = "%b_%d_%H_%M_%S"
         self.max_num_of_mem_events_per_snapshot = 100000
         self.filename = filename
-        
+
     def __enter__(self):
         if not self.debug:
             return
-        
-        # start record memory history
-        if not torch.cuda.is_available():
-            self.logger.info("CUDA unavailable. Not recording memory history")
+
+        if torch is None or not torch.cuda.is_available():
+            self.logger.info("CUDA unavailable or torch not installed. Not recording memory history")
             return
 
         self.logger.info("Starting snapshot record_memory_history")
         torch.cuda.memory._record_memory_history(
             max_entries=self.max_num_of_mem_events_per_snapshot
         )
-        
+
     def __exit__(self, exc_type, exc_value, traceback):
         if not self.debug:
             return
-        if not torch.cuda.is_available():
-            self.logger.info("CUDA unavailable. Not recording memory history")
+        if torch is None or not torch.cuda.is_available():
+            self.logger.info("CUDA unavailable or torch not installed. Not recording memory history")
             return
 
         self._export_memory_snapshot()
-        
-    def _export_memory_snapshot(self,) -> None:
-        if not torch.cuda.is_available():
-            self.logger.info("CUDA unavailable. Not exporting memory snapshot")
+
+    def _export_memory_snapshot(self) -> None:
+        if torch is None or not torch.cuda.is_available():
+            self.logger.info("CUDA unavailable or torch not installed. Not exporting memory snapshot")
             return
 
-        # Prefix for file names.
         host_name = socket.gethostname()
         timestamp = datetime.now().strftime(self.time_format_str)
         file_prefix = f"{host_name}_{timestamp}"
@@ -949,9 +947,8 @@ class MemorySnapshot:
             self.logger.info(f"Saving snapshot to local file: {file_prefix}.pickle")
             torch.cuda.memory._dump_snapshot(f"{file_prefix}.pickle")
         except Exception as e:
-            self.logger.error(f"Failed to capture memory snapshot {e}")
-            return
-        
+            self.logger.error(f"Failed to capture memory snapshot: {e}")
+                   
 def plot_signals(x=None, y=None):
     """
     Plots the original signal and the reconstructed signal on the same graph.
@@ -1006,160 +1003,6 @@ def update_nested_dict(old, new):
                 raise ValueError(f"Cannot merge {type(old[key])} with {type(value)}")
         old[key] = value
     return old
-class ECG_Diffs:
-    def __init__(self, sampling_rate):
-        self.dataframe = pd.DataFrame(columns=["mse",
-                                        "rmse",
-                                        "mae", 
-                                        "dtw_distance", 
-                                        "modified_chamfer_distance", 
-                                        "extra_r_beats",
-                                        "extra_r_beats_negligible_length",
-                                        "mae_pruned_r_beats_localization"])
-        self.fs = sampling_rate
-
-    def __call__(self, y_batch, y_pred_batch):
-        return self.calculate_diffs(y_batch, y_pred_batch)
-    
-    def calculate_diffs(self, y_batch, y_pred_batch):
-        #expect y_batch to be of shape (batch_size, 2, sequence_length)
-        #expect y_pred_batch to be of shape (batch_size, 1, sequence_length)
-        if y_batch.shape[1] == 1:
-            ecg_signals_batch = y_batch
-        else:
-            ecg_signals_batch = y_batch[:, 0, :]
-            ecg_R_beats_batch = y_batch[:, 1, :]
-            
-        y_pred_batch = y_pred_batch.squeeze()
-        ecg_signals_batch = ecg_signals_batch.squeeze()
-        
-        
-        assert ecg_signals_batch.shape == y_pred_batch.shape, f"{ecg_signals_batch.shape=}, {y_pred_batch.shape=}"
-        
-        mae_per_sample = F.l1_loss(ecg_signals_batch.float(), y_pred_batch.float(), reduction='none').mean(dim=1)
-        mse_per_sample = F.mse_loss(ecg_signals_batch.float(), y_pred_batch.float(), reduction='none').mean(dim=1)
-        rmse_per_sample = torch.sqrt(mse_per_sample)
-        
-        ecg_signals_batch_numpy = ecg_signals_batch.cpu().numpy()
-        ecg_pred_batch_numpy = y_pred_batch.cpu().numpy()
-        dtw_per_sample = [fastdtw(y, y_pred)[0] for y, y_pred in zip(ecg_signals_batch_numpy, ecg_pred_batch_numpy)]
-                
-        rows = []
-        
-        try:
-            # Assuming ecg_batch_pred is a torch tensor with shape (batch_size, channels, sequence_length)
-            # and sampling_rate is defined elsewhere.
-
-            # Initialize new_ecg_batch_pred tensor
-            # new_ecg_pred_batch = torch.zeros(ecg_pred_batch.shape[0], 2, ecg_pred_batch.shape[2])
-            
-            if y_batch.shape[1] == 1:
-                ecg_R_beats_batch_indices = []
-                for y in y_batch:
-                    y = y.squeeze()
-                    info = nk.ecg_process(y, sampling_rate=self.fs)[1]
-                    ecg_R_beats_batch_indices.append(info['ECG_R_Peaks'])
-            else:
-                ecg_R_beats_batch_indices = [torch.nonzero(row == 1).squeeze(1) for row in ecg_R_beats_batch]
-
-            ecg_pred_R_beats_batch_indices = []
-            ecg_len = ecg_signals_batch.shape[1]
-            min_distance, smooth_to_each_side = 50, 50
-            
-            
-            # Iterate over each prediction in the batch and extract R peaks
-            for i, y_pred_numpy in enumerate(ecg_pred_batch_numpy):
-                y_pred_numpy = y_pred_numpy.squeeze()
-                # new_ecg_pred_batch[i][0] = torch.from_numpy(ecg_pred)  # Store the ECG prediction in the tensor
-
-                info = nk.ecg_process(y_pred_numpy, sampling_rate=self.fs)[1]
-                ecg_pred_R_beats_indices = info['ECG_R_Peaks']
-                ecg_pred_R_beats_batch_indices.append(ecg_pred_R_beats_indices)
-                y, y_pred = ecg_R_beats_batch_indices[i], ecg_pred_R_beats_indices
-                modified_chamfer_distance_per_element = modified_chamfer_distance(y, y_pred)
-                
-                if y_pred.shape != y.shape:
-                    extra_r_beats = abs(y.shape[0] - y_pred.shape[0])
-                    extra_r_beats_negligible_length = 2 * extra_r_beats/(y.shape[0]+y_pred.shape[0])
-                    
-                    if y.shape[0] > y_pred.shape[0]:
-                        y, y_pred = prune_to_same_length(y, y_pred, min_distance=min_distance)
-                    elif y_pred.shape[0] > y.shape[0]:
-                        y_pred, y = prune_to_same_length(y_pred, y, min_distance=min_distance)
-
-                    if y.shape[0] > y_pred.shape[0]:
-                        y = align_indices(y, y_pred, ecg_len, smooth_to_each_side=smooth_to_each_side)
-                    elif y_pred.shape[0] > y.shape[0]:
-                        y_pred = align_indices(y_pred, y, ecg_len, smooth_to_each_side=smooth_to_each_side)
-                        
-                    assert y.shape == y_pred.shape, f"{y.shape=}, {y_pred.shape=}"
-                    mae_distance = mae_distance_batch(y, y_pred)
-                    
-                    #append to dataframe
-                    rows.append({
-                        "mae": mae_per_sample[i],
-                        "mse": mse_per_sample[i],
-                        "rmse": rmse_per_sample[i],
-                        "dtw_distance": dtw_per_sample[i],
-                        
-                        "modified_chamfer_distance": modified_chamfer_distance_per_element,
-                        "extra_r_beats": extra_r_beats,
-                        "extra_r_beats_negligible_length": extra_r_beats_negligible_length,
-                        "mae_pruned_r_beats_localization": mae_distance
-                    }, ignore_index=True)
-                    
-        except Exception as e:
-            # print(f"Error: {e}")
-            
-            for i in range(len(ecg_signals_batch)):
-                rows.append({
-                    "mae": mae_per_sample[i],
-                    "mse": mse_per_sample[i],
-                    "rmse": rmse_per_sample[i],
-                    "dtw_distance": dtw_per_sample[i],
-                    
-                    "modified_chamfer_distance": float('nan'),
-                    "extra_r_beats": float('nan'),
-                    "extra_r_beats_negligible_length": float('nan'),
-                    "mae_pruned_r_beats_localization": float('nan'),
-                })
-
-        
-        new_rows_df = pd.DataFrame(rows)
-        
-        self.dataframe = pd.concat([self.dataframe, new_rows_df], ignore_index=True)
-
-        return new_rows_df
-    
-    def get_final(self, df=None):
-        ret_dict = {}
-        if df is None:
-            df = self.dataframe
-            
-        ret_dict.update(df.describe().to_dict())
-        
-        sub_df = df[df['extra_r_beats'] < 2]
-        
-        if not sub_df.empty:
-            sub_dict = sub_df.describe().to_dict()
-            for key, val in sub_dict.items():
-                ret_dict[f'extra_r_beats<2_{key}'] = val
-        
-        # if sub_df is not empty, a
-        return ret_dict
-        
-            
-    def clear(self):
-        self.dataframe = pd.DataFrame(columns=["mse",
-                                        "rmse",
-                                        "mae", 
-                                        "dtw_distance",
-                                        
-                                        "modified_chamfer_distance", 
-                                        "extra_r_beats",
-                                        "extra_r_beats_negligible_length",
-                                        "mae_pruned_r_beats_localization"])
-        
         
 
 class ECG_Diffs:
@@ -1217,7 +1060,10 @@ class ECG_Diffs:
             min_distance, smooth_to_each_side = 50, 50
             
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                futures = [executor.submit(self._process_ecg_on_threads, i, y_pred_numpy, ecg_R_beats_batch_indices, ecg_pred_R_beats_batch_indices, ecg_len, min_distance, smooth_to_each_side, rows, mae_per_sample, mse_per_sample, rmse_per_sample, dtw_per_sample) for i, y_pred_numpy in enumerate(ecg_pred_batch_numpy)]
+                futures = [executor.submit(self._process_ecg_on_threads, i, y_pred_numpy, ecg_R_beats_batch_indices, 
+                                           ecg_pred_R_beats_batch_indices, ecg_len, min_distance, smooth_to_each_side,
+                                           rows, mae_per_sample, mse_per_sample, rmse_per_sample, dtw_per_sample)
+                           for i, y_pred_numpy in enumerate(ecg_pred_batch_numpy)]
                 for future in concurrent.futures.as_completed(futures):
                     future.result()
                    
@@ -1243,15 +1089,18 @@ class ECG_Diffs:
         ret_dict = {}
         if df is None:
             df = self.dataframe
-            
+        
+        # Convert all columns to numeric
+        df = df.apply(pd.to_numeric, errors='coerce')
+    
         ret_dict.update(df.describe().to_dict())
         
         sub_df = df[df['extra_r_beats'] < 2]
         
         if not sub_df.empty:
+            sub_df = sub_df.add_prefix('extra_r_beats<2_')
             sub_dict = sub_df.describe().to_dict()
-            for key, val in sub_dict.items():
-                ret_dict[f'extra_r_beats<2_{key}'] = val
+            ret_dict.update(sub_dict)
         
         return ret_dict
         
@@ -1303,7 +1152,7 @@ class ECG_Diffs:
                 "modified_chamfer_distance": modified_chamfer_distance_per_element,
                 "extra_r_beats": extra_r_beats,
                 "extra_r_beats_negligible_length": extra_r_beats_negligible_length,
-                "mae_pruned_r_beats_localization": mae_distance
+                "mae_pruned_r_beats_localization": mae_distance,
             })
             
             

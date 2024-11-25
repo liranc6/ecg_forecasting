@@ -57,20 +57,20 @@ def cosine_beta_schedule(timesteps, s=0.008):
     as proposed in https://openreview.net/forum?id=-NEXDKk8gZ
     """
     steps = timesteps + 1
-    x = np.linspace(0, timesteps, steps)
-    alphas_cumprod = np.cos(((x / timesteps) + s) / (1 + s) * np.pi * 0.5) ** 2
+    x = torch.linspace(0, timesteps, steps)
+    alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
     alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
     betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
-    return np.clip(betas, 0, 0.999)
+    return torch.clamp(betas, 0, 0.999)
 
 
 class Diffusion_Worker(nn.Module):
     
-    def __init__(self, args, u_net=None):
+    def __init__(self, args, device, u_net=None):
         super(Diffusion_Worker, self).__init__()
 
         self.args = args
-        self.device = args.device
+        self.device = device
         
         self.parameterization = args.training.sampler.parameterization
         assert self.parameterization in ["noise", "x_start"], 'currently only supporting "eps" and "x0"'
@@ -121,24 +121,24 @@ class Diffusion_Worker(nn.Module):
             betas = given_betas
         else:
             if beta_schedule == "linear":
-                betas = np.linspace(beta_start, beta_end, diff_steps)
+                betas = torch.linspace(beta_start, beta_end, diff_steps)
             elif beta_schedule == "quad":
-                betas = np.linspace(beta_start ** 0.5, beta_end ** 0.5, diff_steps) ** 2
+                betas = torch.linspace(beta_start ** 0.5, beta_end ** 0.5, diff_steps) ** 2
             elif beta_schedule == "const":
-                betas = beta_end * np.ones(diff_steps)
+                betas = beta_end * torch.ones(diff_steps)
             elif beta_schedule == "jsd":  # 1/T, 1/(T-1), 1/(T-2), ..., 1
-                betas = 1.0 / np.linspace(diff_steps, 1, diff_steps)
+                betas = 1.0 / torch.linspace(diff_steps, 1, diff_steps)
             elif beta_schedule == "sigmoid":
-                betas = np.linspace(-6, 6, diff_steps)
-                betas = (beta_end - beta_start) / (np.exp(-betas) + 1) + beta_start
+                betas = torch.linspace(-6, 6, diff_steps)
+                betas = (beta_end - beta_start) / (torch.exp(-betas) + 1) + beta_start
             elif beta_schedule == "cosine":
                 betas = cosine_beta_schedule(diff_steps)
             else:
                 raise NotImplementedError(beta_schedule)
 
         alphas = 1. - betas
-        alphas_cumprod = np.cumprod(alphas, axis=0)
-        alphas_cumprod_prev = np.append(1., alphas_cumprod[:-1])
+        alphas_cumprod = torch.cumprod(alphas, dim=0)
+        alphas_cumprod_prev = torch.cat([torch.tensor([1.], device=alphas.device), alphas_cumprod[:-1]])
 
         timesteps, = betas.shape
         self.num_timesteps = int(timesteps)
@@ -151,11 +151,11 @@ class Diffusion_Worker(nn.Module):
         self.register_buffer('alphas_cumprod', to_torch(alphas_cumprod))
         self.register_buffer('alphas_cumprod_prev', to_torch(alphas_cumprod_prev))
 
-        self.register_buffer('sqrt_alphas_cumprod', to_torch(np.sqrt(alphas_cumprod)))
-        self.register_buffer('sqrt_one_minus_alphas_cumprod', to_torch(np.sqrt(1. - alphas_cumprod)))
-        self.register_buffer('log_one_minus_alphas_cumprod', to_torch(np.log(1. - alphas_cumprod)))
-        self.register_buffer('sqrt_recip_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod)))
-        self.register_buffer('sqrt_recipm1_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod - 1)))
+        self.register_buffer('sqrt_alphas_cumprod', to_torch(torch.sqrt(alphas_cumprod)))
+        self.register_buffer('sqrt_one_minus_alphas_cumprod', to_torch(torch.sqrt(1. - alphas_cumprod)))
+        self.register_buffer('log_one_minus_alphas_cumprod', to_torch(torch.log(1. - alphas_cumprod)))
+        self.register_buffer('sqrt_recip_alphas_cumprod', to_torch(torch.sqrt(1. / alphas_cumprod)))
+        self.register_buffer('sqrt_recipm1_alphas_cumprod', to_torch(torch.sqrt(1. / alphas_cumprod - 1)))
 
         # calculations for posterior q(x_{t-1} | x_t, x_0)
         posterior_variance = (1 - self.v_posterior) * betas * (1. - alphas_cumprod_prev) / (
@@ -163,14 +163,14 @@ class Diffusion_Worker(nn.Module):
         # above: equal to 1. / (1. / (1. - alpha_cumprod_tm1) + alpha_t / beta_t)
         self.register_buffer('posterior_variance', to_torch(posterior_variance))
         # below: log calculation clipped because the posterior variance is 0 at the beginning of the diffusion chain
-        self.register_buffer('posterior_log_variance_clipped', to_torch(np.log(np.maximum(posterior_variance, 1e-20))))
-        self.register_buffer('posterior_mean_coef1', to_torch(betas * np.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod)))
-        self.register_buffer('posterior_mean_coef2', to_torch((1. - alphas_cumprod_prev) * np.sqrt(alphas) / (1. - alphas_cumprod)))
+        self.register_buffer('posterior_log_variance_clipped', to_torch(torch.maximum(posterior_variance, torch.tensor(1e-20))))
+        self.register_buffer('posterior_mean_coef1', to_torch(betas * torch.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod)))
+        self.register_buffer('posterior_mean_coef2', to_torch((1. - alphas_cumprod_prev) * torch.sqrt(alphas) / (1. - alphas_cumprod)))
 
         if self.parameterization == "noise":
             lvlb_weights = self.betas ** 2 / (2 * self.posterior_variance * to_torch(alphas) * (1 - self.alphas_cumprod))
         elif self.parameterization == "x_start":
-            lvlb_weights = 0.8 * np.sqrt(torch.Tensor(alphas_cumprod)) / (2. * 1 - torch.Tensor(alphas_cumprod))
+            lvlb_weights = 0.8 * torch.sqrt(torch.Tensor(alphas_cumprod)) / (2. * 1 - torch.Tensor(alphas_cumprod))
         else:
             raise NotImplementedError("mu not supported")
 
@@ -207,8 +207,8 @@ class Diffusion_Worker(nn.Module):
         # Feed normalized inputs ith shape of [bsz, feas, seqlen]
         # both x and cond are two time seires 
 
-        B = np.shape(x)[0]
-        t = torch.randint(0, self.num_timesteps, size=[(B+1)//2,]).long().to(self.device)
+        B = x.shape[0]
+        t = torch.randint(0, self.num_timesteps, size=[(B+1)//2,]).long()
         t = torch.cat([t, self.num_timesteps-1-t], dim=0)
         t = t[:B]
 
@@ -249,7 +249,7 @@ class Diffusion_Worker(nn.Module):
 
         else:
             mse_loss = self.get_loss(model_out[:,:,:], target[:,:,:], mean=False).mean(dim=-1).mean(dim=0)
-            print(">>>", np.shape(mse_loss))
+            print(">>>", mse_loss.shape)
 
             if self.args.training.model_info.opt_loss_type == "mse":
                 mse_loss = F.mse_loss(model_out[:,:,:], target[:,:,:])
@@ -321,14 +321,14 @@ class Diffusion_Worker(nn.Module):
         # evaluations will be invoked, first from 999 to 500, then from 500 to 0.
         
         x = x1
-        b, d, l = np.shape(x1)
-        shape = (b, d, np.shape(x)[-1])
-        timeseries = torch.randn(shape, device=self.device)
+        b, d, l = x1.shape
+        shape = (b, d, x.shape[-1])
+        timeseries = torch.randn(shape)
         intermediates = [timeseries.permute(0,2,1)] # return bsz, seqlen, fea_dim
 
         for i in reversed(range(0, self.num_timesteps)):
 
-            timeseries = self.p_sample(timeseries, torch.full((b,), i, device=self.device, dtype=torch.long), 
+            timeseries = self.p_sample(timeseries, torch.full((b,), i, dtype=torch.long), 
                 cond=cond, ar_init=ar_init, clip_denoised=self.clip_denoised)
             if store_intermediate_states:
                 intermediates.append(timeseries.permute(0,2,1))
@@ -371,6 +371,7 @@ class CombinedLoss(nn.Module):
     def forward(self, y_pred, y_true, mse):
         # mse = self.mse_loss(y_pred, y_true)
         losses = []
+        normed_dtw = 0
         if 'dtw' in self.losses_dict.keys():
             dtw = self.losses_dict['dtw'](y_pred, y_true)
             normed_dtw = self._magnitude_normalizaqtion(dtw)
