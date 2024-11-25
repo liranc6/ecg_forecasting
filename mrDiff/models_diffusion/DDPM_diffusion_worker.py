@@ -66,7 +66,7 @@ def cosine_beta_schedule(timesteps, s=0.008):
 
 class Diffusion_Worker(nn.Module):
     
-    def __init__(self, args, device, u_net=None):
+    def __init__(self, args, device, u_nets=None):
         super(Diffusion_Worker, self).__init__()
 
         self.args = args
@@ -328,8 +328,13 @@ class Diffusion_Worker(nn.Module):
 
         for i in reversed(range(0, self.num_timesteps)):
 
-            timeseries = self.p_sample(timeseries, torch.full((b,), i, dtype=torch.long), 
-                cond=cond, ar_init=ar_init, clip_denoised=self.clip_denoised)
+            timeseries = self.p_sample(
+                                        x=timeseries, 
+                                        t=torch.full((b,), i, dtype=torch.long), 
+                                        cond=cond, 
+                                        ar_init=ar_init, 
+                                        clip_denoised=self.clip_denoised
+                                    )
             if store_intermediate_states:
                 intermediates.append(timeseries.permute(0,2,1))
 

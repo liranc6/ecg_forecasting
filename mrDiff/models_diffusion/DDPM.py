@@ -563,7 +563,7 @@ class Model(nn.Module):
             list: List of loss values for each bridge.
         """
         total_loss = []
-        for i in range(self.num_bridges):  # from finest to coarsest (from label to noise)
+        for i in range(self.num_bridges - 1, -1, -1):  # from coarsest to finest
             
             # X0 clean
             # X1: occupied [bsz, fea, seq_len]    

@@ -142,7 +142,7 @@ training:
 
   smoothing:
     reverse_order: False  # reverse order of the smoothed factors
-    smoothed_factors: [1] #[11, 19, 27, 35]  # mast be odd (non-even) numbers. List of smoothed factors, [5, 25, 51] are the kernel sizes for the smoothing
+    smoothed_factors: [] #[11, 19, 27, 35]  # mast be odd (non-even) numbers. List of smoothed factors, [5, 25, 51] are the kernel sizes for the smoothing
 
   ode:
     ot_ode: true  # use OT-ODE model
@@ -159,20 +159,21 @@ training:
     ablation_study_masking_tau: 0.9
     
   diffusion:
-    beta_start: 0.0001
-    beta_end: 0.02
-    diff_steps: 100  # number of diffusion steps
-    ddpm_inp_embed: 64  # ddpm_num_channels
-    ddpm_layers_inp: 10
-    ddpm_dim_diff_steps: 256
-    ddpm_channels_conv: 128
-    ddpm_channels_fusion_I: 256
-    ddpm_layers_I: 5
-    ddpm_layers_II: 10
-    kernel_size: 25
-    dec_channel_nums: 256
-    cond_ddpm_num_layers: 5
-    cond_ddpm_channels_conv: 256
+    beta_start: 0.0001  # Initial value of the beta parameter in the diffusion process, controlling the noise level at the start.
+    beta_end: 0.02  # Final value of the beta parameter in the diffusion process, controlling the noise level at the end.
+    diff_steps: 100  # Number of diffusion steps, determining how many steps the diffusion process will take.
+    ddpm_inp_embed: 64  # Embedding dimension for the input in the DDPM (Denoising Diffusion Probabilistic Model), also referred to as ddpm_num_channels.
+    ddpm_layers_inp: 10  # Number of layers in the input embedding part of the DDPM.
+    ddpm_dim_diff_steps: 256  # Dimensionality of the diffusion steps in the DDPM.
+    ddpm_channels_conv: 128  # Number of convolutional channels used in the DDPM.
+    ddpm_channels_fusion_I: 256  # Number of channels in the first fusion layer of the DDPM.
+    ddpm_layers_I: 5  # Number of layers in the first part of the DDPM.
+    ddpm_layers_II: 10  # Number of layers in the second part of the DDPM.
+    kernel_size: 25  # Size of the convolutional kernels used in the DDPM.
+    stride: 1  # Stride of the convolutional kernels used in the DDPM.
+    dec_channel_nums: 256  # Number of channels in the decoder part of the DDPM.
+    cond_ddpm_num_layers: 5  # Number of layers in the conditional DDPM.
+    cond_ddpm_channels_conv: 256  # Number of convolutional channels in the conditional DDPM.
 
   sampler:
     type_sampler: 'dpm'  # ["none", "dpm"]

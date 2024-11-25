@@ -141,7 +141,9 @@ class InputConvNetwork(nn.Module):
         self.inp_num_channel = inp_num_channel
         self.out_num_channel = out_num_channel
 
-        kernel_size = 3
+        kernel_size = args.training.diffusion.kernel_size
+        stride = args.training.diffusion.stride
+        
         padding = 1
         if ddpm_channels_conv is None:
             self.channels = args.training.diffusion.ddpm_channels_conv
@@ -273,7 +275,7 @@ class My_DiffusionUnet_v0(nn.Module):
         >>> output = model(xt, timesteps, cond)
     """
     
-    def __init__(self, args, num_vars, seq_len, pred_len, net_id=0):
+    def __init__(self, args, num_vars, seq_len, pred_len, net_id=0, use_residual=None):
         super(My_DiffusionUnet_v0, self).__init__()
 
         self.args = args
@@ -304,9 +306,15 @@ class My_DiffusionUnet_v0(nn.Module):
             self.feature_projection = nn.Sequential(
                                         linear(self.num_vars, self.channels),
                                     )
-            self.input_projection = InputConvNetwork(args, self.channels, self.channels, num_layers=args.training.diffusion.ddpm_layers_inp)
+            self.input_projection = InputConvNetwork(args, 
+                                                     self.channels, 
+                                                     self.channels, 
+                                                     num_layers=args.training.diffusion.ddpm_layers_inp)
         else:
-            self.input_projection = InputConvNetwork(args, self.num_vars, self.channels, num_layers=args.training.diffusion.ddpm_layers_inp)
+            self.input_projection = InputConvNetwork(args, 
+                                                     self.num_vars, 
+                                                     self.channels, 
+                                                     num_layers=args.training.diffusion.ddpm_layers_inp)
 
         self.dim_intermediate_enc = args.training.diffusion.ddpm_channels_fusion_I
         self.enc_conv = InputConvNetwork(args, self.channels+self.dim_diff_step, self.dim_intermediate_enc, num_layers=args.training.diffusion.ddpm_layers_I)
@@ -315,7 +323,9 @@ class My_DiffusionUnet_v0(nn.Module):
             cond_projections_layers = []
             # self.cond_projections = nn.ModuleList()
 
-        if args.training.ablation_study.ablation_study_F_type == "Linear":
+        ablation_study_F_type = args.training.ablation_study.ablation_study_F_type
+        
+        if ablation_study_F_type == "Linear" or ablation_study_F_type == "CNN":
             weights = (1 / self.seq_len) * torch.ones(self.num_vars, self.pred_len, self.seq_len)
                 
             if self.args.data.individual:
@@ -325,16 +335,13 @@ class My_DiffusionUnet_v0(nn.Module):
             else:
                 self.cond_projection = nn.Linear(self.seq_len,self.pred_len)
 
-        elif args.training.ablation_study.ablation_study_F_type == "CNN":
-            if self.args.data.individual:
-                weights = (1/self.seq_len)*torch.ones(self.num_vars, self.pred_len, self.seq_len)
-                for i in range(self.num_vars):
-                    cond_projections_layers.append(nn.Linear(self.seq_len,self.pred_len))
-                    cond_projections_layers.weight = nn.Parameter(weights[i])
-            else:
-                self.cond_projection = nn.Linear(self.seq_len,self.pred_len)
-
-            self.cnn_cond_projections = InputConvNetwork(args, self.num_vars, self.pred_len, num_layers=args.training.diffusion.cond_ddpm_num_layers, ddpm_channels_conv=args.training.diffusion.cond_ddpm_channels_conv)
+        if args.training.ablation_study.ablation_study_F_type == "CNN":
+            self.cnn_cond_projections = InputConvNetwork(args, 
+                                                        inp_num_channel=self.num_vars,
+                                                        out_num_channel=self.pred_len,
+                                                        num_layers=args.training.diffusion.cond_ddpm_num_layers, 
+                                                        ddpm_channels_conv=args.training.diffusion.cond_ddpm_channels_conv)
+            
             self.cnn_linear = nn.Linear(self.seq_len, self.num_vars)
         
         if self.net_id == self.num_bridges-1:
@@ -371,6 +378,7 @@ class My_DiffusionUnet_v0(nn.Module):
         args.compression = 0
         args.ratio = 1
         args.mode_type = 0
+        self.use_residual = self.args.data.use_residual if use_residual is None else use_residual
 
     def forward(self, xt, timesteps, cond=None, ar_init=None, future_gt=None, mask=None):
         
@@ -395,7 +403,7 @@ class My_DiffusionUnet_v0(nn.Module):
         ##################this is a good place to minimize the memory usage (below)
         diffusion_emb = self.diffusion_embedding(timesteps.long())
         diffusion_emb = self.act(diffusion_emb)
-        diffusion_emb = diffusion_emb.unsqueeze(-1).repeat(1, 1, xt.size(-1))
+        diffusion_emb = diffusion_emb.unsqueeze(-1).expand(-1, -1, xt.size(-1))
         
         if self.use_features_proj:
             xt = self.feature_projection(xt.permute(0,2,1)).permute(0,2,1)
@@ -406,15 +414,15 @@ class My_DiffusionUnet_v0(nn.Module):
         ##################this is a good place to minimize the memory usage (above)
         
         if self.args.data.individual:
-            pred_out = torch.zeros([xt.size(0),self.num_vars,self.pred_len],dtype=xt.dtype).to(xt.device)
+            cond_pred = torch.zeros([xt.size(0),self.num_vars,self.pred_len],dtype=xt.dtype).to(xt.device)
             for i in range(self.num_vars):
-                pred_out[:,i,:] = self.cond_projections[i](cond[:,i,:])
+                cond_pred[:,i,:] = self.cond_projections[i](cond[:,i,:])
         else:
-            pred_out = self.cond_projection(cond)
+            cond_pred = self.cond_projection(cond)
 
         if self.args.training.ablation_study.ablation_study_F_type == "CNN":
             temp_out = self.cnn_cond_projections(cond)
-            pred_out += self.cnn_linear(temp_out).permute(0,2,1)
+            cond_pred += self.cnn_linear(temp_out).permute(0,2,1)
         
         # =====================================================================        
         # mixing matrix
@@ -436,34 +444,34 @@ class My_DiffusionUnet_v0(nn.Module):
                     rand_for_mask = data_random_hard_making
                 if self.args.training.ablation_study.ablation_study_masking_type == "segment":
                     tau = self.args.training.ablation_study.ablation_study_masking_tau
-                    segment_mask = torch.from_numpy(noise_mask(pred_out[:,0,:], masking_ratio=tau, lm=24)).to(yn.device)
+                    segment_mask = torch.from_numpy(noise_mask(cond_pred[:,0,:], masking_ratio=tau, lm=24)).to(yn.device)
                     # print("masking_ratio", tau, torch.sum(segment_mask))
-                    segment_mask = segment_mask.unsqueeze(1).repeat(1, pred_out.shape[1], 1)
+                    segment_mask = segment_mask.unsqueeze(1).repeat(1, cond_pred.shape[1], 1)
                     rand_for_mask = segment_mask.float()
 
             
-            pred_out = rand_for_mask * pred_out + (1-rand_for_mask) * future_gt[:,:,-self.pred_len:]
+            cond_pred = rand_for_mask * cond_pred + (1-rand_for_mask) * future_gt[:,:,-self.pred_len:]
         
         # ar_init = None
         if self.args.data.use_ar_init:
             if self.net_id == self.num_bridges-1:
-                out = torch.cat([out, pred_out, ar_init], dim=1)
+                out = torch.cat([out, cond_pred, ar_init], dim=1)
             else:
-                out = torch.cat([out, pred_out, ar_init, prev_scale_out], dim=1)
+                out = torch.cat([out, cond_pred, ar_init, prev_scale_out], dim=1)
         else:
             if self.net_id == self.num_bridges-1:
-                out = torch.cat([out, pred_out], dim=1)
+                out = torch.cat([out, cond_pred], dim=1)
             else:
-                out = torch.cat([out, pred_out, prev_scale_out], dim=1)
+                out = torch.cat([out, cond_pred, prev_scale_out], dim=1)
 
-        if self.args.data.use_residual:
-            out = self.combine_conv(out) + pred_out
+        if self.use_residual and (self.net_id != 0): # important: no residual connection for the last output
+            out = self.combine_conv(out) + cond_pred
         else:
             out = self.combine_conv(out)
             
         # Free memory of local variables
         # xt = timesteps = cond = ar_init = future_gt = mask = diffusion_emb = None
-        diffusion_emb = prev_scale_out = pred_out = temp_out = y_clean = rand_for_mask = None
+        diffusion_emb = prev_scale_out = cond_pred = temp_out = y_clean = rand_for_mask = None
 
         # SHOULD BE  B, N, L
         return out
