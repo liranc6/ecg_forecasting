@@ -31,7 +31,7 @@ resume_exp:
 
 wandb:
   entity: 'liranc6'  # wandb entity
-  mode: 'disabled'  # [online, disabled, offline]
+  mode: 'online'  # [online, disabled, offline]
   project: 'mrdiff'  # wandb project name
   resume: 'None'  # ["allow", "must", "never", "auto", "None"]
   run_name: "None" # wandb run name
@@ -167,7 +167,7 @@ training:
     ddpm_channels_conv: 128  # Number of convolutional channels used in the DDPM.
     ddpm_channels_fusion_I: 128  # Number of channels in the first fusion layer of the DDPM.
     cond_ddpm_num_layers: 5  # Number of layers in the conditional DDPM.
-    ddpm_layers_inp: 5  # Number of layers in the input embedding part of the DDPM.
+    ddpm_layers_inp: 7  # Number of layers in the input embedding part of the DDPM.
     ddpm_layers_I: 5  # Number of layers in the first part of the DDPM.
     ddpm_layers_II: 5  # Number of layers in the second part of the DDPM.
     kernel_size: 25  # Size of the convolutional kernels used in the DDPM.

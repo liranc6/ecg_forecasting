@@ -127,10 +127,10 @@ class DynamicUNet1D(nn.Module):
             3: {"kernel_size": 5, "stride": 3, "padding": 2},
             4: {"kernel_size": 5, "stride": 4, "padding": 2},
             5: {"kernel_size": 5, "stride": 3, "padding": 2},
-            6: {"kernel_size": 5, "stride": 3, "padding": 2},
-            7: {"kernel_size": 9, "stride": 4, "padding": 1},
-            8: {"kernel_size": 9, "stride": 4, "padding": 1},
-            9: {"kernel_size": 9, "stride": 3, "padding": 1},
+            6: {"kernel_size": 5, "stride": 1, "padding": 2},
+            7: {"kernel_size": 9, "stride": 1, "padding": 1},
+            8: {"kernel_size": 9, "stride": 1, "padding": 1},
+            9: {"kernel_size": 9, "stride": 2, "padding": 1},
             10: {"kernel_size": 10, "stride": 1, "padding": 2},
         }
         
