@@ -5,12 +5,12 @@ emd:
   tol: 1e-6
 
 wandb:
-  mode: 'disabled'  # [online, disabled, offline]
+  mode: 'online'  # [online, disabled, offline]
   resume: 'None'  # ["allow", "must", "never", "auto", "None"]
   id: 'None'  # wandb run id
 
 optimization:
-  batch_size: 20  # batch size of train input data
+  batch_size: 32  # batch size of train input data
   test_batch_size: 3  # batch size of test input data
 
 resume_exp:
@@ -21,6 +21,7 @@ resume_exp:
 
 hardware:   
   print_gpu_memory_usage: False
+  memory_snapshot: False
 
 paths:
   output_dir: "/home/liranc6/ecg_forecasting/liran_project/results/debug"
@@ -35,12 +36,12 @@ training:
   iterations:
     itr: 1  # experiments times
     pretrain_epochs: 0  # pretrain epochs
-    train_epochs: 5  # train epochs
+    train_epochs: 300  # train epochs
     sample_times: 1
 
   patients:
     start_patient: 0
-    end_patient: 7
+    end_patient: 20
 
   logging:
     log_start_epoch: 0
@@ -62,7 +63,7 @@ training:
 validation:
   patients:
     start_patient: 0
-    end_patient: 2
+    end_patient: 7
 
 testing:
   patients:

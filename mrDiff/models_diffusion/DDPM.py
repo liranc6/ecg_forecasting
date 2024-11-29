@@ -66,6 +66,7 @@ class BaseMapping(nn.Module):
         
         self.rev = RevIN(args, args.data.num_vars, affine=args.training.misc.affine, subtract_last=args.training.misc.subtract_last) if args.training.analysis.use_window_normalization else None
 
+    @torch.cuda.amp.autocast()
     def train_forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, train_val=None):
         """
         During train_forward and test_forward, input data (x_enc) is optionally normalized using RevIN.
@@ -109,6 +110,7 @@ class BaseMapping(nn.Module):
             loss = criterion(outputs, ground_truth)
         return loss
 
+    @torch.cuda.amp.autocast()
     def test_forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         if self.args.training.analysis.use_window_normalization:
             x_enc_i = self.rev(x_enc, 'norm')  
@@ -120,18 +122,17 @@ class BaseMapping(nn.Module):
         x = x_enc_i
 
         trend_init = x
-        trend_init = trend_init.permute(0,2,1)
+        trend_init = trend_init.permute(0, 2, 1).float()  # Ensure trend_init is of type Float
         if self.individual:
-            
-            trend_output = torch.zeros([trend_init.size(0),trend_init.size(1),self.pred_len],dtype=trend_init.dtype).to(trend_init.device)
+            trend_output = torch.zeros([trend_init.size(0), trend_init.size(1), self.pred_len], dtype=trend_init.dtype).to(trend_init.device)
             for i in range(self.channels):
-                trend_output[:,i,:] = self.Linear_Trend[i](trend_init[:,i,:])
+                trend_output[:, i, :] = self.Linear_Trend[i](trend_init[:, i, :])
         else:
             trend_output = self.Linear_Trend(trend_init)
-        
+
         x = trend_output
-        outputs = x.permute(0,2,1)
-        
+        outputs = x.permute(0, 2, 1)
+
         outputs = self.rev(outputs, 'denorm') if self.args.training.analysis.use_window_normalization else outputs
 
         f_dim = -1 if self.args.general.features == 'MS' else 0
@@ -351,6 +352,7 @@ class Model(nn.Module):
                     
                 return linear_guess
 
+    @torch.cuda.amp.autocast()
     def train_forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, return_mean=True, meta_weights=None, train_val=False, check_gpu_memory_usage=None):
         
         gpu_prints = 0
@@ -420,6 +422,7 @@ class Model(nn.Module):
 
         return total_loss
 
+    @torch.cuda.amp.autocast()
     def test_forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
 
         if self.args.training.analysis.use_window_normalization:
@@ -479,9 +482,9 @@ class Model(nn.Module):
             X1 = future_xT.permute(0,2,1)
             res_out = X1
 
+            MASK = torch.ones((x_past.shape[0], self.num_vars, self.pred_len))
+            
             for j in reversed(range(0, self.num_bridges)):
-                
-                MASK = torch.ones((x_past.shape[0], self.num_vars, self.pred_len))
                 
                 if self.args.training.sampler.type_sampler == "none":
                     if j == 0:

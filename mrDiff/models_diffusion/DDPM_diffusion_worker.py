@@ -66,7 +66,7 @@ def cosine_beta_schedule(timesteps, s=0.008):
 
 class Diffusion_Worker(nn.Module):
     
-    def __init__(self, args, device, u_nets=None):
+    def __init__(self, args, device, u_net=None):
         super(Diffusion_Worker, self).__init__()
 
         self.args = args
@@ -145,7 +145,7 @@ class Diffusion_Worker(nn.Module):
         self.linear_start = beta_start
         self.linear_end = beta_end
 
-        to_torch = partial(torch.tensor, dtype=torch.float32)
+        to_torch = partial(torch.tensor) # to_torch = partial(torch.tensor, dtype=torch.float32)
 
         self.register_buffer('betas', to_torch(betas))
         self.register_buffer('alphas_cumprod', to_torch(alphas_cumprod))
@@ -266,8 +266,8 @@ class Diffusion_Worker(nn.Module):
         # loss = mse_loss
         
         # Free memory of local variables
-        # x = x0 = x1 = mask = condition = ar_init = cond_ts = None
-        x = cond_ts = t = noise = x_k = model_out = target = loss_simple = loss_vlb = None
+        del x, cond_ts, t, noise, x_k, model_out, target, loss_simple, loss_vlb
+        torch.cuda.empty_cache()
 
         return loss
 
@@ -330,7 +330,7 @@ class Diffusion_Worker(nn.Module):
 
             timeseries = self.p_sample(
                                         x=timeseries, 
-                                        t=torch.full((b,), i, dtype=torch.long), 
+                                        t=torch.full((b,), i), # t=torch.full((b,), i, dtype=torch.long), 
                                         cond=cond, 
                                         ar_init=ar_init, 
                                         clip_denoised=self.clip_denoised
@@ -371,20 +371,57 @@ class CombinedLoss(nn.Module):
             self.losses_dict['dtw'] = soft_dtw_loss_pytorch.SoftDTWLossPyTorch(gamma=gamma)
         if 'ctc' in losses:
             self.losses_dict['ctc'] = nn.CTCLoss(**kwargs)
-        
 
+        self.batch_size = None
+        
+    @torch.cuda.amp.autocast()  # Enable mixed precision
     def forward(self, y_pred, y_true, mse):
-        # mse = self.mse_loss(y_pred, y_true)
-        losses = []
+        torch.cuda.empty_cache()
+        if self.batch_size is None:
+            self.batch_size = y_pred.shape[0]
+        
         normed_dtw = 0
         if 'dtw' in self.losses_dict.keys():
-            dtw = self.losses_dict['dtw'](y_pred, y_true)
+            # Split into smaller batches for DTW calculation
+            total_dtw = 0
+            num_batches = (y_pred.shape[0] + self.batch_size - 1) // self.batch_size
+            
+            for i in range(num_batches):
+                start_idx = i * self.batch_size
+                end_idx = min((i + 1) * self.batch_size, y_pred.shape[0])
+                
+                # Process batch
+                with torch.cuda.amp.autocast():
+                    batch_pred = y_pred[start_idx:end_idx]
+                    batch_true = y_true[start_idx:end_idx]
+                    
+                    # Use checkpoint to save memory during backprop
+                    def dtw_chunk(pred, true):
+                        return self.losses_dict['dtw'](pred, true)
+                    
+                    batch_dtw = torch.utils.checkpoint.checkpoint(
+                        dtw_chunk,
+                        batch_pred,
+                        batch_true,
+                        preserve_rng_state=False
+                    )
+                    total_dtw += batch_dtw
+                
+                # Clear intermediate tensors
+                del batch_pred, batch_true
+                torch.cuda.empty_cache()
+            
+            dtw = total_dtw / num_batches
             normed_dtw = self._magnitude_normalizaqtion(dtw)
+
         if 'ctc' in self.losses_dict.keys():
-            # Define input_lengths and target_lengths
             raise NotImplementedError("CTC loss not yet implemented")
         
         normed_mse = self._magnitude_normalizaqtion(mse)
+        
+        # Clear any remaining intermediate tensors
+        torch.cuda.empty_cache()
+        
         return self.alpha * normed_mse + (1 - self.alpha) * normed_dtw
     
     def _magnitude_normalizaqtion(self, x):

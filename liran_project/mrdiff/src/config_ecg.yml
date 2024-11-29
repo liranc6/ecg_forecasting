@@ -3,13 +3,13 @@ project_path: '/home/liranc6/ecg_forecasting'
 tqdm: "terminal" # ["terminal", "notebook"]
 print_tqdm: False
 
-debug: True  # debug mode
+debug: False  # debug mode
   # debug_config_path: "/home/liranc6/ecg_forecasting/liran_project/mrdiff/src/debug_config_ecg.yml"
 
 pytorch_lightning:
   # Notes: when using DDP the code currently does not print how many GPUs are being used, it will only print "CUDA_VISIBLE_DEVICES: [0,1,...]"
         # Though, we can see it used multiple GPUs by reduction in number of batches pre epoch
-  strategy: 'DDP'  # [FSDP, DDP, DeepSpeed, deepspeed_stage_1, deepspeed_stage_2]
+  strategy: 'deepspeed_stage_2'  # [FSDP, DDP, DeepSpeed, deepspeed_stage_1, deepspeed_stage_2]
 
 emd:
   use_emd: False
@@ -31,7 +31,7 @@ resume_exp:
 
 wandb:
   entity: 'liranc6'  # wandb entity
-  mode: 'online'  # [online, disabled, offline]
+  mode: 'disabled'  # [online, disabled, offline]
   project: 'mrdiff'  # wandb project name
   resume: 'None'  # ["allow", "must", "never", "auto", "None"]
   run_name: "None" # wandb run name
@@ -50,8 +50,8 @@ general:
 
 optimization:
   learning_rate: 0.001  # optimizer learning rate
-  batch_size: 24  # batch size of train input data
-  test_batch_size: 32  # batch size of test input data
+  batch_size: 64  # batch size of train input data
+  test_batch_size: 64  # batch size of test input data
   patience: 35  # early stopping patience
   weight_decay: 0.00001  # weight_decay
   lradj: '3'  # adjust learning rate (Learning Rate ADJustment)  # ['TST', 'type1', 'type2', 'type3', 'constant', '1', '2', '3', '4', '5']
@@ -84,7 +84,7 @@ data:
   cols: []  # file list
   target: -1  # target feature
   inverse: True  # denorm the output data
-  individual: true  # DLinear: a linear layer for each variate(channel) individually
+  individual: False  # DLinear: a linear layer for each variate(channel) individually
   use_ar_init: false  # use autoregressive initialization
   use_residual: true
   uncertainty: false
@@ -122,15 +122,15 @@ training:
   sequence:
     # len = minutes * seconds * fs
     context_len: 0  # in minutes # input sequence length of SCINet encoder, look back window
-    seq_len: 87000 # input_length; window size
-    label_len: 80000  # I think its context len # in minutes # start token length of Informer decoder
-    pred_len: 7000  # I think its label/forecast len # prediction sequence length, horizon
+    seq_len: 63000 # input_length; window size
+    label_len: 60000  # I think its context len # in minutes # start token length of Informer decoder
+    pred_len: 3000  # I think its label/forecast len # prediction sequence length, horizon
 
   model_info:
     add_loss: ['dtw'] # ['dtw', 'ctc']
     opt_loss_type: 'mse'
     model: 'DDPM'  # model of the experiment
-    base_model: 'Linear'  # model of the experiment  # deprecated? I didn't see it in the code
+    base_model: 'Linøear'  # model of the experiment  # deprecated? I didn't see it in the code
     u_net_type: 'v0'
 
   analysis:
@@ -162,17 +162,18 @@ training:
     beta_start: 0.0001  # Initial value of the beta parameter in the diffusion process, controlling the noise level at the start.
     beta_end: 0.02  # Final value of the beta parameter in the diffusion process, controlling the noise level at the end.
     diff_steps: 100  # Number of diffusion steps, determining how many steps the diffusion process will take.
-    ddpm_inp_embed: 64  # Embedding dimension for the input in the DDPM (Denoising Diffusion Probabilistic Model), also referred to as ddpm_num_channels.
-    ddpm_layers_inp: 10  # Number of layers in the input embedding part of the DDPM.
-    ddpm_dim_diff_steps: 256  # Dimensionality of the diffusion steps in the DDPM.
+    ddpm_inp_embed: 64  # Embedding dimension for the input in the DDPM, also referred to as ddpm_num_channels.
+    ddpm_dim_diff_steps: 128  # Dimensionality of the diffusion steps in the DDPM.
     ddpm_channels_conv: 128  # Number of convolutional channels used in the DDPM.
-    ddpm_channels_fusion_I: 256  # Number of channels in the first fusion layer of the DDPM.
+    ddpm_channels_fusion_I: 128  # Number of channels in the first fusion layer of the DDPM.
+    cond_ddpm_num_layers: 5  # Number of layers in the conditional DDPM.
+    ddpm_layers_inp: 5  # Number of layers in the input embedding part of the DDPM.
     ddpm_layers_I: 5  # Number of layers in the first part of the DDPM.
-    ddpm_layers_II: 10  # Number of layers in the second part of the DDPM.
+    ddpm_layers_II: 5  # Number of layers in the second part of the DDPM.
     kernel_size: 25  # Size of the convolutional kernels used in the DDPM.
     stride: 1  # Stride of the convolutional kernels used in the DDPM.
+    use_default_init_k_ans_s: true  # Use default initialization for the kernel and stride in the DDPM.
     dec_channel_nums: 256  # Number of channels in the decoder part of the DDPM.
-    cond_ddpm_num_layers: 5  # Number of layers in the conditional DDPM.
     cond_ddpm_channels_conv: 256  # Number of convolutional channels in the conditional DDPM.
 
   sampler:

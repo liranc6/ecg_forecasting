@@ -255,13 +255,16 @@ def main():
                                       log_interval=1, #args.training.logging.log_interval,
                                       ),
                     SecPerIterProgressBar(),
-                    ModelSummary(max_depth=3)
+                    ModelSummary(max_depth=5)
                 ],
                 strategy= strategy,
                 use_distributed_sampler = use_distributed_sampler,
                 enable_progress_bar=True,
                 limit_train_batches= 3 if args.debug else None,
                 limit_val_batches= 3 if args.debug else None,
+                precision='16-mixed',  # Mixed precision training
+                # accumulate_grad_batches=3,  # Gradient accumulation
+                gradient_clip_val=1.0,  # Gradient clipping
                 # plugins=cluster_environment,
                 # fast_dev_run=True,
             )

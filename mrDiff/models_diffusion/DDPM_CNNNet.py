@@ -42,12 +42,12 @@ def noise_mask(X, masking_ratio=0.15, lm=3, mode='separate', distribution='geome
                 if exclude_feats is None or m not in exclude_feats:
                     mask[:, m] = geom_noise_mask_single(X.shape[0], lm, masking_ratio)  # time dimension
         else:  # replicate across feature dimension (mask all variables at the same positions concurrently)
-            mask = geom_noise_mask_single(X.shape[0], lm, masking_ratio).unsqueeze(1).repeat(1, X.shape[1])
+            mask = torch.tile(torch.unsqueeze(geom_noise_mask_single(X.shape[0], lm, masking_ratio), 1), (1, X.shape[1]))
     else:  # each position is independent Bernoulli with p = 1 - masking_ratio
         if mode == 'separate':
             mask = torch.rand(X.shape) > masking_ratio
         else:
-            mask = torch.rand((X.shape[0], 1)) > masking_ratio
+            mask = torch.rand(X.shape[0], 1) < (1 - masking_ratio)
             mask = mask.repeat(1, X.shape[1])
 
     return mask
@@ -94,7 +94,7 @@ def timestep_embedding(timesteps, dim, max_period=10000):
     """
     half = dim // 2
     freqs = torch.exp(
-        -math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half
+        -math.log(max_period) * torch.arange(start=0, end=half) / half #         -math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half
     ).to(device=timesteps.device)
     args = timesteps[:, None].float() * freqs[None]
     embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
@@ -103,104 +103,151 @@ def timestep_embedding(timesteps, dim, max_period=10000):
     return embedding
 
 class Conv1dWithInitialization(nn.Module):
-    def __init__(self, **kwargs):
+    def __init__(self, decode=False, **kwargs):
         super(Conv1dWithInitialization, self).__init__()
-        self.conv1d = torch.nn.Conv1d(**kwargs)
-        torch.nn.init.orthogonal_(self.conv1d.weight.data, gain=1)
+        if decode:
+            self.conv1d = nn.ConvTranspose1d(**kwargs)
+        else:
+            self.conv1d = nn.Conv1d(**kwargs)
+        nn.init.orthogonal_(self.conv1d.weight.data, gain=1)
 
     def forward(self, x):
         return self.conv1d(x)
 
-class InputConvNetwork(nn.Module):
-    """A convolutional neural network designed for processing input data with multiple layers.
-
-    This class implements a sequence of convolutional layers, batch normalization, activation functions, and dropout
-    for robust feature extraction from input data.
-    It allows for flexible configuration of the number of layers and channels.
-
-    Args:
-        args (Namespace): Configuration parameters for the model.
-        inp_num_channel (int): The number of input channels.
-        out_num_channel (int): The number of output channels.
-        num_layers (int, optional): The number of convolutional layers in the network. Defaults to 3.
-        ddpm_channels_conv (int, optional): The number of channels for the convolutional layers. If None, it defaults to a value from args.
-
-    Returns:
-        Tensor: The output of the network after processing the input through the convolutional layers.
-
-    Examples:
-        >>> input_conv_net = InputConvNetwork(args, inp_num_channel=5, out_num_channel=10)
-        >>> output = input_conv_net(x)
-    """
-
-    def __init__(self, args, inp_num_channel, out_num_channel, num_layers=3, ddpm_channels_conv=None):
-        super(InputConvNetwork, self).__init__()
-
-        self.args = args
-
-        self.inp_num_channel = inp_num_channel
-        self.out_num_channel = out_num_channel
-
-        kernel_size = args.training.diffusion.kernel_size
-        stride = args.training.diffusion.stride
+class DynamicUNet1D(nn.Module):
+    def __init__(self, din, dout, num_layers, encoder_only=False):
+        super(DynamicUNet1D, self).__init__()
+        self.num_blocks = num_layers
+        self.encoder_only = encoder_only
+        self.encoder_blocks = nn.ModuleList()
+        self.default_init_params = {
+            0: {"kernel_size": 3, "stride": 1, "padding": 1},
+            1: {"kernel_size": 5, "stride": 3, "padding": 1},
+            2: {"kernel_size": 5, "stride": 3, "padding": 2},
+            3: {"kernel_size": 5, "stride": 3, "padding": 2},
+            4: {"kernel_size": 5, "stride": 4, "padding": 2},
+            5: {"kernel_size": 5, "stride": 3, "padding": 2},
+            6: {"kernel_size": 5, "stride": 3, "padding": 2},
+            7: {"kernel_size": 9, "stride": 4, "padding": 1},
+            8: {"kernel_size": 9, "stride": 4, "padding": 1},
+            9: {"kernel_size": 9, "stride": 3, "padding": 1},
+            10: {"kernel_size": 10, "stride": 1, "padding": 2},
+        }
         
-        padding = 1
-        if ddpm_channels_conv is None:
-            self.channels = args.training.diffusion.ddpm_channels_conv
-        else:
-            self.channels = ddpm_channels_conv
-        self.num_layers = num_layers
-
-        # self.net = nn.ModuleList()
+        # dims = [1, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576]
+        dims = [1, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288]
         
-        layers = []
-
-        if num_layers == 1:
-            layers.append(Conv1dWithInitialization(
-                                            in_channels=self.inp_num_channel,
-                                            out_channels=self.out_num_channel,
-                                            kernel_size=kernel_size,
-                                            stride=1,
-                                            padding=padding, bias=True
-                                        )
-                                    )
-        else:
-            for i in range(self.num_layers-1):
-                if i == 0:
-                    dim_inp = self.inp_num_channel
-                else:
-                    dim_inp = self.channels
-                layers.append(Conv1dWithInitialization(
-                                            in_channels=dim_inp,
-                                            out_channels=self.channels,
-                                            kernel_size=kernel_size,
-                                            stride=1,
-                                            padding=padding, bias=True
-                                        ))
-                layers.append(torch.nn.BatchNorm1d(self.channels)), 
-                layers.append(torch.nn.LeakyReLU(0.1)),
-                layers.append(torch.nn.Dropout(0.1, inplace = True))
-
-            layers.append(Conv1dWithInitialization(
-                                            in_channels=self.channels,
-                                            out_channels=self.out_num_channel,
-                                            kernel_size=kernel_size,
-                                            stride=1,
-                                            padding=padding, bias=True
-                                        )
-                                    )
+        self.dims = None
+        if din > 64:
+            #get position of 64 in dims
+            pos = dims.index(64)
+            # add a layer to reduce the input dimension to 64
+            self.dims = [din] + dims[pos : pos+num_layers]
+        else:  
+            for i, e in enumerate(dims):
+                if e < din:
+                    continue
+                elif e == din:
+                    self.dims = dims[i : i+num_layers + 1]
+                    break
+                else:  # e > din
+                    self.dims = dims[i : i+num_layers + 1]
+                    #append din to start of dims
+                    self.dims[0] = din
+                    break
+        
+        if self.dims is None:
+            raise ValueError(f"Input dimension {din} not found in the list of supported dimensions.")
+        
+        if self.encoder_only:
+            self.dims[-1] = dout
+        
+        params = {i: self.default_init_params[i] for i in range(num_layers)}
+        
+        # Encoder
+        for i in range(self.num_blocks):
+            self.encoder_blocks.append(
+                self.conv_block_1d(self.dims[i], self.dims[i + 1], **params[i], encoder_only=self.encoder_only)
+            )
             
-            self.net = nn.Sequential(*layers)
+        self.final_conv = None
 
-    def forward(self, x=None):
-        return self.net(x)
+        if not self.encoder_only:
+            # Bottleneck
+            bottleneck_params = params[self.num_blocks - 1]
+            self.bottleneck = self.conv_block_1d(self.dims[self.num_blocks], self.dims[self.num_blocks] * 2, **bottleneck_params)
+
+            # Decoder
+            self.decoder_blocks = nn.ModuleList()
+            for i in range(self.num_blocks - 1, -1, -1):
+                self.decoder_blocks.append(
+                    self.conv_block_1d(self.dims[i + 1] * 3, self.dims[i + 1], **params[i], decode=True)
+                )
+
+            # Final layer
+            self.final_conv = Conv1dWithInitialization(in_channels=self.dims[1], out_channels=dout, kernel_size=1)
+        else:
+            # self.final_conv = Conv1dWithInitialization(in_channels=self.dims[-1], out_channels=dout, kernel_size=1)
+            pass
+
+    @staticmethod
+    def conv_block_1d(in_channels, out_channels, kernel_size, stride, padding, dilation=1, decode=False, encoder_only=False):
+        if encoder_only:
+            return Conv1dWithInitialization(
+                in_channels=in_channels, 
+                out_channels=out_channels, 
+                kernel_size=kernel_size, 
+                stride=stride, 
+                padding=padding, 
+                dilation=dilation, 
+                decode=decode
+            )
+        else:
+            return nn.Sequential(
+                # Main convolution
+                Conv1dWithInitialization(
+                    in_channels=in_channels,
+                    out_channels=out_channels,
+                    kernel_size=kernel_size,
+                    stride=stride,
+                    padding=padding,
+                    dilation=dilation,
+                    decode=decode
+                ),
+                nn.BatchNorm1d(out_channels),
+                nn.LeakyReLU(inplace=True),
+                nn.Dropout(p=0.3)
+            )
+
+    def forward(self, x):
+        original_length = x.shape[-1]
+        
+        skip_connections = []
+        
+        # Encoder
+        for encoder in self.encoder_blocks:
+            x = encoder(x)
+            skip_connections.append(x)
+
+        if not self.encoder_only:
+            # Bottleneck
+            x = self.bottleneck(x)
+
+            # Decoder
+            for i, decoder in enumerate(self.decoder_blocks):
+                skip = skip_connections[-(i + 1)]
+                x = F.interpolate(x, size=skip.size(-1), mode="linear", align_corners=True)
+                x = torch.cat([x, skip], dim=1)
+                x = decoder(x)
+
+            # Final output
+            x = self.final_conv(x)
+        
+        # Interpolate to match the original length
+        x = F.interpolate(x, size=original_length, mode="linear", align_corners=True)
+
+        return x
     
-        # out = x
-        # for m in self.net:
-        #     out = m(out)
-
-        # return out
-
 class DiffusionEmbedding(nn.Module):
     """Generates embeddings for diffusion steps using sinusoidal functions.
 
@@ -229,23 +276,36 @@ class DiffusionEmbedding(nn.Module):
             self._build_embedding(num_steps, embedding_dim / 2),
             persistent=False,
         )
-        self.projection1 = nn.Linear(embedding_dim, projection_dim)
-        self.projection2 = nn.Linear(projection_dim, projection_dim)
+        
+        layers = []
+        layers.append(nn.Linear(embedding_dim, projection_dim))
+        layers.append(nn.SiLU())
+        layers.append(nn.Linear(projection_dim, projection_dim))
+        layers.append(nn.SiLU())
+        self.net = nn.Sequential(*layers)
+        # self.projection1 = nn.Linear(embedding_dim, projection_dim)
+        # self.projection2 = nn.Linear(projection_dim, projection_dim)
+        
+        
 
     def forward(self, diffusion_step):
-
-        x = self.embedding[diffusion_step]
-        # print("1", np.shape(x))
-        x = self.projection1(x)
-        # print("2", np.shape(x))
-        x = F.silu(x)
-        x = self.projection2(x)
-        # print("3", np.shape(x))
-        x = F.silu(x)
-        # 1 torch.Size([64, 128])
-        # 2 torch.Size([64, 128])
-        # 3 torch.Size([64, 128])
-        return x
+        out = self.embedding[diffusion_step]
+        out = self.net(out)
+            
+        # x = self.embedding[diffusion_step]
+        # # print("1", np.shape(x))
+        # x = self.projection1(x)
+        # # print("2", np.shape(x))
+        # x = F.silu(x)
+        # x = self.projection2(x)
+        # # print("3", np.shape(x))
+        # x = F.silu(x)
+        # # 1 torch.Size([64, 128])
+        # # 2 torch.Size([64, 128])
+        # # 3 torch.Size([64, 128])
+        # return x
+        
+        return out
 
     def _build_embedding(self, num_steps, dim=64):
         steps = torch.arange(num_steps).unsqueeze(1)  # (T,1)
@@ -279,157 +339,151 @@ class My_DiffusionUnet_v0(nn.Module):
         super(My_DiffusionUnet_v0, self).__init__()
 
         self.args = args
-
         self.num_vars = num_vars
-        
         self.seq_len = seq_len
         self.label_len = args.training.sequence.label_len
         self.pred_len = pred_len
-        
-        # self.device = args.device
-
         self.net_id = net_id
         self.smoothed_factors = args.training.smoothing.smoothed_factors 
-        self.num_bridges = len(self.smoothed_factors) +1 if not self.args.emd.use_emd else self.args.emd.num_sifts +1
-
+        self.num_bridges = len(self.smoothed_factors) + 1 if not self.args.emd.use_emd else self.args.emd.num_sifts + 1
         self.dim_diff_step = args.training.diffusion.ddpm_dim_diff_steps
-        time_embed_dim = self.dim_diff_step
+        self.channels = args.training.diffusion.ddpm_inp_embed
+        self.use_residual = self.args.data.use_residual if use_residual is None else use_residual
+
+        # Diffusion embedding
         self.diffusion_embedding = DiffusionEmbedding(
             num_steps=args.training.diffusion.diff_steps,
             embedding_dim=self.dim_diff_step,
         )
         self.act = lambda x: x * torch.sigmoid(x)
-        
+
+        # Feature projection
         self.use_features_proj = False
-        self.channels = args.training.diffusion.ddpm_inp_embed
         if self.use_features_proj:
             self.feature_projection = nn.Sequential(
-                                        linear(self.num_vars, self.channels),
+                linear(self.num_vars, self.channels),
+            )
+            self.input_unet = DynamicUNet1D(
+                                    din=self.channels, 
+                                    dout=self.channels, 
+                                    num_layers=args.training.diffusion.ddpm_layers_inp,
+                                    encoder_only=True,
                                     )
-            self.input_projection = InputConvNetwork(args, 
-                                                     self.channels, 
-                                                     self.channels, 
-                                                     num_layers=args.training.diffusion.ddpm_layers_inp)
         else:
-            self.input_projection = InputConvNetwork(args, 
-                                                     self.num_vars, 
-                                                     self.channels, 
-                                                     num_layers=args.training.diffusion.ddpm_layers_inp)
+            self.input_unet = DynamicUNet1D(
+                                    din=self.num_vars, 
+                                    dout=self.channels,
+                                    num_layers=args.training.diffusion.ddpm_layers_inp,
+                                    encoder_only=True,
+                                    )
 
-        self.dim_intermediate_enc = args.training.diffusion.ddpm_channels_fusion_I
-        self.enc_conv = InputConvNetwork(args, self.channels+self.dim_diff_step, self.dim_intermediate_enc, num_layers=args.training.diffusion.ddpm_layers_I)
-        
+        # Encoder
+        self.input_and_t_step_unet = DynamicUNet1D(
+                                        din = self.channels + self.dim_diff_step,
+                                        dout = args.training.diffusion.ddpm_channels_fusion_I, 
+                                        num_layers=args.training.diffusion.ddpm_layers_I,
+                                        encoder_only=True,
+                                        )
+
+        # Conditional projections
         if self.args.data.individual:
-            cond_projections_layers = []
-            # self.cond_projections = nn.ModuleList()
-
-        ablation_study_F_type = args.training.ablation_study.ablation_study_F_type
-        
-        if ablation_study_F_type == "Linear" or ablation_study_F_type == "CNN":
-            weights = (1 / self.seq_len) * torch.ones(self.num_vars, self.pred_len, self.seq_len)
-                
-            if self.args.data.individual:
-                for i in range(self.num_vars):
-                    cond_projections_layers.append(nn.Linear(self.seq_len,self.pred_len))
-                    cond_projections_layers[i].weight = nn.Parameter(weights[i])
-            else:
-                self.cond_projection = nn.Linear(self.seq_len,self.pred_len)
+            self.cond_projections = nn.ModuleList([nn.Linear(self.seq_len, self.pred_len) for _ in range(self.num_vars)])
+        else:
+            self.cond_projection = DynamicUNet1D(
+                                        din = self.num_vars,
+                                        dout = self.num_vars, 
+                                        num_layers=5,
+                                        encoder_only=True,
+                                        )
+                                    #nn.Linear(self.seq_len, self.pred_len)
 
         if args.training.ablation_study.ablation_study_F_type == "CNN":
-            self.cnn_cond_projections = InputConvNetwork(args, 
-                                                        inp_num_channel=self.num_vars,
-                                                        out_num_channel=self.pred_len,
-                                                        num_layers=args.training.diffusion.cond_ddpm_num_layers, 
-                                                        ddpm_channels_conv=args.training.diffusion.cond_ddpm_channels_conv)
+            self.cnn_cond_projections = DynamicUNet1D(
+                                            # din=self.num_vars, 
+                                            dout=self.num_vars, 
+                                            num_layers=args.training.diffusion.cond_ddpm_num_layers,
+                                            encoder_only=True, 
+                                            )
             
             self.cnn_linear = nn.Linear(self.seq_len, self.num_vars)
-        
-        if self.net_id == self.num_bridges-1:
+
+        # Combine convolution
+        if self.net_id == self.num_bridges - 1:
             if args.data.use_ar_init:
-                self.combine_conv = InputConvNetwork(args, 
-                                                    inp_num_channel=self.dim_intermediate_enc+2*self.num_vars, 
-                                                    out_num_channel=self.num_vars, 
-                                                    num_layers=args.training.diffusion.ddpm_layers_II, 
-                                                    ddpm_channels_conv=args.training.diffusion.dec_channel_nums)
+                self.input_t_cond_unet = DynamicUNet1D(
+                                                din=args.training.diffusion.ddpm_channels_fusion_I + 2 * self.num_vars, 
+                                                dout=self.num_vars, 
+                                                num_layers=args.training.diffusion.ddpm_layers_II, 
+                                                encoder_only=False,
+                                                )
             else:
-                self.combine_conv = InputConvNetwork(args, 
-                                                    inp_num_channel=self.dim_intermediate_enc+1*self.num_vars, 
-                                                    out_num_channel=self.num_vars, 
-                                                    num_layers=args.training.diffusion.ddpm_layers_II, 
-                                                    ddpm_channels_conv=args.training.diffusion.dec_channel_nums)
+                self.input_t_cond_unet = DynamicUNet1D(
+                                                din=args.training.diffusion.ddpm_channels_fusion_I + self.num_vars, 
+                                                dout=self.num_vars, 
+                                                num_layers=args.training.diffusion.ddpm_layers_II,
+                                                encoder_only=False,
+                                                )
         else:
             if args.data.use_ar_init:
-                self.combine_conv = InputConvNetwork(args, 
-                                                    inp_num_channel=self.dim_intermediate_enc+3*self.num_vars, 
-                                                    out_num_channel=self.num_vars, 
-                                                    num_layers=args.training.diffusion.ddpm_layers_II, 
-                                                    ddpm_channels_conv=args.training.diffusion.dec_channel_nums)
+                self.input_t_cond_unet = DynamicUNet1D(
+                                                din=args.training.diffusion.ddpm_channels_fusion_I + 3 * self.num_vars, 
+                                                dout=self.num_vars, 
+                                                num_layers=args.training.diffusion.ddpm_layers_II,
+                                                encoder_only=False,
+                                                )
             else:
-                self.combine_conv = InputConvNetwork(args, 
-                                                    inp_num_channel=self.dim_intermediate_enc+2*self.num_vars, 
-                                                    out_num_channel=self.num_vars, 
-                                                    num_layers=args.training.diffusion.ddpm_layers_II, 
-                                                    ddpm_channels_conv=args.training.diffusion.dec_channel_nums)
-        
-        if self.args.data.individual:
-            self.cond_projections = nn.ModuleList(cond_projections_layers)
-            
-        args.modes1 = 10
-        args.compression = 0
-        args.ratio = 1
-        args.mode_type = 0
-        self.use_residual = self.args.data.use_residual if use_residual is None else use_residual
+                self.input_t_cond_unet = DynamicUNet1D(
+                                                din=args.training.diffusion.ddpm_channels_fusion_I + 2 * self.num_vars, 
+                                                dout=self.num_vars, 
+                                                num_layers=args.training.diffusion.ddpm_layers_II,
+                                                encoder_only=False,
+                                                )
 
     def forward(self, xt, timesteps, cond=None, ar_init=None, future_gt=None, mask=None):
-        
-        # print("cond", np.shape(cond))
         if ar_init is None:
-            ar_init = cond[:,:,-self.pred_len:]
+            ar_init = cond[:, :, -self.pred_len:]
 
-        if self.net_id == self.num_bridges-1:
-            prev_scale_out = None
-        else:
-            prev_scale_out = cond[:,:,self.seq_len:self.seq_len+self.pred_len]    
-        cond = cond[:,:,:self.seq_len]
-        
-        # xt： B, N, H
-        # timesteps: torch.Size([64])
-        # cond B, N, L
+        prev_scale_out = None if self.net_id == self.num_bridges - 1 else cond[:, :, self.seq_len:self.seq_len + self.pred_len]
+        cond = cond[:, :, :self.seq_len]
 
-        # diffusion_emb = timestep_embedding(timesteps, self.dim_diff_step)
-        # diffusion_emb = self.time_embed(diffusion_emb)
-        
-        
-        ##################this is a good place to minimize the memory usage (below)
+        # Embedding
         diffusion_emb = self.diffusion_embedding(timesteps.long())
         diffusion_emb = self.act(diffusion_emb)
         diffusion_emb = diffusion_emb.unsqueeze(-1).expand(-1, -1, xt.size(-1))
-        
+
         if self.use_features_proj:
-            xt = self.feature_projection(xt.permute(0,2,1)).permute(0,2,1)
+            xt = self.feature_projection(xt.permute(0, 2, 1)).permute(0, 2, 1)
 
-        out = self.input_projection(xt)  
-        out = self.enc_conv(torch.cat([diffusion_emb, out], dim=1))
-        
-        ##################this is a good place to minimize the memory usage (above)
-        
+        input_proj_out = self.input_unet(xt)
+
+        # Debug prints to check tensor shapes
+        # print(f"diffusion_emb shape: {diffusion_emb.shape}")
+        # print(f"input_proj_out shape: {input_proj_out.shape}")
+        # print(f"cond shape: {cond.shape}")
+
+        enc_x_and_t = self.input_and_t_step_unet(torch.cat([diffusion_emb, input_proj_out], dim=1))
+
+        # Conditional projection
         if self.args.data.individual:
-            cond_pred = torch.zeros([xt.size(0),self.num_vars,self.pred_len],dtype=xt.dtype).to(xt.device)
+            enc_cond = torch.zeros([xt.size(0), self.num_vars, self.pred_len], dtype=xt.dtype).to(xt.device)
             for i in range(self.num_vars):
-                cond_pred[:,i,:] = self.cond_projections[i](cond[:,i,:])
+                enc_cond[:, i, :] = self.cond_projections[i](cond[:, i, :])
         else:
-            cond_pred = self.cond_projection(cond)
-
+            # Ensure cond has correct shape before projection
+            if cond.shape[-1] != self.seq_len:
+                cond = F.interpolate(cond, size=self.seq_len, mode='linear', align_corners=True)
+            enc_cond = self.cond_projection(cond)
+            # Ensure output has correct shape
+            if enc_cond.shape[-1] != self.pred_len:
+                enc_cond = F.interpolate(enc_cond, size=self.pred_len, mode='linear', align_corners=True)
+            
         if self.args.training.ablation_study.ablation_study_F_type == "CNN":
             temp_out = self.cnn_cond_projections(cond)
-            cond_pred += self.cnn_linear(temp_out).permute(0,2,1)
-        
-        # =====================================================================        
-        # mixing matrix
+            enc_cond += self.cnn_linear(temp_out).permute(0, 2, 1)
 
+        # Mixing matrix
         if self.args.training.analysis.use_future_mixup and future_gt is not None:
-            
-            y_clean = future_gt[:,:,-self.pred_len:]
+            y_clean = future_gt[:, :, -self.pred_len:]
             if self.args.training.ablation_study.beta_dist_alpha > 0:
                 beta_dist = torch.distributions.Beta(self.args.training.ablation_study.beta_dist_alpha, self.args.training.ablation_study.beta_dist_alpha)
                 rand_for_mask = beta_dist.sample(y_clean.shape).to(xt.device).long()
@@ -437,41 +491,38 @@ class My_DiffusionUnet_v0(nn.Module):
                 rand_for_mask = torch.rand_like(y_clean).to(xt.device)
                 if self.args.training.ablation_study.ablation_study_masking_type == "hard":
                     tau = self.args.training.ablation_study.ablation_study_masking_tau
-                    hard_indcies = rand_for_mask > tau
-                    data_random_hard_making = rand_for_mask
-                    data_random_hard_making[hard_indcies] = 1
-                    data_random_hard_making[~hard_indcies] = 0
-                    rand_for_mask = data_random_hard_making
+                    hard_indices = rand_for_mask > tau
+                    data_random_hard_masking = rand_for_mask
+                    data_random_hard_masking[hard_indices] = 1
+                    data_random_hard_masking[~hard_indices] = 0
+                    rand_for_mask = data_random_hard_masking
                 if self.args.training.ablation_study.ablation_study_masking_type == "segment":
                     tau = self.args.training.ablation_study.ablation_study_masking_tau
-                    segment_mask = torch.from_numpy(noise_mask(cond_pred[:,0,:], masking_ratio=tau, lm=24)).to(yn.device)
-                    # print("masking_ratio", tau, torch.sum(segment_mask))
-                    segment_mask = segment_mask.unsqueeze(1).repeat(1, cond_pred.shape[1], 1)
+                    segment_mask = torch.from_numpy(noise_mask(enc_cond[:, 0, :], masking_ratio=tau, lm=24)).to(xt.device)
+                    segment_mask = segment_mask.unsqueeze(1).repeat(1, enc_cond.shape[1], 1)
                     rand_for_mask = segment_mask.float()
 
-            
-            cond_pred = rand_for_mask * cond_pred + (1-rand_for_mask) * future_gt[:,:,-self.pred_len:]
-        
-        # ar_init = None
+            enc_cond = rand_for_mask * enc_cond + (1 - rand_for_mask) * future_gt[:, :, -self.pred_len:]
+
+        # Concatenate outputs
         if self.args.data.use_ar_init:
-            if self.net_id == self.num_bridges-1:
-                out = torch.cat([out, cond_pred, ar_init], dim=1)
+            if self.net_id == self.num_bridges - 1:
+                concat_out = torch.cat([enc_x_and_t, enc_cond, ar_init], dim=1)
             else:
-                out = torch.cat([out, cond_pred, ar_init, prev_scale_out], dim=1)
+                concat_out = torch.cat([enc_x_and_t, enc_cond, ar_init, prev_scale_out], dim=1)
         else:
-            if self.net_id == self.num_bridges-1:
-                out = torch.cat([out, cond_pred], dim=1)
+            if self.net_id == self.num_bridges - 1:
+                concat_out = torch.cat([enc_x_and_t, enc_cond], dim=1)
             else:
-                out = torch.cat([out, cond_pred, prev_scale_out], dim=1)
+                concat_out = torch.cat([enc_x_and_t, enc_cond, prev_scale_out], dim=1)
 
-        if self.use_residual and (self.net_id != 0): # important: no residual connection for the last output
-            out = self.combine_conv(out) + cond_pred
+        # Residual connection
+        if self.use_residual and self.net_id != 0:
+            final_out = self.input_t_cond_unet(concat_out) + enc_cond
         else:
-            out = self.combine_conv(out)
-            
-        # Free memory of local variables
-        # xt = timesteps = cond = ar_init = future_gt = mask = diffusion_emb = None
-        diffusion_emb = prev_scale_out = cond_pred = temp_out = y_clean = rand_for_mask = None
+            final_out = self.input_t_cond_unet(concat_out)
 
-        # SHOULD BE  B, N, L
-        return out
+        return final_out  #shape: (batch_size, num_vars, pred_len)
+    
+
+
